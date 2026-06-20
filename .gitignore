@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.log
+taycan-tokens.json
+
+# Build-/Deploy-Artefakte
+*.tgz
+
+# Captcha-Bilder (vom taycan-auth-CLI erzeugt)
+taycan-captcha.*

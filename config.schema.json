@@ -1,0 +1,199 @@
+{
+  "pluginAlias": "Taycan",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "Bindet den Porsche Taycan in Apple Home ein. Vor der ersten Nutzung einmalig `taycan-auth` ausführen (Login, ggf. Captcha) – danach läuft das Plugin headless über den Refresh-Token. Details siehe README.",
+  "footerDisplay": "Inoffizielle, reverse-engineerte API. Bei „Tokens weg\"-Fehlern `taycan-auth` erneut ausführen.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "vehicleName": {
+        "title": "Anzeigename",
+        "type": "string",
+        "required": true,
+        "default": "Taycan"
+      },
+      "vin": {
+        "title": "VIN (leer = erstes Fahrzeug)",
+        "type": "string",
+        "required": false
+      },
+      "detailLevel": {
+        "title": "Umfang der Kacheln",
+        "type": "string",
+        "required": false,
+        "default": "essential",
+        "description": "„Wesentliche\" zeigt nur die wichtigsten Alltags-Kacheln. „Vollständig\" zeigt das komplette Cockpit (alle ~55 Kacheln).",
+        "oneOf": [
+          { "title": "Wesentliche (empfohlen)", "enum": ["essential"] },
+          { "title": "Vollständig (alles)", "enum": ["full"] }
+        ]
+      },
+      "spin": {
+        "title": "Porsche S-PIN (für Entriegeln)",
+        "type": "string",
+        "required": false,
+        "description": "4-stellige Sicherheits-PIN aus der My-Porsche-App. Nur nötig fürs ENTRIEGELN über Apple Home. Leer lassen = Schloss kann nur verriegeln. Wird im Klartext in der Homebridge-Config gespeichert."
+      },
+      "pollIntervalMinutes": {
+        "title": "Abfrage-Intervall (Min, min. 10)",
+        "type": "integer",
+        "required": false,
+        "default": 15,
+        "minimum": 10
+      },
+      "homeLat": {
+        "title": "Heim-Breitengrad (für 'Auto zuhause')",
+        "type": "number",
+        "required": false,
+        "default": 0
+      },
+      "homeLon": {
+        "title": "Heim-Längengrad",
+        "type": "number",
+        "required": false,
+        "default": 0
+      },
+      "homeRadiusM": {
+        "title": "Heim-Radius (Meter)",
+        "type": "integer",
+        "required": false,
+        "default": 150,
+        "minimum": 10
+      },
+      "defaultTargetTemp": {
+        "title": "Vorklima-Zieltemperatur °C",
+        "type": "number",
+        "required": false,
+        "default": 21
+      },
+      "tempMin": {
+        "title": "Min. Zieltemperatur °C",
+        "type": "number",
+        "required": false,
+        "default": 15
+      },
+      "tempMax": {
+        "title": "Max. Zieltemperatur °C",
+        "type": "number",
+        "required": false,
+        "default": 30
+      },
+      "tempStep": {
+        "title": "Temperatur-Schrittweite °C",
+        "type": "number",
+        "required": false,
+        "default": 0.5
+      },
+      "lowBatteryThreshold": {
+        "title": "Warnschwelle 'Batterie niedrig' %",
+        "type": "integer",
+        "required": false,
+        "default": 20,
+        "minimum": 0,
+        "maximum": 100
+      },
+      "serviceWarnKm": {
+        "title": "Service-Warnung ab Reststrecke (km)",
+        "type": "integer",
+        "required": false,
+        "default": 2000,
+        "minimum": 0
+      },
+      "tireDiffThreshold": {
+        "title": "Reifendruck-Warnschwelle (bar)",
+        "type": "number",
+        "required": false,
+        "default": 0.3,
+        "minimum": 0
+      },
+      "staleMinutes": {
+        "title": "Daten gelten als veraltet ab (Min)",
+        "type": "integer",
+        "required": false,
+        "default": 30,
+        "minimum": 1
+      },
+      "heatingAutoOffMinutes": {
+        "title": "Standheizung Auto-Aus (Min)",
+        "type": "integer",
+        "required": false,
+        "default": 15,
+        "minimum": 1
+      },
+      "honkAutoOffSeconds": {
+        "title": "Hupe/Licht Auto-Aus (Sek)",
+        "type": "integer",
+        "required": false,
+        "default": 3,
+        "minimum": 1
+      },
+      "exposeClimateZones": {
+        "title": "Klimazonen-Sensoren anzeigen",
+        "type": "boolean",
+        "required": false,
+        "default": true
+      },
+      "exposeTheftSensor": {
+        "title": "Diebstahl-Sensor anzeigen",
+        "type": "boolean",
+        "required": false,
+        "default": false
+      }
+    }
+  },
+  "form": [
+    "vehicleName",
+    "vin",
+    "detailLevel",
+    { "key": "spin", "type": "password" },
+    {
+      "type": "fieldset",
+      "title": "Abfrage & Klima",
+      "expandable": true,
+      "expanded": true,
+      "items": [
+        "pollIntervalMinutes",
+        "defaultTargetTemp",
+        "tempMin",
+        "tempMax",
+        "tempStep"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Standort „Auto zuhause\"",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "homeLat",
+        "homeLon",
+        "homeRadiusM"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Warnungen & Schwellwerte",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "lowBatteryThreshold",
+        "serviceWarnKm",
+        "tireDiffThreshold",
+        "staleMinutes"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Komfort-Timer & Sensoren",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "heatingAutoOffMinutes",
+        "honkAutoOffSeconds",
+        "exposeClimateZones",
+        "exposeTheftSensor"
+      ]
+    }
+  ]
+}

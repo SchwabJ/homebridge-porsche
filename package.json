@@ -1,0 +1,53 @@
+{
+  "name": "homebridge-taycan",
+  "version": "0.5.0",
+  "description": "Homebridge plugin for the Porsche Taycan via the Connect/PPA API — climate, charging, lock and more in Apple Home, without Docker or Home Assistant",
+  "license": "MIT",
+  "author": "SchwabJ",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SchwabJ/homebridge-taycan.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SchwabJ/homebridge-taycan/issues"
+  },
+  "homepage": "https://github.com/SchwabJ/homebridge-taycan#readme",
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    "config.schema.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "bin": {
+    "taycan-auth": "dist/bin/taycan-auth.js"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "homebridge": ">=1.6.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "homebridge-plugin",
+    "porsche",
+    "taycan",
+    "homekit",
+    "ev"
+  ],
+  "dependencies": {
+    "undici": "^6.19.8"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.14.0",
+    "homebridge": "^1.8.0",
+    "jest": "^29.7.0",
+    "nock": "^13.5.4",
+    "ts-jest": "^29.2.0",
+    "typescript": "^5.5.0"
+  }
+}

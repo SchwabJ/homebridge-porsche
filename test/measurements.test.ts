@@ -1,0 +1,215 @@
+import { parseMeasurements, VehicleState } from '../src/api/measurements';
+
+/** Hüllt measurements in das echte PPA-Antwort-Objekt. */
+function ppaResponse(measurements: Array<{ key: string; value: unknown }>): unknown {
+  return { vin: 'WP0TEST', modelName: 'Taycan', measurements };
+}
+
+describe('parseMeasurements (echte PPA-Struktur)', () => {
+  it('parst das echte Live-Beispiel (ladend, verriegelt, Klima aus, GPS-String)', () => {
+    const res = ppaResponse([
+      { key: 'GPS_LOCATION', value: { location: '48.137154,11.576124', direction: 164 } },
+      {
+        key: 'CHARGING_SUMMARY',
+        value: { status: 'CHARGING', mode: 'PROFILE', type: 'AC', chargingProfile: { minSoC: 80 } },
+      },
+      { key: 'E_RANGE', value: { kilometers: 199, isRouteBasedRange: false } },
+      { key: 'BATTERY_LEVEL', value: { percent: 52 } },
+      { key: 'CLIMATIZER_STATE', value: { isOn: false, targetTemperature: 295.15 } },
+      { key: 'LOCK_STATE_VEHICLE', value: { isLocked: true } },
+    ]);
+
+    const s = parseMeasurements(res);
+    expect(s.soc).toBe(52);
+    expect(s.rangeKm).toBe(199);
+    expect(s.charging).toBe(true);
+    expect(s.plugged).toBe(true); // aus Lade-Status abgeleitet (kein plugState beim Laden)
+    expect(s.chargingType).toBe('AC');
+    expect(s.targetSoc).toBe(80); // chargingProfile.minSoC
+    expect(s.locked).toBe(true);
+    expect(s.climateOn).toBe(false);
+    expect(s.targetTempC).toBe(22); // 295.15 K → 22 °C
+    expect(s.lat).toBe(48.137154);
+    expect(s.lon).toBe(11.576124);
+    expect(s.heading).toBe(164);
+  });
+
+  it('parst ALLE Felder aus einer vollständigen echten Antwort', () => {
+    const nowMs = Date.parse('2026-06-18T12:00:00Z');
+    const res = {
+      vin: 'WP0ZZZ99ZTS900000',
+      modelName: 'Taycan',
+      timestamp: '2026-06-18T11:59:30Z',
+      measurements: [
+        { key: 'BATTERY_LEVEL', status: { isEnabled: true }, value: { percent: 52 } },
+        { key: 'E_RANGE', value: { kilometers: 199 } },
+        { key: 'MILEAGE', value: { kilometers: 34210 } },
+        {
+          key: 'CHARGING_SUMMARY',
+          value: {
+            status: 'CHARGING',
+            type: 'DC',
+            targetDateTimeWithOffset: '2026-06-18T13:30:00Z',
+            chargingProfile: { minSoC: 80 },
+          },
+        },
+        {
+          key: 'CHARGING_RATE',
+          value: { chargingPowerkW: 11.2, maxChargingPowerkW: 270, chargingRatekmPerMin: 1.4 },
+        },
+        {
+          key: 'CHARGING_PROFILES',
+          value: {
+            list: [
+              { id: 1, isEnabled: false, name: 'Arbeit', minSoc: 60, chargingOption: 'AC' },
+              { id: 2, isEnabled: true, name: 'Zuhause', minSoc: 80, chargingOption: 'AC' },
+            ],
+          },
+        },
+        {
+          key: 'CLIMATIZER_STATE',
+          value: {
+            isOn: true,
+            targetTemperature: 294.15,
+            climateZonesEnabled: { frontLeft: true, frontRight: false, rearLeft: true, rearRight: false },
+          },
+        },
+        { key: 'LOCK_STATE_VEHICLE', value: { isLocked: false } },
+        { key: 'OPEN_STATE_DOOR_FRONT_LEFT', value: { isOpen: true } },
+        { key: 'OPEN_STATE_DOOR_FRONT_RIGHT', value: { isOpen: false } },
+        { key: 'OPEN_STATE_DOOR_REAR_LEFT', value: { isOpen: false } },
+        { key: 'OPEN_STATE_DOOR_REAR_RIGHT', value: { isOpen: false } },
+        { key: 'OPEN_STATE_LID_FRONT', value: { isOpen: false } },
+        { key: 'OPEN_STATE_LID_REAR', value: { isOpen: true } },
+        { key: 'OPEN_STATE_WINDOW_FRONT_LEFT', value: { isOpen: false } },
+        { key: 'OPEN_STATE_WINDOW_FRONT_RIGHT', value: { isOpen: false } },
+        { key: 'OPEN_STATE_WINDOW_REAR_LEFT', value: { isOpen: false } },
+        { key: 'OPEN_STATE_WINDOW_REAR_RIGHT', value: { isOpen: true } },
+        { key: 'PARKING_BRAKE', value: { isOn: true } },
+        { key: 'PARKING_LIGHT', value: { isOn: false } },
+        {
+          key: 'TIRE_PRESSURE',
+          value: {
+            frontLeftTire: { actualPressureBar: 2.5, differenceBar: 0.0 },
+            frontRightTire: { actualPressureBar: 2.4, differenceBar: -0.1 },
+            rearLeftTire: { actualPressureBar: 2.6, differenceBar: 0.1 },
+            rearRightTire: { actualPressureBar: 2.1, differenceBar: -0.4 },
+          },
+        },
+        { key: 'MAIN_SERVICE_RANGE', value: { kilometers: 1500 } },
+        { key: 'GPS_LOCATION', value: { location: '48.137154,11.576124', direction: 164 } },
+        { key: 'GLOBAL_PRIVACY_MODE', value: { isEnabled: false } },
+        { key: 'REMOTE_ACCESS_AUTHORIZATION', value: { isEnabled: true } },
+      ],
+    };
+
+    const s = parseMeasurements(res, nowMs);
+    expect(s.soc).toBe(52);
+    expect(s.rangeKm).toBe(199);
+    expect(s.odometerKm).toBe(34210);
+    expect(s.charging).toBe(true);
+    expect(s.chargingType).toBe('DC');
+    expect(s.chargingPowerKw).toBe(11.2);
+    expect(s.maxChargingPowerKw).toBe(270);
+    expect(s.chargeRateKmMin).toBe(1.4);
+    expect(s.chargeEtaMinutes).toBe(90); // 13:30 - 12:00 = 90 min
+    expect(s.targetSoc).toBe(80);
+    expect(s.activeProfileName).toBe('Zuhause'); // das isEnabled-Profil
+    expect(s.climateOn).toBe(true);
+    expect(s.targetTempC).toBe(21); // 294.15 K
+    expect(s.climateZones).toEqual({ fl: true, fr: false, rl: true, rr: false });
+    expect(s.locked).toBe(false);
+    expect(s.doors).toEqual({ fl: true, fr: false, rl: false, rr: false });
+    expect(s.frunkOpen).toBe(false);
+    expect(s.trunkOpen).toBe(true);
+    expect(s.windows).toEqual({ fl: false, fr: false, rl: false, rr: true });
+    expect(s.parkingBrake).toBe(true);
+    expect(s.parkingLight).toBe(false);
+    expect(s.tirePressureBar).toEqual({ fl: 2.5, fr: 2.4, rl: 2.6, rr: 2.1 });
+    expect(s.tireDiffBar).toEqual({ fl: 0.0, fr: -0.1, rl: 0.1, rr: -0.4 });
+    expect(s.serviceKm).toBe(1500);
+    expect(s.heading).toBe(164);
+    expect(s.privacyMode).toBe(false);
+    expect(s.remoteAccess).toBe(true);
+    expect(s.dataTimestamp).toBe(Date.parse('2026-06-18T11:59:30Z'));
+  });
+
+  it('chargeEtaMinutes ist nie negativ (Ziel in der Vergangenheit → 0)', () => {
+    const nowMs = Date.parse('2026-06-18T14:00:00Z');
+    const res = ppaResponse([
+      {
+        key: 'CHARGING_SUMMARY',
+        value: { status: 'CHARGING', targetDateTimeWithOffset: '2026-06-18T13:30:00Z' },
+      },
+    ]);
+    expect(parseMeasurements(res, nowMs).chargeEtaMinutes).toBe(0);
+  });
+
+  it('value: undefined / fehlende Sub-Objekte → Felder undefined, kein Throw', () => {
+    const res = ppaResponse([
+      { key: 'BATTERY_LEVEL', value: undefined },
+      { key: 'TIRE_PRESSURE', value: { frontLeftTire: { actualPressureBar: 2.5 } } },
+      { key: 'CLIMATIZER_STATE', value: { isOn: true } },
+    ]);
+    const s = parseMeasurements(res);
+    expect(s.soc).toBeUndefined();
+    expect(s.targetTempC).toBeUndefined(); // keine targetTemperature
+    expect(s.climateZones).toBeUndefined();
+    // nur ein Reifen verfügbar → Rest 0
+    expect(s.tirePressureBar).toEqual({ fl: 2.5, fr: 0, rl: 0, rr: 0 });
+    expect(s.tireDiffBar).toBeUndefined(); // keine differenceBar geliefert
+  });
+
+  it('parst nicht-ladend + Klima an + entriegelt', () => {
+    const res = ppaResponse([
+      { key: 'BATTERY_LEVEL', value: { percent: 80 } },
+      { key: 'E_RANGE', value: { kilometers: 300 } },
+      { key: 'CHARGING_SUMMARY', value: { status: 'NOT_CHARGING', plugState: 'DISCONNECTED' } },
+      { key: 'CLIMATIZER_STATE', value: { isOn: true } },
+      { key: 'LOCK_STATE_VEHICLE', value: { isLocked: false } },
+    ]);
+    const s = parseMeasurements(res);
+    expect(s.charging).toBe(false);
+    expect(s.plugged).toBe(false);
+    expect(s.climateOn).toBe(true);
+    expect(s.locked).toBe(false);
+    expect(s.soc).toBe(80);
+    expect(s.rangeKm).toBe(300);
+    expect(s.lat).toBeUndefined();
+  });
+
+  it('plugState CONNECTED ohne Laden → plugged=true', () => {
+    const res = ppaResponse([
+      { key: 'CHARGING_SUMMARY', value: { status: 'NOT_CHARGING', plugState: 'CONNECTED' } },
+    ]);
+    expect(parseMeasurements(res).plugged).toBe(true);
+  });
+
+  it('akzeptiert auch ein bloßes Array (Rückwärtskompatibilität)', () => {
+    const s = parseMeasurements([{ key: 'BATTERY_LEVEL', value: { percent: 41 } }]);
+    expect(s.soc).toBe(41);
+  });
+
+  it('leere measurements / fehlendes Feld / null → Defaults, kein Throw', () => {
+    for (const input of [ppaResponse([]), { measurements: undefined }, null, {}, []]) {
+      expect(() => parseMeasurements(input)).not.toThrow();
+      const s = parseMeasurements(input);
+      expect(s.charging).toBe(false);
+      expect(s.plugged).toBe(false);
+      expect(s.climateOn).toBe(false);
+      expect(s.soc).toBeUndefined();
+    }
+  });
+
+  it('ignoriert unbekannte Keys und kaputte GPS-Strings', () => {
+    const res = ppaResponse([
+      { key: 'BATTERY_LEVEL', value: { percent: 30 } },
+      { key: 'TOTALLY_UNKNOWN', value: { foo: 'bar' } },
+      { key: 'GPS_LOCATION', value: { location: 'kaputt' } },
+    ]);
+    const s = parseMeasurements(res);
+    expect(s.soc).toBe(30);
+    expect(s.lat).toBeUndefined();
+    expect(s.lon).toBeUndefined();
+  });
+});

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    .pc-card {
+      border: 1px solid rgba(128,128,128,0.3);
+      border-radius: 10px;
+      padding: 16px 18px;
+      margin-bottom: 18px;
+    }
+    .pc-title { font-weight: 600; font-size: 1.05rem; margin: 0 0 4px; }
+    .pc-sub { opacity: 0.7; font-size: 0.85rem; margin: 0 0 14px; }
+    .pc-field { margin-bottom: 10px; }
+    .pc-field label { display: block; font-size: 0.8rem; opacity: 0.8; margin-bottom: 4px; }
+    .pc-field input {
+      width: 100%; box-sizing: border-box; padding: 8px 10px;
+      border-radius: 7px; border: 1px solid rgba(128,128,128,0.4);
+      background: rgba(128,128,128,0.08); color: inherit; font-size: 0.95rem;
+    }
+    .pc-captcha-img {
+      display: block; margin: 6px 0 12px; max-width: 100%;
+      background: #fff; border-radius: 7px; padding: 8px;
+    }
+    .pc-btn {
+      background: #d5001c; color: #fff; border: none; border-radius: 7px;
+      padding: 9px 16px; font-size: 0.95rem; font-weight: 600; cursor: pointer;
+    }
+    .pc-btn:disabled { opacity: 0.5; cursor: default; }
+    .pc-msg { margin-top: 12px; font-size: 0.9rem; }
+    .pc-ok { color: #2e9e44; }
+    .pc-err { color: #d5001c; }
+    .pc-hidden { display: none; }
+    .pc-veh { font-size: 0.85rem; opacity: 0.85; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <div class="pc-card">
+    <p class="pc-title">🔑 Bei Porsche anmelden</p>
+    <p class="pc-sub">Einmaliger Login mit deiner Porsche&nbsp;ID. Es wird ein Refresh-Token
+      gespeichert — danach läuft das Plugin headless. Passwort wird nur zum Login verwendet, nie gespeichert.</p>
+
+    <!-- Schritt 1: Zugangsdaten -->
+    <div id="step-credentials">
+      <div class="pc-field">
+        <label for="pc-email">E-Mail (Porsche ID)</label>
+        <input id="pc-email" type="email" autocomplete="username" placeholder="name@example.com" />
+      </div>
+      <div class="pc-field">
+        <label for="pc-password">Passwort</label>
+        <input id="pc-password" type="password" autocomplete="current-password" placeholder="••••••••" />
+      </div>
+      <button class="pc-btn" id="pc-login-btn">Anmelden</button>
+    </div>
+
+    <!-- Schritt 2: Captcha (erscheint nur bei Bedarf) -->
+    <div id="step-captcha" class="pc-hidden">
+      <p class="pc-sub" style="margin-bottom:6px">Porsche verlangt ein Captcha. Bitte den Text aus dem Bild eingeben:</p>
+      <img id="pc-captcha-img" class="pc-captcha-img" alt="Captcha" />
+      <div class="pc-field">
+        <label for="pc-captcha-text">Captcha-Text</label>
+        <input id="pc-captcha-text" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" />
+      </div>
+      <button class="pc-btn" id="pc-captcha-btn">Bestätigen</button>
+    </div>
+
+    <div id="pc-msg" class="pc-msg"></div>
+  </div>
+
+  <script>
+    (async () => {
+      const $ = (id) => document.getElementById(id);
+      const msg = $('pc-msg');
+      const setMsg = (text, cls) => { msg.textContent = text; msg.className = 'pc-msg' + (cls ? ' ' + cls : ''); };
+      const show = (id, on) => $(id).classList.toggle('pc-hidden', !on);
+
+      function onDone(res) {
+        show('step-credentials', false);
+        show('step-captcha', false);
+        let txt = '✓ Angemeldet — Token gespeichert. Bitte Homebridge neu starten, dann erscheinen die Kacheln.';
+        if (res.vehicles && res.vehicles.length) {
+          txt += '\nGefundene Fahrzeuge: ' + res.vehicles.map((v) => v.modelName ? (v.modelName + ' (' + v.vin + ')') : v.vin).join(', ');
+        }
+        setMsg(txt, 'pc-ok');
+        homebridge.toast.success('Porsche-Login erfolgreich');
+      }
+
+      function handle(res) {
+        if (!res || res.status === 'error') {
+          setMsg('✗ ' + ((res && res.message) || 'Login fehlgeschlagen.'), 'pc-err');
+          homebridge.hideSpinner();
+          return false;
+        }
+        if (res.status === 'captcha') {
+          $('pc-captcha-img').src = res.image;
+          show('step-captcha', true);
+          $('pc-captcha-text').focus();
+          setMsg('', '');
+          homebridge.hideSpinner();
+          return false;
+        }
+        if (res.status === 'done') {
+          onDone(res);
+          homebridge.hideSpinner();
+          return true;
+        }
+        return false;
+      }
+
+      $('pc-login-btn').addEventListener('click', async () => {
+        const email = $('pc-email').value.trim();
+        const password = $('pc-password').value;
+        if (!email || !password) { setMsg('Bitte E-Mail und Passwort eingeben.', 'pc-err'); return; }
+        setMsg('Melde an … (kann einen Moment dauern)');
+        homebridge.showSpinner();
+        try {
+          handle(await homebridge.request('/login/start', { email, password }));
+        } catch (e) {
+          setMsg('✗ ' + (e.message || e), 'pc-err'); homebridge.hideSpinner();
+        }
+      });
+
+      $('pc-captcha-btn').addEventListener('click', async () => {
+        const text = $('pc-captcha-text').value.trim();
+        if (!text) { setMsg('Bitte den Captcha-Text eingeben.', 'pc-err'); return; }
+        setMsg('Prüfe Captcha …');
+        homebridge.showSpinner();
+        try {
+          handle(await homebridge.request('/login/captcha', { text }));
+        } catch (e) {
+          setMsg('✗ ' + (e.message || e), 'pc-err'); homebridge.hideSpinner();
+        }
+      });
+
+      // Unter dem Login die normale Plugin-Konfiguration (Schema-Form) zeigen.
+      homebridge.showSchemaForm();
+    })();
+  </script>
+</body>
+</html>

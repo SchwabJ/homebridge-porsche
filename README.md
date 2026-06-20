@@ -71,10 +71,46 @@ Search for **`homebridge-porsche`** in the Homebridge UI, or:
 npm install -g homebridge-porsche
 ```
 
-## 🔑 One-time login
+## 🔑 First-time login
 
-Porsche's login is interactive (it may show a **captcha**). Run the bundled CLI **once** on the
-Homebridge host:
+You sign in **once** with your Porsche ID — the plugin then keeps a long-lived **refresh token** and
+runs fully headless afterwards. Pick whichever is easier; both end up writing the same token file.
+
+### 🌐 Option A — right in your browser (recommended)
+
+No terminal, no `scp`. Open the **Homebridge UI**, go to the plugin's **Settings**, and a login card
+greets you at the top:
+
+```text
+┌────────────────────────────────────────────────┐
+│  🔑  Sign in to Porsche                          │
+│                                                  │
+│   E-mail (Porsche ID)   [ name@example.com    ]  │
+│   Password              [ ••••••••            ]  │
+│                                   [  Sign in  ]  │
+│                                                  │
+│   ↳ captcha required? it appears here as an image│
+│      ┌──────────────┐                            │
+│      │   a 7 X q 2  │   [ enter text ]  [  OK  ] │
+│      └──────────────┘                            │
+└────────────────────────────────────────────────┘
+```
+
+1. Enter your **Porsche ID e-mail** and **password**, then hit **Sign in**.
+2. If Porsche requires a **captcha**, it's rendered **as a real image right in the page** — read it,
+   type the text, confirm.
+3. On success the card lists your detected vehicle(s). **Restart Homebridge** and your tiles appear.
+
+Your password is used only for this login and is **never stored** — only the refresh token is written
+to `porsche-tokens.json` in your Homebridge storage directory.
+
+> The browser login is powered by a [custom Homebridge UI](https://github.com/homebridge/plugin-ui-utils)
+> — it runs locally inside your Homebridge instance; credentials never leave your network except to
+> Porsche's own login endpoint.
+
+### 💻 Option B — via CLI (headless setups)
+
+Running Homebridge somewhere without convenient UI access? Use the bundled CLI **once** on the host:
 
 ```bash
 porsche-auth                       # writes ./porsche-tokens.json
@@ -82,11 +118,10 @@ porsche-auth                       # writes ./porsche-tokens.json
 porsche-auth /var/lib/homebridge/porsche-tokens.json
 ```
 
-It asks for your Porsche ID **e-mail + password** (entered interactively, never stored), obtains a
-long-lived **refresh token**, and writes it to a `0600` token file. From then on the plugin runs
-headless — no further interactive login under normal circumstances.
+It asks for your Porsche ID **e-mail + password** (entered interactively, never stored), obtains the
+long-lived **refresh token**, and writes it to a `0600` token file.
 
-### 🖼️ Captcha → image (automatic)
+#### 🖼️ Captcha → image (automatic)
 
 If Porsche asks for a captcha, `porsche-auth` decodes the `data:image/...;base64,...` payload into a
 **real image file** (PNG/JPEG/GIF/SVG) next to your token file and **opens it automatically**:

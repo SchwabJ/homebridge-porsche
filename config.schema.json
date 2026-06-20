@@ -2,7 +2,8 @@
   "pluginAlias": "Porsche",
   "pluginType": "platform",
   "singular": true,
-  "headerDisplay": "Bindet den Porsche Taycan in Apple Home ein. Vor der ersten Nutzung einmalig `porsche-auth` ausführen (Login, ggf. Captcha) – danach läuft das Plugin headless über den Refresh-Token. Details siehe README.",
+  "customUi": true,
+  "headerDisplay": "Bindet den Porsche Taycan in Apple Home ein. **Erste Nutzung: oben mit deiner Porsche ID anmelden** (E-Mail, Passwort, ggf. Captcha als Bild) – danach läuft das Plugin headless über den Refresh-Token. Alternativ per CLI `porsche-auth`. Details siehe README.",
   "footerDisplay": "Inoffizielle, reverse-engineerte API. Bei „Tokens weg\"-Fehlern `porsche-auth` erneut ausführen.",
   "schema": {
     "type": "object",

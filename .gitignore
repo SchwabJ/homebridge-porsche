@@ -1,10 +1,14 @@
 node_modules/
 dist/
 *.log
+
+# Token-Dateien (vom porsche-auth-CLI / Custom-UI erzeugt) — niemals committen
+porsche-tokens.json
 taycan-tokens.json
 
 # Build-/Deploy-Artefakte
 *.tgz
 
-# Captcha-Bilder (vom taycan-auth-CLI erzeugt)
+# Captcha-Bilder (vom porsche-auth-CLI erzeugt)
+porsche-captcha.*
 taycan-captcha.*

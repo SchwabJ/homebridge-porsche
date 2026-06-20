@@ -1,6 +1,6 @@
 {
   "name": "homebridge-porsche",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Homebridge plugin for the Porsche Taycan via the Connect/PPA API — climate, charging, lock and more in Apple Home, without Docker or Home Assistant",
   "license": "MIT",
   "author": "SchwabJ",

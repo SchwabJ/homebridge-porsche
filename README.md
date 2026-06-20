@@ -16,7 +16,7 @@ find-my-car, and more.
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg)](https://nodejs.org)
 [![Homebridge](https://img.shields.io/badge/homebridge-%E2%89%A51.6-purple.svg)](https://homebridge.io)
-[![Tests](https://img.shields.io/badge/tests-198%20passing-success.svg)](#-development)
+[![Tests](https://img.shields.io/badge/tests-203%20passing-success.svg)](#-development)
 
 </div>
 
@@ -26,7 +26,8 @@ find-my-car, and more.
 >
 > **Porsche** and **Taycan** are trademarks of Dr. Ing. h.c. F. Porsche AG. They are used here for
 > identification and compatibility purposes only — no Porsche logo or crest is used. See [NOTICE](NOTICE)
-> for third-party attribution.
+> for third-party attribution. This is a **non-commercial, community project**; should the rights-holder
+> object to the name, it will be renamed.
 
 ---
 
@@ -200,7 +201,7 @@ notification toggle), or charge-on-arrival via **Car at home**.
 ```bash
 npm install
 npm run build      # tsc → dist/
-npm test           # jest (198 tests)
+npm test           # jest (203 tests)
 ```
 
 The codebase is split by domain: `src/api` (PPA client, commands, measurements, auth),

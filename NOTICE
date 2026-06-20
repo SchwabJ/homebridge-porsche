@@ -20,6 +20,12 @@ These are factual/functional API elements (interfaces, methods of operation and
 data formats), not literary expression. The MIT text of pyporscheconnectapi is
 reproduced below as an acknowledgement of that reference.
 
+Note: the upstream repository is internally inconsistent about its own license
+(its LICENSE file, setup.py and PyPI metadata state MIT, while a few individual
+source files carry an inline Apache-2.0 SPDX header). No source code under either
+license was copied into this project; only the non-copyrightable API facts listed
+above were referenced.
+
 --------------------------------------------------------------------------------
 pyporscheconnectapi - MIT License
 --------------------------------------------------------------------------------

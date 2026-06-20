@@ -31,9 +31,9 @@ import { PorscheCommand } from '../api/commands';
 import { VehicleState } from '../api/measurements';
 
 /** npm-Paketname — erster Parameter von `registerPlatformAccessories` (Cache-Matching!). */
-export const PLUGIN_NAME = 'homebridge-taycan';
+export const PLUGIN_NAME = 'homebridge-porsche';
 /** Plattform-Name (muss zur `index.ts`-Registrierung und config.json passen). */
-export const PLATFORM_NAME = 'Taycan';
+export const PLATFORM_NAME = 'Porsche';
 
 /** Untere Klemme für LightSensor-Werte (Characteristic erlaubt 0 nicht). */
 const LUX_MIN = 0.0001;
@@ -42,7 +42,7 @@ const LUX_MIN = 0.0001;
  * Vollständig aufgelöste Plugin-Konfiguration mit allen Defaults aus dem Spec.
  * Domänen-Module lesen ausschließlich diese (nie das rohe PlatformConfig).
  */
-export interface ResolvedTaycanConfig {
+export interface ResolvedPorscheConfig {
   /** Anzeigename-Präfix der Accessory-Gruppen (z. B. "Taycan"). */
   vehicleName: string;
   /** Optionale feste VIN; leer = erstes Fahrzeug des Kontos. */
@@ -57,6 +57,15 @@ export interface ResolvedTaycanConfig {
    * Nicht mehr genutzte Accessories entfernt der Orphan-Cleanup beim Neustart.
    */
   detailLevel: 'essential' | 'full';
+  /**
+   * Antriebsart des Fahrzeugs — steuert, welche energie-bezogenen Kacheln
+   * entstehen (vor dem ersten Poll bekannt sein muss, daher Config statt Auto-Erkennung):
+   * - 'ev' (Default): Ladestand, E-Reichweite, Laden, Ladelimit, Akku (kein Tank).
+   * - 'combustion': Tankstand + Kraftstoff-Reichweite (kein SoC/Laden).
+   * - 'phev': beides (E + Kraftstoff).
+   * Hinweis: Nur 'ev' (Taycan) ist live getestet; 'combustion'/'phev' nach CJNE implementiert.
+   */
+  vehicleType: 'ev' | 'combustion' | 'phev';
   /**
    * Porsche S-PIN (4-stellige Sicherheits-PIN aus der My-Porsche-App), nötig
    * fürs ENTRIEGELN (SPIN_CHALLENGE → UNLOCK). Leer = Entriegeln deaktiviert
@@ -96,10 +105,11 @@ export interface ResolvedTaycanConfig {
 }
 
 /** Defaults. Heim-Koordinaten 0 = „Auto zuhause" deaktiviert (in der Config setzen). */
-export const DEFAULT_CONFIG: ResolvedTaycanConfig = {
-  vehicleName: 'Taycan',
+export const DEFAULT_CONFIG: ResolvedPorscheConfig = {
+  vehicleName: 'Porsche',
   vin: undefined,
   detailLevel: 'essential',
+  vehicleType: 'ev',
   spin: undefined,
   pollIntervalMinutes: 15,
   homeLat: 0,
@@ -121,11 +131,11 @@ export const DEFAULT_CONFIG: ResolvedTaycanConfig = {
 };
 
 /**
- * Löst ein rohes Plugin-Config-Objekt zu einer {@link ResolvedTaycanConfig} auf.
+ * Löst ein rohes Plugin-Config-Objekt zu einer {@link ResolvedPorscheConfig} auf.
  * Fehlende/ungültige Werte fallen auf {@link DEFAULT_CONFIG} zurück. Das
  * Poll-Intervall wird HIER NICHT geklemmt (das macht der Aufrufer via wake.ts).
  */
-export function resolveConfig(raw: Record<string, unknown> | undefined | null): ResolvedTaycanConfig {
+export function resolveConfig(raw: Record<string, unknown> | undefined | null): ResolvedPorscheConfig {
   const c = raw ?? {};
   const numOr = (key: string, dflt: number): number => {
     const v = c[key];
@@ -141,7 +151,7 @@ export function resolveConfig(raw: Record<string, unknown> | undefined | null): 
   };
 
   const modeRaw = c['climateControlMode'];
-  const climateControlMode: ResolvedTaycanConfig['climateControlMode'] =
+  const climateControlMode: ResolvedPorscheConfig['climateControlMode'] =
     modeRaw === 'heatercooler' || modeRaw === 'switch' || modeRaw === 'both'
       ? modeRaw
       : DEFAULT_CONFIG.climateControlMode;
@@ -150,8 +160,12 @@ export function resolveConfig(raw: Record<string, unknown> | undefined | null): 
   const vin = typeof vinRaw === 'string' && vinRaw.length > 0 ? vinRaw : undefined;
 
   const detailRaw = c['detailLevel'];
-  const detailLevel: ResolvedTaycanConfig['detailLevel'] =
+  const detailLevel: ResolvedPorscheConfig['detailLevel'] =
     detailRaw === 'full' || detailRaw === 'essential' ? detailRaw : DEFAULT_CONFIG.detailLevel;
+
+  const vtRaw = c['vehicleType'];
+  const vehicleType: ResolvedPorscheConfig['vehicleType'] =
+    vtRaw === 'ev' || vtRaw === 'combustion' || vtRaw === 'phev' ? vtRaw : DEFAULT_CONFIG.vehicleType;
 
   // S-PIN: nur nicht-leere Strings übernehmen (auf Ziffern reduzieren wäre zu
   // streng — manche PINs könnten anders aussehen; Trim reicht).
@@ -162,6 +176,7 @@ export function resolveConfig(raw: Record<string, unknown> | undefined | null): 
     vehicleName: strOr('vehicleName', DEFAULT_CONFIG.vehicleName),
     vin,
     detailLevel,
+    vehicleType,
     spin,
     pollIntervalMinutes: numOr('pollIntervalMinutes', DEFAULT_CONFIG.pollIntervalMinutes),
     homeLat: numOr('homeLat', DEFAULT_CONFIG.homeLat),
@@ -224,7 +239,7 @@ export interface Kit {
   /** Homebridge-Logger. */
   log: Logging;
   /** Aufgelöste Konfiguration mit Defaults. */
-  config: ResolvedTaycanConfig;
+  config: ResolvedPorscheConfig;
   /** Sendet einen Fahrzeugbefehl (defensiv, niemals throw nach außen). */
   command: (cmd: PorscheCommand) => Promise<void>;
   /**
@@ -280,7 +295,7 @@ export type DomainModule = (kit: Kit) => (state: VehicleState) => void;
 export interface KitContext {
   api: API;
   log: Logging;
-  config: ResolvedTaycanConfig;
+  config: ResolvedPorscheConfig;
   /** Aus dem Cache wiederhergestellte Accessories (DynamicPlatform). */
   cachedAccessories: PlatformAccessory[];
   /** Sendet einen Fahrzeugbefehl (von der Plattform bereitgestellt). */

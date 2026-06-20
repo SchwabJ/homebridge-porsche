@@ -34,6 +34,36 @@ describe('parseMeasurements (echte PPA-Struktur)', () => {
     expect(s.heading).toBe(164);
   });
 
+  it('parst Verbrenner-Werte: FUEL_LEVEL → fuelLevel, RANGE → fuelRangeKm', () => {
+    const s = parseMeasurements(
+      ppaResponse([
+        { key: 'FUEL_LEVEL', value: { percent: 64 } },
+        { key: 'RANGE', value: { kilometers: 540 } },
+        { key: 'LOCK_STATE_VEHICLE', value: { isLocked: true } },
+      ]),
+    );
+    expect(s.fuelLevel).toBe(64);
+    expect(s.fuelRangeKm).toBe(540);
+    // Kein E-Antrieb gemeldet → SoC/E-Reichweite bleiben undefined.
+    expect(s.soc).toBeUndefined();
+    expect(s.rangeKm).toBeUndefined();
+  });
+
+  it('PHEV: E_RANGE und RANGE getrennt, beide Energie-Größen vorhanden', () => {
+    const s = parseMeasurements(
+      ppaResponse([
+        { key: 'BATTERY_LEVEL', value: { percent: 70 } },
+        { key: 'E_RANGE', value: { kilometers: 40 } },
+        { key: 'FUEL_LEVEL', value: { percent: 55 } },
+        { key: 'RANGE', value: { kilometers: 600 } },
+      ]),
+    );
+    expect(s.soc).toBe(70);
+    expect(s.rangeKm).toBe(40);
+    expect(s.fuelLevel).toBe(55);
+    expect(s.fuelRangeKm).toBe(600);
+  });
+
   it('parst ALLE Felder aus einer vollständigen echten Antwort', () => {
     const nowMs = Date.parse('2026-06-18T12:00:00Z');
     const res = {

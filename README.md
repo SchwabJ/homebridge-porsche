@@ -1,12 +1,17 @@
 <div align="center">
 
-# 🚗⚡ homebridge-taycan
+# 🚗⚡ homebridge-porsche
 
-**Bring your Porsche Taycan into Apple Home — natively, no Docker, no Home Assistant.**
+**Bring your Porsche into Apple Home — natively, no Docker, no Home Assistant.**
 
 A self-contained [Homebridge](https://homebridge.io) plugin that talks directly to Porsche's
-Connect / PPA API and exposes your Taycan as clean, everyday HomeKit tiles: climate as a
-**thermostat**, charge level as a **slider**, lock, charging, vehicle status, find-my-car, and more.
+Connect / PPA API and exposes your car as clean, everyday HomeKit tiles: climate as a
+**thermostat**, charge level (or fuel level) as a **slider**, lock, charging, vehicle status,
+find-my-car, and more.
+
+> Works with the general **Porsche Connect** API across models. **Developed and live-tested on the
+> Taycan (EV);** combustion / plug-in-hybrid support (`vehicleType`) is implemented from the same API
+> but not yet verified on those cars — feedback welcome.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg)](https://nodejs.org)
@@ -60,10 +65,10 @@ brake, heading, privacy mode and more (≈ 55 tiles).
 
 ## 📦 Installation
 
-Search for **`homebridge-taycan`** in the Homebridge UI, or:
+Search for **`homebridge-porsche`** in the Homebridge UI, or:
 
 ```bash
-npm install -g homebridge-taycan
+npm install -g homebridge-porsche
 ```
 
 ## 🔑 One-time login
@@ -72,9 +77,9 @@ Porsche's login is interactive (it may show a **captcha**). Run the bundled CLI 
 Homebridge host:
 
 ```bash
-taycan-auth                       # writes ./taycan-tokens.json
+porsche-auth                       # writes ./porsche-tokens.json
 # or choose where the token file goes:
-taycan-auth /var/lib/homebridge/taycan-tokens.json
+porsche-auth /var/lib/homebridge/porsche-tokens.json
 ```
 
 It asks for your Porsche ID **e-mail + password** (entered interactively, never stored), obtains a
@@ -83,12 +88,12 @@ headless — no further interactive login under normal circumstances.
 
 ### 🖼️ Captcha → image (automatic)
 
-If Porsche asks for a captcha, `taycan-auth` decodes the `data:image/...;base64,...` payload into a
+If Porsche asks for a captcha, `porsche-auth` decodes the `data:image/...;base64,...` payload into a
 **real image file** (PNG/JPEG/GIF/SVG) next to your token file and **opens it automatically**:
 
 ```
 ⚠  Porsche requires a captcha – solve it once.
-   • Captcha saved as image: /var/lib/homebridge/taycan-captcha.png
+   • Captcha saved as image: /var/lib/homebridge/porsche-captcha.png
      (opens automatically; on a headless server copy it over via scp)
    • Alternatively paste this whole line into a browser address bar:
    data:image/png;base64,iVBORw0KGgo…
@@ -100,17 +105,18 @@ read the text, type it in.
 
 ## ⚙️ Configuration
 
-Add the **Taycan** platform via the Homebridge UI, or in `config.json`:
+Add the **Porsche** platform via the Homebridge UI, or in `config.json`:
 
 ```json
 {
   "platforms": [
     {
-      "platform": "Taycan",
-      "name": "Taycan",
-      "vehicleName": "Taycan",
+      "platform": "Porsche",
+      "name": "Porsche",
+      "vehicleName": "Porsche",
       "vin": "",
       "detailLevel": "essential",
+      "vehicleType": "ev",
       "homeLat": 0,
       "homeLon": 0,
       "homeRadiusM": 150,
@@ -123,9 +129,10 @@ Add the **Taycan** platform via the Homebridge UI, or in `config.json`:
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `vehicleName` | `Taycan` | Display-name prefix for all tiles |
+| `vehicleName` | `Porsche` | Display-name prefix for all tiles |
 | `vin` | _(first vehicle)_ | Fix a VIN if the account has several cars |
 | `detailLevel` | `essential` | `essential` (everyday tiles) or `full` (entire cockpit) |
+| `vehicleType` | `ev` | `ev` (charge/range/charging), `combustion` (fuel level + range) or `phev` (both) |
 | `homeLat` / `homeLon` | `0` / `0` | Home coordinates for "car at home" — **set these**, `0/0` disables it |
 | `homeRadiusM` | `150` | Home radius in metres |
 | `pollIntervalMinutes` | `15` | Status poll interval (clamped to **≥ 10 min** for 12 V safety) |

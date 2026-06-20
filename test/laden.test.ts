@@ -1,7 +1,7 @@
 import { PlatformAccessory } from 'homebridge/lib/platformAccessory';
 import * as hap from 'hap-nodejs';
 
-import { createKit, DEFAULT_CONFIG, KitContext, ResolvedTaycanConfig } from '../src/accessories/kit';
+import { createKit, DEFAULT_CONFIG, KitContext, ResolvedPorscheConfig } from '../src/accessories/kit';
 import { chargingModule, __testing } from '../src/accessories/charging';
 import { PorscheCommand } from '../src/api/commands';
 import { VehicleState } from '../src/api/measurements';
@@ -30,7 +30,7 @@ const log = {
   success: () => {},
 } as unknown as import('homebridge').Logging;
 
-function setup(config: ResolvedTaycanConfig = { ...DEFAULT_CONFIG, detailLevel: 'full' }) {
+function setup(config: ResolvedPorscheConfig = { ...DEFAULT_CONFIG, detailLevel: 'full' }) {
   const { api, registered } = makeApi();
   const commands: PorscheCommand[] = [];
   const context: KitContext = {
@@ -92,7 +92,7 @@ describe('chargingModule signature + accessory shape', () => {
     // SoC lebt auf seinem eigenen, beschrifteten Accessory.
     const socAcc = registered.find((a) => a.UUID === hap.uuid.generate('taycan-soc'))!;
     expect(socAcc).toBeDefined();
-    expect(socAcc.displayName).toBe('Taycan Ladestand');
+    expect(socAcc.displayName).toBe('Porsche Ladestand');
     expect(socAcc.getServiceById(S.Lightbulb, 'soc')).toBeDefined();
     // Jedes Accessory hat genau EINEN funktionalen Service (+ AccessoryInformation).
     for (const a of registered) {
@@ -122,7 +122,7 @@ describe('chargingModule signature + accessory shape', () => {
 });
 
 describe('chargingModule detailLevel gating (essential)', () => {
-  const essential = (): ResolvedTaycanConfig => ({ ...DEFAULT_CONFIG, detailLevel: 'essential' });
+  const essential = (): ResolvedPorscheConfig => ({ ...DEFAULT_CONFIG, detailLevel: 'essential' });
 
   it('registers ONLY the essential accessories (soc + range + switch + limit + battery + low-alert)', () => {
     const { registered, svc, svcByType } = setup(essential());
@@ -311,5 +311,41 @@ describe('__testing pure helpers', () => {
     expect(__testing.isLow(20, 20)).toBe(true);
     expect(__testing.isLow(21, 20)).toBe(false);
     expect(__testing.isLow(undefined, 20)).toBe(false);
+  });
+});
+
+describe('chargingModule vehicleType gating (Strom vs. Sprit)', () => {
+  const combustion = (): ResolvedPorscheConfig => ({ ...DEFAULT_CONFIG, vehicleType: 'combustion' });
+  const phev = (): ResolvedPorscheConfig => ({ ...DEFAULT_CONFIG, vehicleType: 'phev' });
+
+  it('combustion: Tankstand + Kraftstoff-Reichweite, KEINE Strom-Kacheln', () => {
+    const { svc, svcByType } = setup(combustion());
+    // Sprit-Kacheln da.
+    expect(svc(S.Lightbulb, 'fuel')).toBeDefined();
+    expect(svc(S.LightSensor, 'fuelrange')).toBeDefined();
+    // Strom-Kacheln fehlen.
+    expect(svc(S.Lightbulb, 'soc')).toBeUndefined();
+    expect(svc(S.LightSensor, 'range')).toBeUndefined();
+    expect(svc(S.Switch, 'chargeswitch')).toBeUndefined();
+    expect(svc(S.Lightbulb, 'chargelimit')).toBeUndefined();
+    expect(svcByType(S.Battery)).toBeUndefined();
+    expect(svc(S.ContactSensor, 'batterylow')).toBeUndefined();
+  });
+
+  it('combustion: update spiegelt fuelLevel + fuelRangeKm, wirft nicht ohne EV-Felder', () => {
+    const { apply, svc } = setup(combustion());
+    expect(() => apply(emptyState({ fuelLevel: 64, fuelRangeKm: 540, soc: undefined }))).not.toThrow();
+    expect(svc(S.Lightbulb, 'fuel')!.getCharacteristic(C.Brightness).value).toBe(64);
+    expect(svc(S.LightSensor, 'fuelrange')!.getCharacteristic(C.CurrentAmbientLightLevel).value).toBe(540);
+  });
+
+  it('phev: sowohl Strom- als auch Sprit-Kacheln vorhanden', () => {
+    const { svc, svcByType } = setup(phev());
+    expect(svc(S.Lightbulb, 'soc')).toBeDefined();
+    expect(svc(S.LightSensor, 'range')).toBeDefined();
+    expect(svc(S.Switch, 'chargeswitch')).toBeDefined();
+    expect(svcByType(S.Battery)).toBeDefined();
+    expect(svc(S.Lightbulb, 'fuel')).toBeDefined();
+    expect(svc(S.LightSensor, 'fuelrange')).toBeDefined();
   });
 });

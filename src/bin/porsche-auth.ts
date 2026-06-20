@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * `taycan-auth` – interaktives Einmal-Setup-CLI für das Homebridge-Taycan-Plugin.
+ * `porsche-auth` – interaktives Einmal-Setup-CLI für das Homebridge-Taycan-Plugin.
  *
  * Zweck: einmaliger Login (E-Mail + Passwort) gegen die Porsche/Auth0-API, um
  * einen langlebigen `refresh_token` zu erhalten und auf die Platte zu schreiben.
@@ -23,7 +23,7 @@ import { saveTokens } from '../auth/tokenStore';
 import { PorscheClient } from '../api/porscheClient';
 
 /** Default-Speicherpfad für die Token-Datei, falls kein Argument übergeben wird. */
-const DEFAULT_TOKEN_PATH = './taycan-tokens.json';
+const DEFAULT_TOKEN_PATH = './porsche-tokens.json';
 
 /**
  * Kleiner Prompt-Helfer auf Basis EINER readline-Schnittstelle für alle Fragen.
@@ -154,7 +154,7 @@ function makeCaptchaHandler(prompter: Prompter, tokenPath: string) {
     const m = image.match(/^data:image\/([a-z0-9.+-]+);base64,(.+)$/i);
     if (m) {
       const ext = extForSubtype(m[1]);
-      const file = path.join(path.dirname(path.resolve(tokenPath)), `taycan-captcha.${ext}`);
+      const file = path.join(path.dirname(path.resolve(tokenPath)), `porsche-captcha.${ext}`);
       try {
         // base64 → Bild: Binärformate als Bytes, SVG als UTF-8-Text.
         const data =

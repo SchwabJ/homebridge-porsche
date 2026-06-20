@@ -6,7 +6,7 @@ import {
   resolveConfig,
   DEFAULT_CONFIG,
   KitContext,
-  ResolvedTaycanConfig,
+  ResolvedPorscheConfig,
 } from '../src/accessories/kit';
 import { PorscheCommand } from '../src/api/commands';
 
@@ -57,9 +57,9 @@ function ctx(overrides: Partial<KitContext> = {}): {
 
 describe('resolveConfig', () => {
   it('returns all defaults for empty input', () => {
-    expect(resolveConfig({})).toEqual<ResolvedTaycanConfig>(DEFAULT_CONFIG);
-    expect(resolveConfig(null)).toEqual<ResolvedTaycanConfig>(DEFAULT_CONFIG);
-    expect(resolveConfig(undefined)).toEqual<ResolvedTaycanConfig>(DEFAULT_CONFIG);
+    expect(resolveConfig({})).toEqual<ResolvedPorscheConfig>(DEFAULT_CONFIG);
+    expect(resolveConfig(null)).toEqual<ResolvedPorscheConfig>(DEFAULT_CONFIG);
+    expect(resolveConfig(undefined)).toEqual<ResolvedPorscheConfig>(DEFAULT_CONFIG);
   });
 
   it('uses spec defaults for home coords and thresholds', () => {

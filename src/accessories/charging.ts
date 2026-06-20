@@ -45,6 +45,9 @@ const SEEDS = {
   chargeLimit: 'taycan-charge-limit',
   battery: 'taycan-battery',
   lowBattery: 'taycan-battery-low',
+  // Verbrenner/PHEV:
+  fuel: 'taycan-fuel',
+  fuelRange: 'taycan-fuel-range',
 } as const;
 
 /** Untere Klemme für LightSensor (Characteristic erlaubt 0 nicht). Spiegelt kit.ts. */
@@ -61,6 +64,10 @@ export function chargingModule(kit: Kit): (state: VehicleState) => void {
   const displayName = config.vehicleName;
   /** Voll-Cockpit (alle Kacheln) vs. essentiell (nur die genutzten). */
   const full = config.detailLevel === 'full';
+  /** Antriebsart-Gating: Strom- vs. Sprit-Kacheln. */
+  const hasEv = config.vehicleType === 'ev' || config.vehicleType === 'phev';
+  const hasFuel = config.vehicleType === 'combustion' || config.vehicleType === 'phev';
+  const phev = config.vehicleType === 'phev';
 
   /**
    * Legt einen Sensor an seinem EIGENEN Accessory an: erst ein frisches
@@ -74,75 +81,68 @@ export function chargingModule(kit: Kit): (state: VehicleState) => void {
     subtype: string,
   ): BoundService => factory(kit.accessory(seed, name), name, subtype);
 
-  // --- Sensoren (je ein eigenes Accessory) ----------------------------------
-  // Essentiell (immer): SoC als Schieberegler (Lightbulb-Dimmer, read-only) +
-  // Reichweite. Der SoC-Dimmer zeigt den Ladestand direkt als Balken in der
-  // Kachel (statt eines Sensor-Symbols, das man erst antippen müsste).
-  const soc = makeSocDisplay(
-    kit,
-    kit.accessory(SEEDS.soc, `${displayName} Ladestand`),
-    `${displayName} Ladestand`,
-    'soc',
-  );
-  const range = solo(kit.luxSensor, SEEDS.range, `${displayName} Reichweite`, 'range');
-  // Gegatet (nur full): Leistungen, Restzeit, Laderate.
-  const power = full ? solo(kit.luxSensor, SEEDS.power, `${displayName} Ladeleistung`, 'chargepower') : undefined;
-  const maxPower = full ? solo(kit.luxSensor, SEEDS.maxPower, `${displayName} Max-Ladeleistung`, 'maxchargepower') : undefined;
-  const eta = full ? solo(kit.luxSensor, SEEDS.eta, `${displayName} Restzeit Laden`, 'chargeeta') : undefined;
-  const rate = full ? solo(kit.tempSensor, SEEDS.rate, `${displayName} Laderate`, 'chargerate') : undefined;
+  // =========================================================================
+  // STROM (nur EV/PHEV): SoC, E-Reichweite, Laden, Ladelimit, Akku, Akku-niedrig
+  // =========================================================================
+  // SoC als Schieberegler (Lightbulb-Dimmer, read-only) — Balken direkt in der Kachel.
+  const soc = hasEv
+    ? makeSocDisplay(kit, kit.accessory(SEEDS.soc, `${displayName} Ladestand`), `${displayName} Ladestand`, 'soc')
+    : undefined;
+  // E-Reichweite: bei PHEV als „E-Reichweite" beschriftet (Sprit-Reichweite kommt separat).
+  const evRange = hasEv
+    ? solo(kit.luxSensor, SEEDS.range, `${displayName} ${phev ? 'E-Reichweite' : 'Reichweite'}`, 'range')
+    : undefined;
+  // Gegatet (nur full + EV): Leistungen, Restzeit, Laderate, Flags.
+  const power = full && hasEv ? solo(kit.luxSensor, SEEDS.power, `${displayName} Ladeleistung`, 'chargepower') : undefined;
+  const maxPower = full && hasEv ? solo(kit.luxSensor, SEEDS.maxPower, `${displayName} Max-Ladeleistung`, 'maxchargepower') : undefined;
+  const eta = full && hasEv ? solo(kit.luxSensor, SEEDS.eta, `${displayName} Restzeit Laden`, 'chargeeta') : undefined;
+  const rate = full && hasEv ? solo(kit.tempSensor, SEEDS.rate, `${displayName} Laderate`, 'chargerate') : undefined;
+  const chargingFlag = full && hasEv ? solo(kit.contactSensor, SEEDS.chargingFlag, `${displayName} Lädt`, 'chargingflag') : undefined;
+  const dcFlag = full && hasEv ? solo(kit.contactSensor, SEEDS.dcFlag, `${displayName} DC-Laden`, 'dcflag') : undefined;
+  const profileFlag = full && hasEv ? solo(kit.contactSensor, SEEDS.profileFlag, `${displayName} Ladeprofil aktiv`, 'profileflag') : undefined;
 
-  // Gegatet (nur full): Lade-/DC-/Profil-Flags.
-  const chargingFlag = full ? solo(kit.contactSensor, SEEDS.chargingFlag, `${displayName} Lädt`, 'chargingflag') : undefined;
-  const dcFlag = full ? solo(kit.contactSensor, SEEDS.dcFlag, `${displayName} DC-Laden`, 'dcflag') : undefined;
-  const profileFlag = full ? solo(kit.contactSensor, SEEDS.profileFlag, `${displayName} Ladeprofil aktiv`, 'profileflag') : undefined;
+  // Laden an/aus (Switch → DIRECT_CHARGING_START / _STOP).
+  const chargeSwitch = hasEv
+    ? kit.switchService(kit.accessory(SEEDS.chargeSwitch, `${displayName} Laden`), `${displayName} Laden`, 'chargeswitch', {
+        onSet: async (on) => {
+          await kit.command(on ? chargingStart() : chargingStop());
+        },
+      })
+    : undefined;
 
-  // --- Laden an/aus (Switch → DIRECT_CHARGING_START / _STOP) ----------------
-  const chargeSwitch = kit.switchService(
-    kit.accessory(SEEDS.chargeSwitch, `${displayName} Laden`),
-    `${displayName} Laden`,
-    'chargeswitch',
-    {
-      onSet: async (on) => {
-        await kit.command(on ? chargingStart() : chargingStop());
-      },
-    },
-  );
+  // Ladelimit (Lightbulb On+Brightness = Ziel-SoC → CHARGING_SETTINGS_EDIT).
+  const chargeLimit = hasEv
+    ? makeChargeLimit(kit, kit.accessory(SEEDS.chargeLimit, `${displayName} Ladelimit`), `${displayName} Ladelimit`, 'chargelimit')
+    : undefined;
 
-  // --- Ladelimit (Lightbulb On+Brightness = Ziel-SoC → CHARGING_SETTINGS_EDIT)
-  // Essentiell (immer): einmal das Ziel-Ladelimit setzen, schont den Akku.
-  const chargeLimit = makeChargeLimit(
-    kit,
-    kit.accessory(SEEDS.chargeLimit, `${displayName} Ladelimit`),
-    `${displayName} Ladelimit`,
-    'chargelimit',
-  );
+  // Batterie-Service (Lade-/Akkustatus) + „Akku niedrig"-Alert (nativer Push).
+  const battery = hasEv
+    ? makeBattery(kit, kit.accessory(SEEDS.battery, `${displayName} Akku`), `${displayName} Akku`)
+    : undefined;
+  const lowBattery = hasEv
+    ? solo(kit.contactSensor, SEEDS.lowBattery, `${displayName} Akku niedrig`, 'batterylow')
+    : undefined;
 
-  // --- Batterie-Service (eigenes „Taycan Akku"-Accessory, Lade-/Akkustatus) -
-  // Essentiell (immer): Batterie-Indikator (zeigt %, lädt/lädt-nicht).
-  const battery = makeBattery(kit, kit.accessory(SEEDS.battery, `${displayName} Akku`), `${displayName} Akku`);
-
-  // --- „Akku niedrig"-Alert (ContactSensor) ---------------------------------
-  // Essentiell (immer): öffnet (NOT_DETECTED), sobald der Ladestand ≤ Schwelle
-  // ist. Als ECHTER Ereignis-Sensor kann Apple Home daran nativ Push-Benach-
-  // richtigungen aktivieren („Akku niedrig" → Mitteilung) — ohne Workaround.
-  // Der SoC-Dimmer (Lightbulb) taugt dafür NICHT (keine Sensor-Schwelle).
-  const lowBattery = solo(
-    kit.contactSensor,
-    SEEDS.lowBattery,
-    `${displayName} Akku niedrig`,
-    'batterylow',
-  );
+  // =========================================================================
+  // SPRIT (nur Verbrenner/PHEV): Tankstand + Kraftstoff-Reichweite
+  // =========================================================================
+  // Tankstand als Schieberegler (Lightbulb-Dimmer, read-only) — analog SoC.
+  const fuel = hasFuel
+    ? makeSocDisplay(kit, kit.accessory(SEEDS.fuel, `${displayName} Tankstand`), `${displayName} Tankstand`, 'fuel')
+    : undefined;
+  // Kraftstoff-/Gesamt-Reichweite (RANGE). Bei reinem Verbrenner schlicht „Reichweite".
+  const fuelRange = hasFuel
+    ? solo(kit.luxSensor, SEEDS.fuelRange, `${displayName} ${phev ? 'Reichweite gesamt' : 'Reichweite'}`, 'fuelrange')
+    : undefined;
 
   /** Aktualisiert ALLE von diesem Modul angelegten Characteristics aus dem State. */
   return (state: VehicleState): void => {
-    // SoC: HumiditySensor + Batterie-Level (Fabrik klemmt/rundet 0..100).
+    // --- STROM (EV/PHEV) — alle optional, da bei Verbrenner nicht angelegt ---
     if (state.soc !== undefined) {
-      soc.update(state.soc);
+      soc?.update(state.soc);
     }
-
-    // Reichweite / Leistungen / Restzeit: LightSensor (Fabrik klemmt auf ≥0.0001).
     if (state.rangeKm !== undefined) {
-      range.update(state.rangeKm);
+      evRange?.update(state.rangeKm);
     }
     if (state.chargingPowerKw !== undefined) {
       power?.update(state.chargingPowerKw);
@@ -153,29 +153,25 @@ export function chargingModule(kit: Kit): (state: VehicleState) => void {
     if (state.chargeEtaMinutes !== undefined) {
       eta?.update(state.chargeEtaMinutes);
     }
-
-    // Laderate km/min: TemperatureSensor (Dezimal).
     if (state.chargeRateKmMin !== undefined) {
       rate?.update(state.chargeRateKmMin);
     }
-
-    // Flags: ContactSensor (true = NOT_DETECTED = „Warnung/aktiv", false = ok/zu).
     chargingFlag?.update(state.charging === true);
     dcFlag?.update((state.chargingType ?? '').toUpperCase() === 'DC');
     profileFlag?.update(typeof state.activeProfileName === 'string' && state.activeProfileName.length > 0);
+    chargeSwitch?.update(state.charging === true);
+    chargeLimit?.update(state.targetSoc);
+    battery?.update(state);
+    // „Akku niedrig"-Alert: öffnet, sobald SoC ≤ Schwelle (unbekannt → kein Fehlalarm).
+    lowBattery?.update(state.soc !== undefined && state.soc <= config.lowBatteryThreshold);
 
-    // Laden-Switch spiegelt den realen Lade-Zustand wider.
-    chargeSwitch.update(state.charging === true);
-
-    // Ladelimit: On=true wenn ein Ziel-SoC bekannt ist; Brightness=Ziel-SoC.
-    chargeLimit.update(state.targetSoc);
-
-    // Batterie: Level + Charging-State + Low-Battery.
-    battery.update(state);
-
-    // „Akku niedrig"-Alert: ContactSensor öffnet, sobald SoC ≤ Schwelle. Bei
-    // unbekanntem SoC bleibt er geschlossen (kein Fehlalarm).
-    lowBattery.update(state.soc !== undefined && state.soc <= config.lowBatteryThreshold);
+    // --- SPRIT (Verbrenner/PHEV) -------------------------------------------
+    if (state.fuelLevel !== undefined) {
+      fuel?.update(state.fuelLevel);
+    }
+    if (state.fuelRangeKm !== undefined) {
+      fuelRange?.update(state.fuelRangeKm);
+    }
   };
 }
 

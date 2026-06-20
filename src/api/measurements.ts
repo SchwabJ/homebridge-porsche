@@ -23,10 +23,15 @@ export interface Corners<T> {
 /** Typisierter Fahrzeugzustand, abgeleitet aus den Messwerten. */
 export interface VehicleState {
   // --- Batterie / Reichweite / km-Stand -------------------------------------
-  /** Ladezustand der Batterie in Prozent (BATTERY_LEVEL.percent). */
+  /** Ladezustand der Batterie in Prozent (BATTERY_LEVEL.percent) — nur E/PHEV. */
   soc?: number;
-  /** Elektrische Restreichweite in km (E_RANGE.kilometers). */
+  /** Elektrische Restreichweite in km (E_RANGE.kilometers) — nur E/PHEV. */
   rangeKm?: number;
+  /** Tankfüllstand in Prozent (FUEL_LEVEL.percent) — nur Verbrenner/PHEV.
+   *  Hinweis: value-Struktur nach BATTERY_LEVEL-Konvention angenommen, nicht live verifiziert. */
+  fuelLevel?: number;
+  /** Gesamt-/Kraftstoff-Restreichweite in km (RANGE.kilometers) — Verbrenner/PHEV. */
+  fuelRangeKm?: number;
   /** Gesamt-Kilometerstand (MILEAGE.kilometers). */
   odometerKm?: number;
 
@@ -205,6 +210,8 @@ export function parseMeasurements(response: unknown, nowMs: number = Date.now())
 
   const battery = byKey.get('BATTERY_LEVEL');
   const range = byKey.get('E_RANGE');
+  const fuel = byKey.get('FUEL_LEVEL');
+  const totalRange = byKey.get('RANGE');
   const mileage = byKey.get('MILEAGE');
   const charge = byKey.get('CHARGING_SUMMARY');
   const rate = byKey.get('CHARGING_RATE');
@@ -307,6 +314,8 @@ export function parseMeasurements(response: unknown, nowMs: number = Date.now())
   return {
     soc: num(battery, 'percent'),
     rangeKm: num(range, 'kilometers'),
+    fuelLevel: num(fuel, 'percent'),
+    fuelRangeKm: num(totalRange, 'kilometers'),
     odometerKm: num(mileage, 'kilometers'),
 
     charging,

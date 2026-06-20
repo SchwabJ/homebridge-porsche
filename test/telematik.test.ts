@@ -1,7 +1,7 @@
 import { PlatformAccessory } from 'homebridge/lib/platformAccessory';
 import * as hap from 'hap-nodejs';
 
-import { createKit, DEFAULT_CONFIG, KitContext, ResolvedTaycanConfig } from '../src/accessories/kit';
+import { createKit, DEFAULT_CONFIG, KitContext, ResolvedPorscheConfig } from '../src/accessories/kit';
 import { telemetryModule } from '../src/accessories/telemetry';
 import { VehicleState } from '../src/api/measurements';
 
@@ -30,12 +30,12 @@ const log = {
 } as unknown as import('homebridge').Logging;
 
 /** Baut Kit + verdrahtetes Telemetrie-Modul; gibt die accessory-Lookup-Funktion zurück. */
-function setup(configOverrides: Partial<ResolvedTaycanConfig> = {}) {
+function setup(configOverrides: Partial<ResolvedPorscheConfig> = {}) {
   // Voll-Set-Tests laufen im 'full'-Modus (Default-Config ist jetzt 'essential').
   // detailLevel VOR den Overrides → einzelne Tests können auf 'essential' umstellen.
   // Heim-Koordinaten = Test-Fahrzeugposition (München), da der Default 0/0 ist
   // („Auto zuhause" deaktiviert) — sonst schlügen die at-home-Tests fehl.
-  const config: ResolvedTaycanConfig = {
+  const config: ResolvedPorscheConfig = {
     ...DEFAULT_CONFIG,
     detailLevel: 'full',
     homeLat: 48.137154,

@@ -1,7 +1,7 @@
 import { PlatformAccessory } from 'homebridge/lib/platformAccessory';
 import * as hap from 'hap-nodejs';
 
-import { createKit, DEFAULT_CONFIG, KitContext, ResolvedTaycanConfig } from '../src/accessories/kit';
+import { createKit, DEFAULT_CONFIG, KitContext, ResolvedPorscheConfig } from '../src/accessories/kit';
 import { PorscheCommand } from '../src/api/commands';
 import { VehicleState } from '../src/api/measurements';
 import { climateModule } from '../src/accessories/climate';
@@ -31,11 +31,11 @@ const log = {
 } as unknown as import('homebridge').Logging;
 
 /** Baut Kit + Modul und liefert Zugriff auf die Accessories + gesendete Commands. */
-function setup(configOverrides: Partial<ResolvedTaycanConfig> = {}) {
+function setup(configOverrides: Partial<ResolvedPorscheConfig> = {}) {
   const { api, registered } = makeApi();
   const commands: PorscheCommand[] = [];
   // Voll-Set-Tests laufen im 'full'-Modus (Default-Config ist 'essential').
-  const config: ResolvedTaycanConfig = { ...DEFAULT_CONFIG, detailLevel: 'full', ...configOverrides };
+  const config: ResolvedPorscheConfig = { ...DEFAULT_CONFIG, detailLevel: 'full', ...configOverrides };
   const context: KitContext = {
     api,
     log,

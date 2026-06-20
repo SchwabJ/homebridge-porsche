@@ -15,7 +15,7 @@ import { PorscheClient } from './api/porscheClient';
 import { VehicleState } from './api/measurements';
 import { PorscheCommand } from './api/commands';
 import { clampPollInterval } from './wake';
-import { createKit, resolveConfig, ResolvedTaycanConfig, PLUGIN_NAME, PLATFORM_NAME } from './accessories/kit';
+import { createKit, resolveConfig, ResolvedPorscheConfig, PLUGIN_NAME, PLATFORM_NAME } from './accessories/kit';
 import chargingModule from './accessories/charging';
 import climateModule from './accessories/climate';
 import accessModule from './accessories/access';
@@ -77,7 +77,7 @@ const STATE_KEYS: string[] = [
  *
  * Aufbau-Reihenfolge ist bewusst „Accessories zuerst, Netz danach":
  *
- *  1. Config → {@link ResolvedTaycanConfig} (Defaults), Poll-Intervall geklemmt.
+ *  1. Config → {@link ResolvedPorscheConfig} (Defaults), Poll-Intervall geklemmt.
  *  2. {@link createKit} mit den gecachten Accessories + late-bindendem `command`.
  *  3. Alle Domänen-Module (Laden, Klima, Zugang, Telemetrie) + Watchdog laufen,
  *     bauen ihre Services und liefern `update(state)`-Closures.
@@ -92,12 +92,12 @@ const STATE_KEYS: string[] = [
  * Endpunkt, kein wakeUpJob); das Poll-Intervall wird per `clampPollInterval` auf
  * ≥10 Minuten geklemmt.
  */
-export class TaycanPlatform implements DynamicPlatformPlugin {
+export class PorschePlatform implements DynamicPlatformPlugin {
   /** Aus dem Cache wiederhergestellte Accessories (DynamicPlatform-Vertrag). */
   private readonly accessories: PlatformAccessory[] = [];
 
   // --- aufgelöste Konfiguration ---------------------------------------------
-  private readonly resolvedConfig: ResolvedTaycanConfig;
+  private readonly resolvedConfig: ResolvedPorscheConfig;
   private readonly pollIntervalMinutes: number;
   private readonly tokenPath: string;
 
@@ -121,9 +121,9 @@ export class TaycanPlatform implements DynamicPlatformPlugin {
     this.pollIntervalMinutes = clampPollInterval(this.resolvedConfig.pollIntervalMinutes);
     this.tokenPath =
       (config.tokenPath as string) ||
-      path.join(api.user.storagePath(), 'taycan-tokens.json');
+      path.join(api.user.storagePath(), 'porsche-tokens.json');
 
-    this.log.info('homebridge-taycan geladen (Cockpit)');
+    this.log.info('homebridge-porsche geladen (Cockpit)');
 
     // Accessories zuerst aufbauen, danach Tokens/Netz — siehe Klassen-Doc.
     this.api.on('didFinishLaunching', () => {
@@ -208,8 +208,8 @@ export class TaycanPlatform implements DynamicPlatformPlugin {
   private async start(): Promise<void> {
     const stored = loadTokens(this.tokenPath);
     if (!stored) {
-      this.log.error('Keine Tokens — bitte einmal `taycan-auth` ausführen.');
-      this.setHealth?.({ ok: false, message: 'keine Tokens (taycan-auth fehlt)' });
+      this.log.error('Keine Tokens — bitte einmal `porsche-auth` ausführen.');
+      this.setHealth?.({ ok: false, message: 'keine Tokens (porsche-auth fehlt)' });
       return;
     }
 

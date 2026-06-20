@@ -4,7 +4,7 @@ import * as path from 'path';
 import { saveTokens, loadTokens, StoredTokens } from '../src/auth/tokenStore';
 
 function randomTokenPath(): string {
-  const name = `taycan-tokens-${process.pid}-${process.hrtime.bigint()}.json`;
+  const name = `porsche-tokens-${process.pid}-${process.hrtime.bigint()}.json`;
   return path.join(os.tmpdir(), name);
 }
 

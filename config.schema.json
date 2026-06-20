@@ -1,9 +1,9 @@
 {
-  "pluginAlias": "Taycan",
+  "pluginAlias": "Porsche",
   "pluginType": "platform",
   "singular": true,
-  "headerDisplay": "Bindet den Porsche Taycan in Apple Home ein. Vor der ersten Nutzung einmalig `taycan-auth` ausführen (Login, ggf. Captcha) – danach läuft das Plugin headless über den Refresh-Token. Details siehe README.",
-  "footerDisplay": "Inoffizielle, reverse-engineerte API. Bei „Tokens weg\"-Fehlern `taycan-auth` erneut ausführen.",
+  "headerDisplay": "Bindet den Porsche Taycan in Apple Home ein. Vor der ersten Nutzung einmalig `porsche-auth` ausführen (Login, ggf. Captcha) – danach läuft das Plugin headless über den Refresh-Token. Details siehe README.",
+  "footerDisplay": "Inoffizielle, reverse-engineerte API. Bei „Tokens weg\"-Fehlern `porsche-auth` erneut ausführen.",
   "schema": {
     "type": "object",
     "properties": {
@@ -11,7 +11,7 @@
         "title": "Anzeigename",
         "type": "string",
         "required": true,
-        "default": "Taycan"
+        "default": "Porsche"
       },
       "vin": {
         "title": "VIN (leer = erstes Fahrzeug)",
@@ -27,6 +27,18 @@
         "oneOf": [
           { "title": "Wesentliche (empfohlen)", "enum": ["essential"] },
           { "title": "Vollständig (alles)", "enum": ["full"] }
+        ]
+      },
+      "vehicleType": {
+        "title": "Antriebsart",
+        "type": "string",
+        "required": false,
+        "default": "ev",
+        "description": "Steuert die Energie-Kacheln. „Elektro\" = Ladestand/Reichweite/Laden. „Verbrenner\" = Tankstand/Reichweite. „Plug-in-Hybrid\" = beides. Hinweis: nur Elektro (Taycan) ist live getestet.",
+        "oneOf": [
+          { "title": "Elektro (EV)", "enum": ["ev"] },
+          { "title": "Verbrenner", "enum": ["combustion"] },
+          { "title": "Plug-in-Hybrid (PHEV)", "enum": ["phev"] }
         ]
       },
       "spin": {
@@ -146,6 +158,7 @@
     "vehicleName",
     "vin",
     "detailLevel",
+    "vehicleType",
     { "key": "spin", "type": "password" },
     {
       "type": "fieldset",

@@ -1,0 +1,47 @@
+homebridge-taycan
+Copyright (c) 2026 SchwabJ
+Licensed under the MIT License (see LICENSE).
+
+--------------------------------------------------------------------------------
+Acknowledgements / third-party references
+--------------------------------------------------------------------------------
+
+This project contains no source code copied from other projects. The Porsche
+Connect / PPA API behaviour it relies on (endpoint URLs, the `key` command wire
+field, the 201 -> job-poll command flow, and the S-PIN challenge/response hash
+sha512(bytes.fromhex(pin + challenge)).hexdigest().upper()) was independently
+re-implemented in TypeScript with reference to:
+
+  pyporscheconnectapi  (https://github.com/CJNE/pyporscheconnectapi)
+  Copyright (c) 2020 Johan Isacsson
+  Licensed under the MIT License.
+
+These are factual/functional API elements (interfaces, methods of operation and
+data formats), not literary expression. The MIT text of pyporscheconnectapi is
+reproduced below as an acknowledgement of that reference.
+
+--------------------------------------------------------------------------------
+pyporscheconnectapi - MIT License
+--------------------------------------------------------------------------------
+
+MIT License
+
+Copyright (c) 2020 Johan Isacsson
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

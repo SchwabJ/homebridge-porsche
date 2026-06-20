@@ -16,7 +16,12 @@ Connect / PPA API and exposes your Taycan as clean, everyday HomeKit tiles: clim
 </div>
 
 > ⚠️ **Unofficial project.** Not affiliated with, endorsed by, or supported by Dr. Ing. h.c. F. Porsche AG.
-> It uses a reverse-engineered, undocumented API that can change or break at any time. Use at your own risk.
+> It uses a reverse-engineered, undocumented API that can change or break at any time. Use at your own risk,
+> with your own Porsche ID account.
+>
+> **Porsche** and **Taycan** are trademarks of Dr. Ing. h.c. F. Porsche AG. They are used here for
+> identification and compatibility purposes only — no Porsche logo or crest is used. See [NOTICE](NOTICE)
+> for third-party attribution.
 
 ---
 
@@ -162,8 +167,11 @@ The codebase is split by domain: `src/api` (PPA client, commands, measurements, 
 
 ## 🙏 Credits
 
-API behaviour ported from the excellent
-[**CJNE/pyporscheconnectapi**](https://github.com/CJNE/pyporscheconnectapi). Thank you.
+The Porsche Connect / PPA API behaviour (endpoint URLs, the `key` command wire field, the
+201 → job-poll flow and the S-PIN challenge hash) was **independently re-implemented in TypeScript**
+with reference to [**pyporscheconnectapi**](https://github.com/CJNE/pyporscheconnectapi) by
+Johan Isacsson (MIT-licensed). This project contains **no copied source code** — see
+[NOTICE](NOTICE) for the full attribution. Thank you, Johan! 🙏
 
 ## 📄 License
 

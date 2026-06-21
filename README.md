@@ -16,7 +16,7 @@ find-my-car, and more.
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg)](https://nodejs.org)
 [![Homebridge](https://img.shields.io/badge/homebridge-%E2%89%A51.6-purple.svg)](https://homebridge.io)
-[![Tests](https://img.shields.io/badge/tests-203%20passing-success.svg)](#-development)
+[![Tests](https://img.shields.io/badge/tests-214%20passing-success.svg)](#-development)
 
 </div>
 
@@ -150,6 +150,8 @@ Add the **Porsche** platform via the Homebridge UI, or in `config.json`:
       "platform": "Porsche",
       "name": "Porsche",
       "vehicleName": "Porsche",
+      "language": "en",
+      "vehicleModel": "Porsche",
       "vin": "",
       "detailLevel": "essential",
       "vehicleType": "ev",
@@ -165,7 +167,9 @@ Add the **Porsche** platform via the Homebridge UI, or in `config.json`:
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `vehicleName` | `Porsche` | Display-name prefix for all tiles |
+| `vehicleName` | `Porsche` | Display-name prefix for all tiles (set this to your model, e.g. `Macan`, `911`) |
+| `language` | `en` | Language of the tile names — `en` or `de` |
+| `vehicleModel` | `Porsche` | Shown as the *Model* in each accessory's HomeKit details |
 | `vin` | _(first vehicle)_ | Fix a VIN if the account has several cars |
 | `detailLevel` | `essential` | `essential` (everyday tiles) or `full` (entire cockpit) |
 | `vehicleType` | `ev` | `ev` (charge/range/charging), `combustion` (fuel level + range) or `phev` (both) |
@@ -201,7 +205,7 @@ notification toggle), or charge-on-arrival via **Car at home**.
 ```bash
 npm install
 npm run build      # tsc → dist/
-npm test           # jest (203 tests)
+npm test           # jest (214 tests)
 ```
 
 The codebase is split by domain: `src/api` (PPA client, commands, measurements, auth),

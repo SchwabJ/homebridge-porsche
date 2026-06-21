@@ -114,11 +114,11 @@ export const climateModule: DomainModule = (kit: Kit) => {
   // =========================================================================
   // Thermostat „Klima" (ESSENTIELL, immer) — Soll-Temperatur + Aus/An
   // =========================================================================
-  const thermAcc: PlatformAccessory = kit.accessory(SEEDS.thermostat, `${displayName} Klima`);
+  const thermAcc: PlatformAccessory = kit.accessory(SEEDS.thermostat, `${displayName} ${kit.labels.climate}`);
   const therm: Service =
     thermAcc.getServiceById(Service.Thermostat, 'climate') ??
-    thermAcc.addService(Service.Thermostat, `${displayName} Klima`, 'climate');
-  kit.nameService(therm, `${displayName} Klima`);
+    thermAcc.addService(Service.Thermostat, `${displayName} ${kit.labels.climate}`, 'climate');
+  kit.nameService(therm, `${displayName} ${kit.labels.climate}`);
 
   const currentTempChar = therm.getCharacteristic(Characteristic.CurrentTemperature);
   const targetTempChar = therm.getCharacteristic(Characteristic.TargetTemperature);
@@ -156,7 +156,7 @@ export const climateModule: DomainModule = (kit: Kit) => {
     climateOn = on;
     void command(on ? climateStart(currentTarget, desiredZones) : climateStop());
     currentStateChar.updateValue(on ? CUR_HEAT : CUR_OFF);
-    log.info(`${displayName}: Klima ${on ? `an (${currentTarget}°C)` : 'aus'}`);
+    log.info(`${displayName}: Climate ${on ? `on (${currentTarget}°C)` : 'off'}`);
   });
 
   // --- onSet: Soll-Temperatur → live nachsenden, wenn die Klima läuft ------
@@ -172,8 +172,8 @@ export const climateModule: DomainModule = (kit: Kit) => {
   // Switch „Standheizung" (momentaner Switch, nur 'full') — KEIN Soll-Wert
   // =========================================================================
   if (full) {
-    const heatingAcc = kit.accessory(SEEDS.heating, `${displayName} Standheizung`);
-    kit.switchService(heatingAcc, `${displayName} Standheizung`, 'heating', {
+    const heatingAcc = kit.accessory(SEEDS.heating, `${displayName} ${kit.labels.heating}`);
+    kit.switchService(heatingAcc, `${displayName} ${kit.labels.heating}`, 'heating', {
       onSet: (on) => {
         void command(on ? heatingStart() : heatingStop());
       },
@@ -188,10 +188,10 @@ export const climateModule: DomainModule = (kit: Kit) => {
 
   if (full && config.exposeClimateZones) {
     const zoneDefs: Array<{ seed: string; name: string; subtype: string; key: keyof ClimateZones; corner: keyof Corners<boolean> }> = [
-      { seed: SEEDS.zoneFl, name: 'Klimazone vorne links', subtype: 'zone-fl', key: 'frontLeft', corner: 'fl' },
-      { seed: SEEDS.zoneFr, name: 'Klimazone vorne rechts', subtype: 'zone-fr', key: 'frontRight', corner: 'fr' },
-      { seed: SEEDS.zoneRl, name: 'Klimazone hinten links', subtype: 'zone-rl', key: 'rearLeft', corner: 'rl' },
-      { seed: SEEDS.zoneRr, name: 'Klimazone hinten rechts', subtype: 'zone-rr', key: 'rearRight', corner: 'rr' },
+      { seed: SEEDS.zoneFl, name: kit.labels.climateZoneFrontLeft, subtype: 'zone-fl', key: 'frontLeft', corner: 'fl' },
+      { seed: SEEDS.zoneFr, name: kit.labels.climateZoneFrontRight, subtype: 'zone-fr', key: 'frontRight', corner: 'fr' },
+      { seed: SEEDS.zoneRl, name: kit.labels.climateZoneRearLeft, subtype: 'zone-rl', key: 'rearLeft', corner: 'rl' },
+      { seed: SEEDS.zoneRr, name: kit.labels.climateZoneRearRight, subtype: 'zone-rr', key: 'rearRight', corner: 'rr' },
     ];
 
     for (const def of zoneDefs) {
@@ -238,7 +238,7 @@ export const climateModule: DomainModule = (kit: Kit) => {
     }
 
     log.debug(
-      `Klima: on=${state.climateOn} target=${currentTarget}°C zones=` +
+      `Climate: on=${state.climateOn} target=${currentTarget}°C zones=` +
         `${desiredZones.frontLeft ? 1 : 0}${desiredZones.frontRight ? 1 : 0}` +
         `${desiredZones.rearLeft ? 1 : 0}${desiredZones.rearRight ? 1 : 0}`,
     );

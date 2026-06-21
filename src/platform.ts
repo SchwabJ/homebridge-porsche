@@ -123,7 +123,7 @@ export class PorschePlatform implements DynamicPlatformPlugin {
       (config.tokenPath as string) ||
       path.join(api.user.storagePath(), 'porsche-tokens.json');
 
-    this.log.info('homebridge-porsche geladen (Cockpit)');
+    this.log.info('homebridge-porsche loaded (cockpit)');
 
     // Accessories zuerst aufbauen, danach Tokens/Netz — siehe Klassen-Doc.
     this.api.on('didFinishLaunching', () => {
@@ -190,7 +190,7 @@ export class PorschePlatform implements DynamicPlatformPlugin {
     const orphans = this.accessories.filter((a) => !touchedUuids.has(a.UUID));
     if (orphans.length > 0) {
       this.log.info(
-        `Entferne ${orphans.length} verwaiste Accessory(s): ` +
+        `Removing ${orphans.length} orphaned accessory(s): ` +
           orphans.map((a) => a.displayName).join(', '),
       );
       this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, orphans);
@@ -208,8 +208,8 @@ export class PorschePlatform implements DynamicPlatformPlugin {
   private async start(): Promise<void> {
     const stored = loadTokens(this.tokenPath);
     if (!stored) {
-      this.log.error('Keine Tokens — bitte einmal `porsche-auth` ausführen.');
-      this.setHealth?.({ ok: false, message: 'keine Tokens (porsche-auth fehlt)' });
+      this.log.error('No tokens — run `porsche-auth` once.');
+      this.setHealth?.({ ok: false, message: 'no tokens (porsche-auth missing)' });
       return;
     }
 
@@ -261,8 +261,8 @@ export class PorschePlatform implements DynamicPlatformPlugin {
         vin = vehicles[0]?.vin;
       }
       if (!vin) {
-        this.log.error('Keine VIN gefunden (Fahrzeugliste leer).');
-        this.setHealth?.({ ok: false, message: 'keine VIN' });
+        this.log.error('No VIN found (vehicle list empty).');
+        this.setHealth?.({ ok: false, message: 'no VIN' });
         return;
       }
 
@@ -279,11 +279,11 @@ export class PorschePlatform implements DynamicPlatformPlugin {
         this.pollTimer.unref();
       }
       this.log.info(
-        `Poll-Loop gestartet (alle ${this.pollIntervalMinutes} min) für VIN ${vin}.`,
+        `Poll loop started (every ${this.pollIntervalMinutes} min) for VIN ${vin}.`,
       );
     } catch (err) {
-      this.log.warn(`Start fehlgeschlagen (Auth/Netz): ${String(err)}`);
-      this.setHealth?.({ ok: false, message: `Start: ${String(err)}` });
+      this.log.warn(`Startup failed (auth/network): ${String(err)}`);
+      this.setHealth?.({ ok: false, message: `Startup: ${String(err)}` });
     }
   }
 
@@ -298,19 +298,19 @@ export class PorschePlatform implements DynamicPlatformPlugin {
     try {
       const state = await this.client.getState(this.vin, STATE_KEYS);
       this.log.info(
-        `Poll OK: SoC=${state.soc}% Reichweite=${state.rangeKm}km verriegelt=${state.locked} Klima=${state.climateOn}`,
+        `Poll OK: SoC=${state.soc}% range=${state.rangeKm}km locked=${state.locked} climate=${state.climateOn}`,
       );
       for (const update of this.updaters) {
         try {
           update(state);
         } catch (err) {
           // Ein einzelnes Modul darf den Zyklus nicht reißen.
-          this.log.warn(`Modul-Update fehlgeschlagen: ${String(err)}`);
+          this.log.warn(`Module update failed: ${String(err)}`);
         }
       }
       this.setHealth?.({ ok: true });
     } catch (err) {
-      this.log.warn(`Statusabfrage fehlgeschlagen: ${String(err)}`);
+      this.log.warn(`Status poll failed: ${String(err)}`);
       this.setHealth?.({ ok: false, message: `Poll: ${String(err)}` });
     }
   }
@@ -322,14 +322,14 @@ export class PorschePlatform implements DynamicPlatformPlugin {
    */
   private async runCommand(cmd: PorscheCommand): Promise<void> {
     if (!this.client || !this.vin) {
-      this.log.warn(`Befehl ${cmd.commandName}: noch nicht bereit (keine Tokens/VIN).`);
+      this.log.warn(`Command ${cmd.commandName}: not ready yet (no tokens/VIN).`);
       return;
     }
     try {
       await this.client.sendCommand(this.vin, cmd);
-      this.log.info(`Befehl ${cmd.commandName} gesendet.`);
+      this.log.info(`Command ${cmd.commandName} sent.`);
     } catch (err) {
-      this.log.warn(`Befehl ${cmd.commandName} fehlgeschlagen: ${String(err)}`);
+      this.log.warn(`Command ${cmd.commandName} failed: ${String(err)}`);
     }
   }
 
@@ -340,14 +340,14 @@ export class PorschePlatform implements DynamicPlatformPlugin {
    */
   private async runUnlock(): Promise<void> {
     if (!this.client || !this.vin) {
-      this.log.warn('Entriegeln: noch nicht bereit (keine Tokens/VIN).');
-      throw new Error('Plugin nicht bereit');
+      this.log.warn('Unlock: not ready yet (no tokens/VIN).');
+      throw new Error('Plugin not ready');
     }
     const spin = this.resolvedConfig.spin;
     if (!spin) {
-      throw new Error('keine S-PIN konfiguriert');
+      throw new Error('no S-PIN configured');
     }
     await this.client.unlock(this.vin, spin);
-    this.log.info('Fahrzeug entriegelt.');
+    this.log.info('Vehicle unlocked.');
   }
 }

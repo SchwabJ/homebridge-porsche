@@ -132,44 +132,44 @@ export const telemetryModule: DomainModule = (kit: Kit) => {
 
   // === Reifen: 4 Drücke + 4 Warnungen + Sammel-Warnung (gegatet) =============
   // Vier Reifendrücke (bar → TemperatureSensor, erlaubt Dezimal).
-  const pressFl = full ? sensor(kit.tempSensor, SEEDS.pressFl, `${displayName} Reifendruck VL`, 'tire-press-fl') : undefined;
-  const pressFr = full ? sensor(kit.tempSensor, SEEDS.pressFr, `${displayName} Reifendruck VR`, 'tire-press-fr') : undefined;
-  const pressRl = full ? sensor(kit.tempSensor, SEEDS.pressRl, `${displayName} Reifendruck HL`, 'tire-press-rl') : undefined;
-  const pressRr = full ? sensor(kit.tempSensor, SEEDS.pressRr, `${displayName} Reifendruck HR`, 'tire-press-rr') : undefined;
+  const pressFl = full ? sensor(kit.tempSensor, SEEDS.pressFl, `${displayName} ${kit.labels.tirePressureFrontLeft}`, 'tire-press-fl') : undefined;
+  const pressFr = full ? sensor(kit.tempSensor, SEEDS.pressFr, `${displayName} ${kit.labels.tirePressureFrontRight}`, 'tire-press-fr') : undefined;
+  const pressRl = full ? sensor(kit.tempSensor, SEEDS.pressRl, `${displayName} ${kit.labels.tirePressureRearLeft}`, 'tire-press-rl') : undefined;
+  const pressRr = full ? sensor(kit.tempSensor, SEEDS.pressRr, `${displayName} ${kit.labels.tirePressureRearRight}`, 'tire-press-rr') : undefined;
 
   // Vier Reifen-Warnungen (ContactSensor + StatusFault), Schwelle = tireDiffThreshold.
-  const warnFl = full ? contact(SEEDS.warnFl, `${displayName} Reifenwarnung VL`, 'tire-warn-fl', fault) : undefined;
-  const warnFr = full ? contact(SEEDS.warnFr, `${displayName} Reifenwarnung VR`, 'tire-warn-fr', fault) : undefined;
-  const warnRl = full ? contact(SEEDS.warnRl, `${displayName} Reifenwarnung HL`, 'tire-warn-rl', fault) : undefined;
-  const warnRr = full ? contact(SEEDS.warnRr, `${displayName} Reifenwarnung HR`, 'tire-warn-rr', fault) : undefined;
+  const warnFl = full ? contact(SEEDS.warnFl, `${displayName} ${kit.labels.tireWarningFrontLeft}`, 'tire-warn-fl', fault) : undefined;
+  const warnFr = full ? contact(SEEDS.warnFr, `${displayName} ${kit.labels.tireWarningFrontRight}`, 'tire-warn-fr', fault) : undefined;
+  const warnRl = full ? contact(SEEDS.warnRl, `${displayName} ${kit.labels.tireWarningRearLeft}`, 'tire-warn-rl', fault) : undefined;
+  const warnRr = full ? contact(SEEDS.warnRr, `${displayName} ${kit.labels.tireWarningRearRight}`, 'tire-warn-rr', fault) : undefined;
 
   // Sammel-Warnung über alle vier Reifen.
-  const warnTires = full ? contact(SEEDS.warnAny, `${displayName} Reifenwarnung`, 'tire-warn-any', fault) : undefined;
+  const warnTires = full ? contact(SEEDS.warnAny, `${displayName} ${kit.labels.tireWarning}`, 'tire-warn-any', fault) : undefined;
 
   // === Status: km/Service/Position/diskrete Zustände/Aktualität ==============
   // km-Stand & Service-Reststrecke (km, >1 → LightSensor). Gegatet.
-  const odometer = full ? sensor(kit.luxSensor, SEEDS.odometer, `${displayName} Kilometerstand`, 'odometer') : undefined;
-  const serviceKm = full ? sensor(kit.luxSensor, SEEDS.serviceKm, `${displayName} Service in km`, 'service-km') : undefined;
+  const odometer = full ? sensor(kit.luxSensor, SEEDS.odometer, `${displayName} ${kit.labels.odometer}`, 'odometer') : undefined;
+  const serviceKm = full ? sensor(kit.luxSensor, SEEDS.serviceKm, `${displayName} ${kit.labels.serviceInKm}`, 'service-km') : undefined;
 
   // Service-Warnung (ContactSensor + StatusFault), wenn Reststrecke ≤ serviceWarnKm. Gegatet.
-  const warnService = full ? contact(SEEDS.serviceWarn, `${displayName} Servicewarnung`, 'service-warn', fault) : undefined;
+  const warnService = full ? contact(SEEDS.serviceWarn, `${displayName} ${kit.labels.serviceWarning}`, 'service-warn', fault) : undefined;
 
   // Auto-zuhause (OccupancySensor) — ESSENTIELL, wird IMMER angelegt.
-  const carHome = sensor(kit.occupancySensor, SEEDS.carHome, `${displayName} Auto zuhause`, 'car-home');
+  const carHome = sensor(kit.occupancySensor, SEEDS.carHome, `${displayName} ${kit.labels.carAtHome}`, 'car-home');
   // Distanz-zuhause in m (LightSensor). Gegatet.
-  const distHome = full ? sensor(kit.luxSensor, SEEDS.distHome, `${displayName} Distanz zuhause`, 'dist-home') : undefined;
+  const distHome = full ? sensor(kit.luxSensor, SEEDS.distHome, `${displayName} ${kit.labels.distanceHome}`, 'dist-home') : undefined;
 
   // Heading 0–360° (LightSensor). Gegatet.
-  const heading = full ? sensor(kit.luxSensor, SEEDS.heading, `${displayName} Fahrtrichtung`, 'heading') : undefined;
+  const heading = full ? sensor(kit.luxSensor, SEEDS.heading, `${displayName} ${kit.labels.heading}`, 'heading') : undefined;
 
   // Diskrete Zustände (ContactSensor, true → NOT_DETECTED). Gegatet.
-  const parkingBrake = full ? contact(SEEDS.parkingBrake, `${displayName} Handbremse`, 'parking-brake') : undefined;
-  const parkingLight = full ? contact(SEEDS.parkingLight, `${displayName} Parklicht`, 'parking-light') : undefined;
-  const privacy = full ? contact(SEEDS.privacy, `${displayName} Privatmodus`, 'privacy') : undefined;
-  const remote = full ? contact(SEEDS.remote, `${displayName} Fernzugriff`, 'remote-access') : undefined;
+  const parkingBrake = full ? contact(SEEDS.parkingBrake, `${displayName} ${kit.labels.parkingBrake}`, 'parking-brake') : undefined;
+  const parkingLight = full ? contact(SEEDS.parkingLight, `${displayName} ${kit.labels.parkingLight}`, 'parking-light') : undefined;
+  const privacy = full ? contact(SEEDS.privacy, `${displayName} ${kit.labels.privacyMode}`, 'privacy') : undefined;
+  const remote = full ? contact(SEEDS.remote, `${displayName} ${kit.labels.remoteAccess}`, 'remote-access') : undefined;
 
   // Daten-Aktualität (ContactSensor + StatusFault): Warnung, wenn Daten zu alt. Gegatet.
-  const dataStale = full ? contact(SEEDS.dataStale, `${displayName} Daten veraltet`, 'data-stale', fault) : undefined;
+  const dataStale = full ? contact(SEEDS.dataStale, `${displayName} ${kit.labels.dataStale}`, 'data-stale', fault) : undefined;
 
   // === Apply-Funktion =======================================================
   return (state: VehicleState): void => {

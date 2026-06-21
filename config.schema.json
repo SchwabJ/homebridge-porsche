@@ -3,103 +3,121 @@
   "pluginType": "platform",
   "singular": true,
   "customUi": true,
-  "headerDisplay": "Bindet den Porsche Taycan in Apple Home ein. **Erste Nutzung: oben mit deiner Porsche ID anmelden** (E-Mail, Passwort, ggf. Captcha als Bild) – danach läuft das Plugin headless über den Refresh-Token. Alternativ per CLI `porsche-auth`. Details siehe README.",
-  "footerDisplay": "Inoffizielle, reverse-engineerte API. Bei „Tokens weg\"-Fehlern `porsche-auth` erneut ausführen.",
+  "headerDisplay": "Adds your Porsche to Apple Home. **First run: sign in above with your Porsche ID** (email, password, and a captcha image if prompted) — after that the plugin runs headless via the refresh token. You can also use the `porsche-auth` CLI. See the README for details.",
+  "footerDisplay": "Unofficial, reverse-engineered API. If you hit \"tokens lost\" errors, run `porsche-auth` again.",
   "schema": {
     "type": "object",
     "properties": {
       "vehicleName": {
-        "title": "Anzeigename",
+        "title": "Display name",
         "type": "string",
         "required": true,
         "default": "Porsche"
       },
+      "language": {
+        "title": "Language",
+        "type": "string",
+        "required": false,
+        "default": "en",
+        "description": "Language of the HomeKit tile names.",
+        "oneOf": [
+          { "title": "English", "enum": ["en"] },
+          { "title": "German / Deutsch", "enum": ["de"] }
+        ]
+      },
       "vin": {
-        "title": "VIN (leer = erstes Fahrzeug)",
+        "title": "VIN (empty = first vehicle)",
         "type": "string",
         "required": false
       },
+      "vehicleModel": {
+        "title": "Model (HomeKit device details)",
+        "type": "string",
+        "required": false,
+        "default": "Porsche",
+        "description": "Shown as the Model in each accessory's details (e.g. Taycan, Macan)."
+      },
       "detailLevel": {
-        "title": "Umfang der Kacheln",
+        "title": "Tile scope",
         "type": "string",
         "required": false,
         "default": "essential",
-        "description": "„Wesentliche\" zeigt nur die wichtigsten Alltags-Kacheln. „Vollständig\" zeigt das komplette Cockpit (alle ~55 Kacheln).",
+        "description": "\"Essential\" shows only the most important everyday tiles. \"Full\" shows the complete cockpit (all ~55 tiles).",
         "oneOf": [
-          { "title": "Wesentliche (empfohlen)", "enum": ["essential"] },
-          { "title": "Vollständig (alles)", "enum": ["full"] }
+          { "title": "Essential (recommended)", "enum": ["essential"] },
+          { "title": "Full (everything)", "enum": ["full"] }
         ]
       },
       "vehicleType": {
-        "title": "Antriebsart",
+        "title": "Drivetrain",
         "type": "string",
         "required": false,
         "default": "ev",
-        "description": "Steuert die Energie-Kacheln. „Elektro\" = Ladestand/Reichweite/Laden. „Verbrenner\" = Tankstand/Reichweite. „Plug-in-Hybrid\" = beides. Hinweis: nur Elektro (Taycan) ist live getestet.",
+        "description": "Controls the energy tiles. \"Electric\" = charge level/range/charging. \"Combustion\" = fuel level/range. \"Plug-in hybrid\" = both. Note: only electric (Taycan) is live-tested.",
         "oneOf": [
-          { "title": "Elektro (EV)", "enum": ["ev"] },
-          { "title": "Verbrenner", "enum": ["combustion"] },
-          { "title": "Plug-in-Hybrid (PHEV)", "enum": ["phev"] }
+          { "title": "Electric (EV)", "enum": ["ev"] },
+          { "title": "Combustion", "enum": ["combustion"] },
+          { "title": "Plug-in hybrid (PHEV)", "enum": ["phev"] }
         ]
       },
       "spin": {
-        "title": "Porsche S-PIN (für Entriegeln)",
+        "title": "Porsche S-PIN (for unlocking)",
         "type": "string",
         "required": false,
-        "description": "4-stellige Sicherheits-PIN aus der My-Porsche-App. Nur nötig fürs ENTRIEGELN über Apple Home. Leer lassen = Schloss kann nur verriegeln. Wird im Klartext in der Homebridge-Config gespeichert."
+        "description": "4-digit security PIN from the My Porsche app. Only needed for UNLOCKING via Apple Home. Leave empty = the lock can only lock. Stored in plain text in the Homebridge config."
       },
       "pollIntervalMinutes": {
-        "title": "Abfrage-Intervall (Min, min. 10)",
+        "title": "Poll interval (min, at least 10)",
         "type": "integer",
         "required": false,
         "default": 15,
         "minimum": 10
       },
       "homeLat": {
-        "title": "Heim-Breitengrad (für 'Auto zuhause')",
+        "title": "Home latitude (for 'Car at home')",
         "type": "number",
         "required": false,
         "default": 0
       },
       "homeLon": {
-        "title": "Heim-Längengrad",
+        "title": "Home longitude",
         "type": "number",
         "required": false,
         "default": 0
       },
       "homeRadiusM": {
-        "title": "Heim-Radius (Meter)",
+        "title": "Home radius (meters)",
         "type": "integer",
         "required": false,
         "default": 150,
         "minimum": 10
       },
       "defaultTargetTemp": {
-        "title": "Vorklima-Zieltemperatur °C",
+        "title": "Pre-conditioning target temperature °C",
         "type": "number",
         "required": false,
         "default": 21
       },
       "tempMin": {
-        "title": "Min. Zieltemperatur °C",
+        "title": "Min. target temperature °C",
         "type": "number",
         "required": false,
         "default": 15
       },
       "tempMax": {
-        "title": "Max. Zieltemperatur °C",
+        "title": "Max. target temperature °C",
         "type": "number",
         "required": false,
         "default": 30
       },
       "tempStep": {
-        "title": "Temperatur-Schrittweite °C",
+        "title": "Temperature step °C",
         "type": "number",
         "required": false,
         "default": 0.5
       },
       "lowBatteryThreshold": {
-        "title": "Warnschwelle 'Batterie niedrig' %",
+        "title": "'Battery low' warning threshold %",
         "type": "integer",
         "required": false,
         "default": 20,
@@ -107,48 +125,48 @@
         "maximum": 100
       },
       "serviceWarnKm": {
-        "title": "Service-Warnung ab Reststrecke (km)",
+        "title": "Service warning below remaining distance (km)",
         "type": "integer",
         "required": false,
         "default": 2000,
         "minimum": 0
       },
       "tireDiffThreshold": {
-        "title": "Reifendruck-Warnschwelle (bar)",
+        "title": "Tire pressure warning threshold (bar)",
         "type": "number",
         "required": false,
         "default": 0.3,
         "minimum": 0
       },
       "staleMinutes": {
-        "title": "Daten gelten als veraltet ab (Min)",
+        "title": "Data considered stale after (min)",
         "type": "integer",
         "required": false,
         "default": 30,
         "minimum": 1
       },
       "heatingAutoOffMinutes": {
-        "title": "Standheizung Auto-Aus (Min)",
+        "title": "Heating auto-off (min)",
         "type": "integer",
         "required": false,
         "default": 15,
         "minimum": 1
       },
       "honkAutoOffSeconds": {
-        "title": "Hupe/Licht Auto-Aus (Sek)",
+        "title": "Honk/flash auto-off (sec)",
         "type": "integer",
         "required": false,
         "default": 3,
         "minimum": 1
       },
       "exposeClimateZones": {
-        "title": "Klimazonen-Sensoren anzeigen",
+        "title": "Show climate zone sensors",
         "type": "boolean",
         "required": false,
         "default": true
       },
       "exposeTheftSensor": {
-        "title": "Diebstahl-Sensor anzeigen",
+        "title": "Show theft sensor",
         "type": "boolean",
         "required": false,
         "default": false
@@ -157,13 +175,15 @@
   },
   "form": [
     "vehicleName",
+    "language",
     "vin",
+    "vehicleModel",
     "detailLevel",
     "vehicleType",
     { "key": "spin", "type": "password" },
     {
       "type": "fieldset",
-      "title": "Abfrage & Klima",
+      "title": "Polling & Climate",
       "expandable": true,
       "expanded": true,
       "items": [
@@ -176,7 +196,7 @@
     },
     {
       "type": "fieldset",
-      "title": "Standort „Auto zuhause\"",
+      "title": "Location \"Car at home\"",
       "expandable": true,
       "expanded": false,
       "items": [
@@ -187,7 +207,7 @@
     },
     {
       "type": "fieldset",
-      "title": "Warnungen & Schwellwerte",
+      "title": "Warnings & Thresholds",
       "expandable": true,
       "expanded": false,
       "items": [
@@ -199,7 +219,7 @@
     },
     {
       "type": "fieldset",
-      "title": "Komfort-Timer & Sensoren",
+      "title": "Comfort Timers & Sensors",
       "expandable": true,
       "expanded": false,
       "items": [

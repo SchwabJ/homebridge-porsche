@@ -77,11 +77,11 @@ export const accessModule: DomainModule = (kit: Kit) => {
   // ESSENTIELL. Echtes Schloss-Symbol mit Status. Verriegeln → LOCK. Entriegeln
   // → S-PIN-Challenge-Flow (kit.unlock), aber NUR wenn eine S-PIN gesetzt ist;
   // sonst wird der Entriegeln-Target abgelehnt und auf „verriegelt" zurückgesetzt.
-  const lockAcc = kit.accessory(SEEDS.lock, `${config.vehicleName} Schloss`);
+  const lockAcc = kit.accessory(SEEDS.lock, `${config.vehicleName} ${kit.labels.lock}`);
   const lockSvc =
     lockAcc.getServiceById(Service.LockMechanism, 'lock') ??
-    lockAcc.addService(Service.LockMechanism, `${config.vehicleName} Schloss`, 'lock');
-  kit.nameService(lockSvc, `${config.vehicleName} Schloss`);
+    lockAcc.addService(Service.LockMechanism, `${config.vehicleName} ${kit.labels.lock}`, 'lock');
+  kit.nameService(lockSvc, `${config.vehicleName} ${kit.labels.lock}`);
 
   const lockCurrent = lockSvc.getCharacteristic(Characteristic.LockCurrentState);
   const lockTarget = lockSvc.getCharacteristic(Characteristic.LockTargetState);
@@ -89,19 +89,19 @@ export const accessModule: DomainModule = (kit: Kit) => {
   lockTarget.onSet((value) => {
     if (value === Characteristic.LockTargetState.SECURED) {
       void kit.command(lock());
-      log.info(`${config.vehicleName}: verriegle Fahrzeug`);
+      log.info(`${config.vehicleName}: locking vehicle`);
       return;
     }
     // Entriegeln gewünscht (UNSECURED).
     if (canUnlock) {
       void kit.unlock().catch((err) => {
-        log.warn(`${config.vehicleName}: Entriegeln fehlgeschlagen: ${String(err)}`);
+        log.warn(`${config.vehicleName}: unlock failed: ${String(err)}`);
         // Bei Fehler den Target zurück auf „verriegelt".
         setImmediate(() => lockTarget.updateValue(Characteristic.LockTargetState.SECURED));
       });
-      log.info(`${config.vehicleName}: entriegle Fahrzeug (S-PIN)`);
+      log.info(`${config.vehicleName}: unlocking vehicle (S-PIN)`);
     } else {
-      log.info(`${config.vehicleName}: Entriegeln nicht möglich — keine S-PIN konfiguriert`);
+      log.info(`${config.vehicleName}: cannot unlock — no S-PIN configured`);
       setImmediate(() => lockTarget.updateValue(Characteristic.LockTargetState.SECURED));
     }
   });
@@ -109,30 +109,30 @@ export const accessModule: DomainModule = (kit: Kit) => {
   // --- Lichthupe + Hupe&Licht (momentane Switches, fire-and-forget) ----------
   // ESSENTIELL. Senden beim Einschalten den Befehl und schalten automatisch zurück.
   kit.switchService(
-    kit.accessory(SEEDS.flash, `${config.vehicleName} Lichthupe`),
-    `${config.vehicleName} Lichthupe`,
+    kit.accessory(SEEDS.flash, `${config.vehicleName} ${kit.labels.flashLights}`),
+    `${config.vehicleName} ${kit.labels.flashLights}`,
     'flash',
     {
       momentaryMs: config.honkAutoOffSeconds * 1000,
       onSet: (on) => {
         if (on) {
           void kit.command(honkFlash('FLASH'));
-          log.info(`${config.vehicleName}: Lichthupe`);
+          log.info(`${config.vehicleName}: flash lights`);
         }
       },
     },
   );
 
   kit.switchService(
-    kit.accessory(SEEDS.honk, `${config.vehicleName} Hupe & Licht`),
-    `${config.vehicleName} Hupe & Licht`,
+    kit.accessory(SEEDS.honk, `${config.vehicleName} ${kit.labels.honkAndFlash}`),
+    `${config.vehicleName} ${kit.labels.honkAndFlash}`,
     'honk',
     {
       momentaryMs: config.honkAutoOffSeconds * 1000,
       onSet: (on) => {
         if (on) {
           void kit.command(honkFlash('HONK_AND_FLASH'));
-          log.info(`${config.vehicleName}: Hupe & Licht`);
+          log.info(`${config.vehicleName}: honk & flash`);
         }
       },
     },
@@ -145,22 +145,22 @@ export const accessModule: DomainModule = (kit: Kit) => {
 
   // GEGATET (nur 'full'): die Einzel-Öffnungen. Im 'essential'-Modus undefined
   // (BoundService | undefined) — setContact unten ist no-op bei undefined.
-  const doorFL = full ? contact(SEEDS.doorFl, `${config.vehicleName} Tür vorne links`, 'door-fl') : undefined;
-  const doorFR = full ? contact(SEEDS.doorFr, `${config.vehicleName} Tür vorne rechts`, 'door-fr') : undefined;
-  const doorRL = full ? contact(SEEDS.doorRl, `${config.vehicleName} Tür hinten links`, 'door-rl') : undefined;
-  const doorRR = full ? contact(SEEDS.doorRr, `${config.vehicleName} Tür hinten rechts`, 'door-rr') : undefined;
+  const doorFL = full ? contact(SEEDS.doorFl, `${config.vehicleName} ${kit.labels.doorFrontLeft}`, 'door-fl') : undefined;
+  const doorFR = full ? contact(SEEDS.doorFr, `${config.vehicleName} ${kit.labels.doorFrontRight}`, 'door-fr') : undefined;
+  const doorRL = full ? contact(SEEDS.doorRl, `${config.vehicleName} ${kit.labels.doorRearLeft}`, 'door-rl') : undefined;
+  const doorRR = full ? contact(SEEDS.doorRr, `${config.vehicleName} ${kit.labels.doorRearRight}`, 'door-rr') : undefined;
 
-  const windowFL = full ? contact(SEEDS.windowFl, `${config.vehicleName} Fenster vorne links`, 'window-fl') : undefined;
-  const windowFR = full ? contact(SEEDS.windowFr, `${config.vehicleName} Fenster vorne rechts`, 'window-fr') : undefined;
-  const windowRL = full ? contact(SEEDS.windowRl, `${config.vehicleName} Fenster hinten links`, 'window-rl') : undefined;
-  const windowRR = full ? contact(SEEDS.windowRr, `${config.vehicleName} Fenster hinten rechts`, 'window-rr') : undefined;
+  const windowFL = full ? contact(SEEDS.windowFl, `${config.vehicleName} ${kit.labels.windowFrontLeft}`, 'window-fl') : undefined;
+  const windowFR = full ? contact(SEEDS.windowFr, `${config.vehicleName} ${kit.labels.windowFrontRight}`, 'window-fr') : undefined;
+  const windowRL = full ? contact(SEEDS.windowRl, `${config.vehicleName} ${kit.labels.windowRearLeft}`, 'window-rl') : undefined;
+  const windowRR = full ? contact(SEEDS.windowRr, `${config.vehicleName} ${kit.labels.windowRearRight}`, 'window-rr') : undefined;
 
-  const frunk = full ? contact(SEEDS.frunk, `${config.vehicleName} Frunk`, 'frunk') : undefined;
-  const trunk = full ? contact(SEEDS.trunk, `${config.vehicleName} Kofferraum`, 'trunk') : undefined;
+  const frunk = full ? contact(SEEDS.frunk, `${config.vehicleName} ${kit.labels.frunk}`, 'frunk') : undefined;
+  const trunk = full ? contact(SEEDS.trunk, `${config.vehicleName} ${kit.labels.trunk}`, 'trunk') : undefined;
 
   // ESSENTIELL (immer): Sammel-Fahrzeugstatus — „geschlossen" = alles sicher,
   // „offen" = irgendetwas offen ODER entriegelt. Liest direkt aus dem State.
-  const status = contact(SEEDS.status, `${config.vehicleName} Fahrzeugstatus`, 'any-open');
+  const status = contact(SEEDS.status, `${config.vehicleName} ${kit.labels.vehicleStatus}`, 'any-open');
 
   // --- Update-Funktion: spiegelt den State in alle Characteristics -----------
   return (state: VehicleState): void => {

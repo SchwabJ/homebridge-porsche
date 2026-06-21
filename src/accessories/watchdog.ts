@@ -104,9 +104,9 @@ export function createWatchdog(kit: Kit, now: () => number = Date.now): Watchdog
   // ESSENTIELL — wird immer angelegt (egal welcher detailLevel).
   const connAcc: PlatformAccessory = kit.accessory(
     CONNECTION_ACCESSORY_SEED,
-    `${config.vehicleName} Verbindung`,
+    `${config.vehicleName} ${kit.labels.connection}`,
   );
-  const connBound = kit.contactSensor(connAcc, `${config.vehicleName} Verbindung`, 'connection', {
+  const connBound = kit.contactSensor(connAcc, `${config.vehicleName} ${kit.labels.connection}`, 'connection', {
     fault: true,
   });
   const connService = connBound.service;
@@ -125,9 +125,9 @@ export function createWatchdog(kit: Kit, now: () => number = Date.now): Watchdog
   if (full) {
     const freshAcc: PlatformAccessory = kit.accessory(
       FRESHNESS_ACCESSORY_SEED,
-      `${config.vehicleName} Daten aktuell`,
+      `${config.vehicleName} ${kit.labels.dataFresh}`,
     );
-    freshBound = kit.contactSensor(freshAcc, `${config.vehicleName} Daten aktuell`, 'freshness');
+    freshBound = kit.contactSensor(freshAcc, `${config.vehicleName} ${kit.labels.dataFresh}`, 'freshness');
     const freshService = freshBound.service;
     if (!freshService.testCharacteristic(Characteristic.StatusActive)) {
       freshService.addCharacteristic(Characteristic.StatusActive);
@@ -145,7 +145,7 @@ export function createWatchdog(kit: Kit, now: () => number = Date.now): Watchdog
         : Characteristic.StatusFault.GENERAL_FAULT,
     );
     if (!ok) {
-      log.warn(`Taycan Status: Verbindung gestört${health.message ? ` (${health.message})` : ''}`);
+      log.warn(`${config.vehicleName} status: connection lost${health.message ? ` (${health.message})` : ''}`);
     }
   };
 

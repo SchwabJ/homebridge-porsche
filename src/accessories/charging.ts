@@ -86,24 +86,24 @@ export function chargingModule(kit: Kit): (state: VehicleState) => void {
   // =========================================================================
   // SoC als Schieberegler (Lightbulb-Dimmer, read-only) — Balken direkt in der Kachel.
   const soc = hasEv
-    ? makeSocDisplay(kit, kit.accessory(SEEDS.soc, `${displayName} Ladestand`), `${displayName} Ladestand`, 'soc')
+    ? makeSocDisplay(kit, kit.accessory(SEEDS.soc, `${displayName} ${kit.labels.chargeLevel}`), `${displayName} ${kit.labels.chargeLevel}`, 'soc')
     : undefined;
   // E-Reichweite: bei PHEV als „E-Reichweite" beschriftet (Sprit-Reichweite kommt separat).
   const evRange = hasEv
-    ? solo(kit.luxSensor, SEEDS.range, `${displayName} ${phev ? 'E-Reichweite' : 'Reichweite'}`, 'range')
+    ? solo(kit.luxSensor, SEEDS.range, `${displayName} ${phev ? kit.labels.electricRange : kit.labels.range}`, 'range')
     : undefined;
   // Gegatet (nur full + EV): Leistungen, Restzeit, Laderate, Flags.
-  const power = full && hasEv ? solo(kit.luxSensor, SEEDS.power, `${displayName} Ladeleistung`, 'chargepower') : undefined;
-  const maxPower = full && hasEv ? solo(kit.luxSensor, SEEDS.maxPower, `${displayName} Max-Ladeleistung`, 'maxchargepower') : undefined;
-  const eta = full && hasEv ? solo(kit.luxSensor, SEEDS.eta, `${displayName} Restzeit Laden`, 'chargeeta') : undefined;
-  const rate = full && hasEv ? solo(kit.tempSensor, SEEDS.rate, `${displayName} Laderate`, 'chargerate') : undefined;
-  const chargingFlag = full && hasEv ? solo(kit.contactSensor, SEEDS.chargingFlag, `${displayName} Lädt`, 'chargingflag') : undefined;
-  const dcFlag = full && hasEv ? solo(kit.contactSensor, SEEDS.dcFlag, `${displayName} DC-Laden`, 'dcflag') : undefined;
-  const profileFlag = full && hasEv ? solo(kit.contactSensor, SEEDS.profileFlag, `${displayName} Ladeprofil aktiv`, 'profileflag') : undefined;
+  const power = full && hasEv ? solo(kit.luxSensor, SEEDS.power, `${displayName} ${kit.labels.chargingPower}`, 'chargepower') : undefined;
+  const maxPower = full && hasEv ? solo(kit.luxSensor, SEEDS.maxPower, `${displayName} ${kit.labels.maxChargingPower}`, 'maxchargepower') : undefined;
+  const eta = full && hasEv ? solo(kit.luxSensor, SEEDS.eta, `${displayName} ${kit.labels.chargingTimeLeft}`, 'chargeeta') : undefined;
+  const rate = full && hasEv ? solo(kit.tempSensor, SEEDS.rate, `${displayName} ${kit.labels.chargeRate}`, 'chargerate') : undefined;
+  const chargingFlag = full && hasEv ? solo(kit.contactSensor, SEEDS.chargingFlag, `${displayName} ${kit.labels.chargingNow}`, 'chargingflag') : undefined;
+  const dcFlag = full && hasEv ? solo(kit.contactSensor, SEEDS.dcFlag, `${displayName} ${kit.labels.dcCharging}`, 'dcflag') : undefined;
+  const profileFlag = full && hasEv ? solo(kit.contactSensor, SEEDS.profileFlag, `${displayName} ${kit.labels.chargingProfileActive}`, 'profileflag') : undefined;
 
   // Laden an/aus (Switch → DIRECT_CHARGING_START / _STOP).
   const chargeSwitch = hasEv
-    ? kit.switchService(kit.accessory(SEEDS.chargeSwitch, `${displayName} Laden`), `${displayName} Laden`, 'chargeswitch', {
+    ? kit.switchService(kit.accessory(SEEDS.chargeSwitch, `${displayName} ${kit.labels.charging}`), `${displayName} ${kit.labels.charging}`, 'chargeswitch', {
         onSet: async (on) => {
           await kit.command(on ? chargingStart() : chargingStop());
         },
@@ -112,15 +112,15 @@ export function chargingModule(kit: Kit): (state: VehicleState) => void {
 
   // Ladelimit (Lightbulb On+Brightness = Ziel-SoC → CHARGING_SETTINGS_EDIT).
   const chargeLimit = hasEv
-    ? makeChargeLimit(kit, kit.accessory(SEEDS.chargeLimit, `${displayName} Ladelimit`), `${displayName} Ladelimit`, 'chargelimit')
+    ? makeChargeLimit(kit, kit.accessory(SEEDS.chargeLimit, `${displayName} ${kit.labels.chargeLimit}`), `${displayName} ${kit.labels.chargeLimit}`, 'chargelimit')
     : undefined;
 
   // Batterie-Service (Lade-/Akkustatus) + „Akku niedrig"-Alert (nativer Push).
   const battery = hasEv
-    ? makeBattery(kit, kit.accessory(SEEDS.battery, `${displayName} Akku`), `${displayName} Akku`)
+    ? makeBattery(kit, kit.accessory(SEEDS.battery, `${displayName} ${kit.labels.battery}`), `${displayName} ${kit.labels.battery}`)
     : undefined;
   const lowBattery = hasEv
-    ? solo(kit.contactSensor, SEEDS.lowBattery, `${displayName} Akku niedrig`, 'batterylow')
+    ? solo(kit.contactSensor, SEEDS.lowBattery, `${displayName} ${kit.labels.batteryLow}`, 'batterylow')
     : undefined;
 
   // =========================================================================
@@ -128,11 +128,11 @@ export function chargingModule(kit: Kit): (state: VehicleState) => void {
   // =========================================================================
   // Tankstand als Schieberegler (Lightbulb-Dimmer, read-only) — analog SoC.
   const fuel = hasFuel
-    ? makeSocDisplay(kit, kit.accessory(SEEDS.fuel, `${displayName} Tankstand`), `${displayName} Tankstand`, 'fuel')
+    ? makeSocDisplay(kit, kit.accessory(SEEDS.fuel, `${displayName} ${kit.labels.fuelLevel}`), `${displayName} ${kit.labels.fuelLevel}`, 'fuel')
     : undefined;
   // Kraftstoff-/Gesamt-Reichweite (RANGE). Bei reinem Verbrenner schlicht „Reichweite".
   const fuelRange = hasFuel
-    ? solo(kit.luxSensor, SEEDS.fuelRange, `${displayName} ${phev ? 'Reichweite gesamt' : 'Reichweite'}`, 'fuelrange')
+    ? solo(kit.luxSensor, SEEDS.fuelRange, `${displayName} ${phev ? kit.labels.totalRange : kit.labels.range}`, 'fuelrange')
     : undefined;
 
   /** Aktualisiert ALLE von diesem Modul angelegten Characteristics aus dem State. */
@@ -227,7 +227,7 @@ function makeChargeLimit(
     const pct = Math.max(0, Math.min(100, Math.round(value)));
     void kit
       .command(setTargetSoc(pct))
-      .catch((err) => log.warn(`${name}: setTargetSoc fehlgeschlagen: ${String(err)}`));
+      .catch((err) => log.warn(`${name}: setTargetSoc failed: ${String(err)}`));
   };
 
   brightnessChar.onSet((value: CharacteristicValue) => {
@@ -240,7 +240,7 @@ function makeChargeLimit(
       sendTarget(Number(brightnessChar.value ?? 0));
     } else {
       // Ladelimit lässt sich nicht „aus"-schalten — nach HAP-Commit wieder anzeigen.
-      log.info(`${name}: Aus-Schalten ignoriert (Ladelimit ist immer aktiv).`);
+      log.info(`${name}: ignoring off (charge limit is always active).`);
       setImmediate(() => onChar.updateValue(true));
     }
   });

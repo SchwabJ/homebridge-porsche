@@ -36,7 +36,7 @@ function makeKit(overrides: Partial<KitContext> = {}): Kit {
     // Voll-Set-Tests prüfen das KOMPLETTE Cockpit (Verbindung + Daten-Aktualität).
     // Default-Config ist seit der detailLevel-Einführung 'essential' (nur Verbindung),
     // daher hier explizit auf 'full' anheben — das war das bisherige Verhalten.
-    config: { ...DEFAULT_CONFIG, detailLevel: 'full' },
+    config: { ...DEFAULT_CONFIG, language: 'de', detailLevel: 'full' },
     cachedAccessories: [],
     unlock: async () => {},
     command: async () => {},
@@ -96,7 +96,7 @@ describe('createWatchdog — accessory + service wiring', () => {
 
   it('uses the configured vehicleName for each accessory display name', () => {
     const kit = makeKit({
-      config: { ...DEFAULT_CONFIG, detailLevel: 'full', vehicleName: 'Mein Taycan' },
+      config: { ...DEFAULT_CONFIG, language: 'de', detailLevel: 'full', vehicleName: 'Mein Taycan' },
     });
     // Beide Accessories so abgreifen, wie createWatchdog sie anlegt — per Seed,
     // damit ein zweiter kit.accessory(seed, 'ignored')-Aufruf den Name-Wert nicht
@@ -207,7 +207,7 @@ describe('createWatchdog.update — data freshness guard', () => {
   });
 
   it('respects a custom staleMinutes from config', () => {
-    const kit = makeKit({ config: { ...DEFAULT_CONFIG, detailLevel: 'full', staleMinutes: 120 } });
+    const kit = makeKit({ config: { ...DEFAULT_CONFIG, language: 'de', detailLevel: 'full', staleMinutes: 120 } });
     const wd = createWatchdog(kit, () => NOW);
     const { fresh } = services(kit);
     wd.update(freshState(90 * 60000)); // 90 min old, stale=120 → still fresh
@@ -241,7 +241,7 @@ describe('createWatchdog — detailLevel gating (essential default)', () => {
   }
 
   it('essential: legt NUR den Verbindungs-Sensor an, NICHT den Daten-Aktualität-Sensor', () => {
-    const kit = makeKit({ config: { ...DEFAULT_CONFIG, detailLevel: 'essential' } });
+    const kit = makeKit({ config: { ...DEFAULT_CONFIG, language: 'de', detailLevel: 'essential' } });
     const seenSeeds = spyOnAccessory(kit);
     createWatchdog(kit, () => NOW);
     // ESSENTIELL: Verbindung wird immer angefordert.
@@ -251,7 +251,7 @@ describe('createWatchdog — detailLevel gating (essential default)', () => {
   });
 
   it('essential: das Freshness-Accessory existiert ohne ContactSensor-Service', () => {
-    const kit = makeKit({ config: { ...DEFAULT_CONFIG, detailLevel: 'essential' } });
+    const kit = makeKit({ config: { ...DEFAULT_CONFIG, language: 'de', detailLevel: 'essential' } });
     createWatchdog(kit, () => NOW);
     // get-or-create: hier neu (createWatchdog hat es NICHT angelegt) → kein Service.
     const freshAcc = kit.accessory(FRESHNESS_ACCESSORY_SEED, 'Taycan Daten aktuell');
@@ -259,7 +259,7 @@ describe('createWatchdog — detailLevel gating (essential default)', () => {
   });
 
   it('essential: setHealth funktioniert weiter (Verbindung ist essentiell)', () => {
-    const kit = makeKit({ config: { ...DEFAULT_CONFIG, detailLevel: 'essential' } });
+    const kit = makeKit({ config: { ...DEFAULT_CONFIG, language: 'de', detailLevel: 'essential' } });
     const wd = createWatchdog(kit, () => NOW);
     const connAcc = kit.accessory(CONNECTION_ACCESSORY_SEED, 'Taycan Verbindung');
     const conn = connAcc.getServiceById(hap.Service.ContactSensor, 'connection')!;
@@ -272,7 +272,7 @@ describe('createWatchdog — detailLevel gating (essential default)', () => {
   });
 
   it('essential: update(state) ist ein No-Op für Freshness und wirft NICHT (guard-Pfad)', () => {
-    const kit = makeKit({ config: { ...DEFAULT_CONFIG, detailLevel: 'essential' } });
+    const kit = makeKit({ config: { ...DEFAULT_CONFIG, language: 'de', detailLevel: 'essential' } });
     const wd = createWatchdog(kit, () => NOW);
     // Regression-Guard für den Optional-Chaining-Pfad: freshBound/freshActiveChar
     // sind undefined → update darf nicht crashen.

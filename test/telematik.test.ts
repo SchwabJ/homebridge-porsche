@@ -36,7 +36,7 @@ function setup(configOverrides: Partial<ResolvedPorscheConfig> = {}) {
   // Heim-Koordinaten = Test-Fahrzeugposition (München), da der Default 0/0 ist
   // („Auto zuhause" deaktiviert) — sonst schlügen die at-home-Tests fehl.
   const config: ResolvedPorscheConfig = {
-    ...DEFAULT_CONFIG,
+    ...DEFAULT_CONFIG, language: 'de',
     detailLevel: 'full',
     homeLat: 48.137154,
     homeLon: 11.576124,

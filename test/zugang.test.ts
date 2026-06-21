@@ -10,6 +10,7 @@
 import { accessModule } from '../src/accessories/access';
 import type { Kit, BoundService, BoundSwitch, SwitchServiceOpts } from '../src/accessories/kit';
 import { DEFAULT_CONFIG } from '../src/accessories/kit';
+import { LABELS_DE } from '../src/i18n';
 import type { PorscheCommand } from '../src/api/commands';
 import type { VehicleState } from '../src/api/measurements';
 
@@ -117,7 +118,8 @@ function buildHarness(configOver: Partial<typeof DEFAULT_CONFIG> = {}): Harness 
         logs.push(m);
       },
     },
-    config: { ...DEFAULT_CONFIG, ...configOver },
+    config: { ...DEFAULT_CONFIG, language: 'de', ...configOver },
+    labels: LABELS_DE,
     command: async (cmd: PorscheCommand) => {
       commands.push(cmd);
     },

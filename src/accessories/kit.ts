@@ -29,6 +29,7 @@ import type {
 
 import { PorscheCommand } from '../api/commands';
 import { VehicleState } from '../api/measurements';
+import { Labels, Language, labelsFor } from '../i18n';
 
 /** npm-Paketname — erster Parameter von `registerPlatformAccessories` (Cache-Matching!). */
 export const PLUGIN_NAME = 'homebridge-porsche';
@@ -43,8 +44,12 @@ const LUX_MIN = 0.0001;
  * Domänen-Module lesen ausschließlich diese (nie das rohe PlatformConfig).
  */
 export interface ResolvedPorscheConfig {
-  /** Anzeigename-Präfix der Accessory-Gruppen (z. B. "Taycan"). */
+  /** Anzeigename-Präfix der Accessory-Gruppen (z. B. "Porsche", "Macan", "911"). */
   vehicleName: string;
+  /** Sprache der Kachel-Labels ('en' Default | 'de'). */
+  language: Language;
+  /** Modellbezeichnung fürs HomeKit-„Model"-Feld der Geräte-Details (z. B. "Taycan"). */
+  vehicleModel: string;
   /** Optionale feste VIN; leer = erstes Fahrzeug des Kontos. */
   vin?: string;
   /**
@@ -107,6 +112,8 @@ export interface ResolvedPorscheConfig {
 /** Defaults. Heim-Koordinaten 0 = „Auto zuhause" deaktiviert (in der Config setzen). */
 export const DEFAULT_CONFIG: ResolvedPorscheConfig = {
   vehicleName: 'Porsche',
+  language: 'en',
+  vehicleModel: 'Porsche',
   vin: undefined,
   detailLevel: 'essential',
   vehicleType: 'ev',
@@ -167,6 +174,10 @@ export function resolveConfig(raw: Record<string, unknown> | undefined | null): 
   const vehicleType: ResolvedPorscheConfig['vehicleType'] =
     vtRaw === 'ev' || vtRaw === 'combustion' || vtRaw === 'phev' ? vtRaw : DEFAULT_CONFIG.vehicleType;
 
+  const langRaw = c['language'];
+  const language: ResolvedPorscheConfig['language'] =
+    langRaw === 'en' || langRaw === 'de' ? langRaw : DEFAULT_CONFIG.language;
+
   // S-PIN: nur nicht-leere Strings übernehmen (auf Ziffern reduzieren wäre zu
   // streng — manche PINs könnten anders aussehen; Trim reicht).
   const spinRaw = c['spin'];
@@ -174,6 +185,8 @@ export function resolveConfig(raw: Record<string, unknown> | undefined | null): 
 
   return {
     vehicleName: strOr('vehicleName', DEFAULT_CONFIG.vehicleName),
+    language,
+    vehicleModel: strOr('vehicleModel', DEFAULT_CONFIG.vehicleModel),
     vin,
     detailLevel,
     vehicleType,
@@ -240,6 +253,8 @@ export interface Kit {
   log: Logging;
   /** Aufgelöste Konfiguration mit Defaults. */
   config: ResolvedPorscheConfig;
+  /** Lokalisierte Kachel-Labels für die gewählte Sprache (config.language). */
+  labels: Labels;
   /** Sendet einen Fahrzeugbefehl (defensiv, niemals throw nach außen). */
   command: (cmd: PorscheCommand) => Promise<void>;
   /**
@@ -364,7 +379,7 @@ export function createKit(ctx: KitContext): {
     const serial = config.vin ? `${config.vin}-${seedName}` : seedName;
     info
       .setCharacteristic(Characteristic.Manufacturer, 'Porsche')
-      .setCharacteristic(Characteristic.Model, 'Taycan')
+      .setCharacteristic(Characteristic.Model, config.vehicleModel)
       .setCharacteristic(Characteristic.Name, displayName)
       .setCharacteristic(Characteristic.SerialNumber, serial);
   }
@@ -515,6 +530,7 @@ export function createKit(ctx: KitContext): {
     hap,
     log,
     config,
+    labels: labelsFor(config.language),
     command: ctx.command,
     unlock: ctx.unlock,
     nameService,

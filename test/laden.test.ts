@@ -30,7 +30,7 @@ const log = {
   success: () => {},
 } as unknown as import('homebridge').Logging;
 
-function setup(config: ResolvedPorscheConfig = { ...DEFAULT_CONFIG, detailLevel: 'full' }) {
+function setup(config: ResolvedPorscheConfig = { ...DEFAULT_CONFIG, language: 'de', detailLevel: 'full' }) {
   const { api, registered } = makeApi();
   const commands: PorscheCommand[] = [];
   const context: KitContext = {
@@ -122,7 +122,7 @@ describe('chargingModule signature + accessory shape', () => {
 });
 
 describe('chargingModule detailLevel gating (essential)', () => {
-  const essential = (): ResolvedPorscheConfig => ({ ...DEFAULT_CONFIG, detailLevel: 'essential' });
+  const essential = (): ResolvedPorscheConfig => ({ ...DEFAULT_CONFIG, language: 'de', detailLevel: 'essential' });
 
   it('registers ONLY the essential accessories (soc + range + switch + limit + battery + low-alert)', () => {
     const { registered, svc, svcByType } = setup(essential());
@@ -315,8 +315,8 @@ describe('__testing pure helpers', () => {
 });
 
 describe('chargingModule vehicleType gating (Strom vs. Sprit)', () => {
-  const combustion = (): ResolvedPorscheConfig => ({ ...DEFAULT_CONFIG, vehicleType: 'combustion' });
-  const phev = (): ResolvedPorscheConfig => ({ ...DEFAULT_CONFIG, vehicleType: 'phev' });
+  const combustion = (): ResolvedPorscheConfig => ({ ...DEFAULT_CONFIG, language: 'de', vehicleType: 'combustion' });
+  const phev = (): ResolvedPorscheConfig => ({ ...DEFAULT_CONFIG, language: 'de', vehicleType: 'phev' });
 
   it('combustion: Tankstand + Kraftstoff-Reichweite, KEINE Strom-Kacheln', () => {
     const { svc, svcByType } = setup(combustion());

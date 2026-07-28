@@ -768,7 +768,11 @@ ${CHART_CSS}${BARS_CSS}
     <span class="pill ${plugClass}">${plugText}</span>
     <span class="pill ${st.monitorOk ? 'ok' : 'bad'}">${
       st.monitorOk
-        ? `${esc(L.dashMonitorOk)}${st.ageMinutes !== undefined ? ` · ${esc(L.dashMonitorAgo)} ${Math.round(st.ageMinutes)} min` : ''}`
+        ? `${esc(L.dashMonitorOk)}${
+            st.ageMinutes !== undefined
+              ? ` · ${esc(L.dashMonitorAge.replace('%s', `${Math.round(st.ageMinutes)} min`))}`
+              : ''
+          }`
         : st.ageMinutes !== undefined
           ? `${esc(L.dashNoDataFor)} ${fmtDur(st.ageMinutes)}`
           : esc(L.dashNoDataYet)

@@ -1,0 +1,308 @@
+/**
+ * SVG-Diagramme für das Dashboard.
+ *
+ * Bewusst serverseitig gerendertes SVG statt einer Diagramm-Bibliothek: Die
+ * Seite soll eine einzige Datei ohne externe Abhängigkeiten bleiben, und ein
+ * Ladeverlauf mit ein paar hundert Punkten braucht kein Framework.
+ *
+ * Gestaltungsregeln, die hier durchgehalten werden:
+ * - EINE Achse je Diagramm. Ladestand (%) und Leistung (kW) haben verschiedene
+ *   Skalen und werden deshalb NICHT übereinandergelegt — die Ladephasen
+ *   erscheinen stattdessen als Bänder hinter der Ladestandskurve.
+ * - Dünne Marken, 2px Linien, Datenenden mit 4px Radius.
+ * - Raster und Achsen treten zurück; die Daten führen.
+ * - Hover-Ebene gehört dazu, nicht als Zusatz.
+ */
+
+import type { ChargeLogSample } from './chargeLog';
+import type { ChargePhase } from './sessions';
+import type { Labels } from './i18n';
+
+const esc = (s: string): string =>
+  s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string);
+
+const fmtClock = (iso: string, locale: string): string =>
+  new Date(iso).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+
+/**
+ * Ladeverlauf einer Session: Ladestand über der Zeit, Ladephasen als Bänder.
+ *
+ * Gibt einen leeren String zurück, wenn zu wenige Punkte vorliegen — ein
+ * Diagramm aus zwei Messwerten führt mehr in die Irre, als es zeigt.
+ */
+export function chargeCurve(
+  samples: ChargeLogSample[],
+  phases: ChargePhase[],
+  opts: { targetSoc?: number; minSoc?: number; labels: Labels },
+): string {
+  // Zeitfenster: vom Anstecken bis zum Erreichen des Ladeziels.
+  //
+  // Nicht bis zum Ausstecken: Nach erreichtem Ziel hängt das Fahrzeug oft noch
+  // Stunden am Kabel, ohne dass etwas passiert. Über die gesamte Kabelzeit
+  // gerechnet quetscht sich der eigentliche Ladevorgang auf ein Fünftel der
+  // Breite, der Rest ist eine waagerechte Linie.
+  const all = samples
+    .filter((s) => s.soc !== undefined)
+    .map((s) => ({ t: Date.parse(s.ts), soc: s.soc as number, kw: s.powerKw }));
+  if (all.length < 3) {
+    return '';
+  }
+
+  const goal = opts.targetSoc ?? opts.minSoc;
+  // Erster Messpunkt, der das Ziel erreicht — das ist das Ende des Vorgangs.
+  const reached = goal !== undefined ? all.find((p) => p.soc >= goal) : undefined;
+  const lastPhaseEnd =
+    phases.length > 0 ? Date.parse(phases[phases.length - 1].endedAt) : undefined;
+  const end = reached?.t ?? lastPhaseEnd ?? all[all.length - 1].t;
+  // Etwas Rand, damit die Linie nicht am Bildrand klebt.
+  const pad = Math.max(3 * 60000, (end - all[0].t) * 0.04);
+
+  const pts = all.filter((p) => p.t <= end + pad);
+  if (pts.length < 3) {
+    return '';
+  }
+
+  const W = 720;
+  const H = 170;
+  const PAD = { l: 34, r: 12, t: 14, b: 16 };
+  const t0 = pts[0].t;
+  const t1 = pts[pts.length - 1].t;
+  const span = Math.max(1, t1 - t0);
+
+  // Y-Achse FEST von 0 bis 100 %.
+  //
+  // Eine mitwandernde Skala lässt jede Ladung gleich steil aussehen: 56→80 %
+  // und 5→100 % wären optisch identisch. Mit fester Skala ist auf einen Blick
+  // erkennbar, wie viel eine Ladung wirklich gebracht hat — und die
+  // Zielmarken sitzen immer an derselben Stelle.
+  const lo = 0;
+  const hi = 100;
+  const yspan = 100;
+
+  const x = (t: number): number => PAD.l + ((t - t0) / span) * (W - PAD.l - PAD.r);
+  const y = (soc: number): number => PAD.t + (1 - (soc - lo) / yspan) * (H - PAD.t - PAD.b);
+
+  // Ladephasen als Bänder hinter der Kurve — sie beantworten „wann floss Strom".
+  const bands = phases
+    .map((p) => {
+      const bx = x(Date.parse(p.startedAt));
+      const bw = Math.max(2, x(Date.parse(p.endedAt)) - bx);
+      return `<rect class="band" x="${bx.toFixed(1)}" y="${PAD.t}" width="${bw.toFixed(1)}" height="${
+        H - PAD.t - PAD.b
+      }" rx="3"/>`;
+    })
+    .join('');
+
+  // Zielmarken als gestrichelte Hilfslinien.
+  const markLine = (v: number, label: string): string =>
+    `<line class="mark" x1="${PAD.l}" x2="${W - PAD.r}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(
+      1,
+    )}"/><text class="ax mk" x="${PAD.l + 4}" y="${(y(v) - 4).toFixed(1)}">${esc(label)}</text>`;
+  const marks = [
+    opts.minSoc !== undefined && opts.minSoc >= lo && opts.minSoc <= hi
+      ? markLine(opts.minSoc, `${opts.minSoc}% ${opts.labels.chartInstantTo}`)
+      : '',
+    opts.targetSoc !== undefined &&
+    opts.targetSoc >= lo &&
+    opts.targetSoc <= hi &&
+    opts.targetSoc !== opts.minSoc
+      ? markLine(opts.targetSoc, `${opts.targetSoc}% ${opts.labels.chartTargetMark}`)
+      : '',
+  ].join('');
+
+  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.soc).toFixed(1)}`).join('');
+  const area =
+    `M${x(pts[0].t).toFixed(1)},${(H - PAD.b).toFixed(1)}` +
+    pts.map((p) => `L${x(p.t).toFixed(1)},${y(p.soc).toFixed(1)}`).join('') +
+    `L${x(pts[pts.length - 1].t).toFixed(1)},${(H - PAD.b).toFixed(1)}Z`;
+
+  // Achsenbeschriftung: nur Anfang, Ende und die beiden Extremwerte — mehr
+  // Zahlen würden die Kurve nur zustellen.
+  // Nur die Y-Beschriftung bleibt im SVG. Die Zeiten stehen als HTML
+  // darunter: Das SVG wird in der Breite gestreckt, was Text verzerrt und
+  // abschneidet — aus „10:21" wurde dabei eine „1".
+  // Nur 0 / 50 / 100 beschriften — mehr Zahlen stellen die Kurve zu.
+  const axis =
+    [100, 50, 0]
+      .map(
+        (v) =>
+          `<line class="gl" x1="${PAD.l}" x2="${W - PAD.r}" y1="${y(v).toFixed(1)}" y2="${y(
+            v,
+          ).toFixed(1)}"/><text class="ax" x="4" y="${(y(v) + 4).toFixed(1)}">${v}%</text>`,
+      )
+      .join('');
+
+  // Crosshair statt nativer Tooltips: eine senkrechte Linie, ein Punkt und ein
+  // Wertelabel folgen dem Zeiger — wie in der Wetter-App von iOS. Die
+  // Messpunkte reisen als Datenattribut mit, damit das Skript ohne zweite
+  // Abfrage rechnen kann.
+  const data = pts
+    .map(
+      (p) =>
+        `${x(p.t).toFixed(1)},${y(p.soc).toFixed(1)},${p.soc},${
+          p.kw !== undefined ? p.kw.toFixed(1) : ''
+        },${fmtClock(new Date(p.t).toISOString(), opts.labels.locale)}`,
+    )
+    .join(';');
+
+  const hover = `<g class="cross" aria-hidden="true">
+    <line class="cl" y1="${PAD.t}" y2="${H - PAD.b}"/>
+    <circle class="cd" r="4"/>
+  </g>`;
+
+  return `<div class="curvewrap" data-pts="${esc(data)}" data-w="${W}" data-h="${H}">
+<div class="curvetip" hidden><b></b><span></span></div>
+<svg class="curve" viewBox="0 0 ${W} ${H}" role="img"
+   aria-label="${esc(opts.labels.chartCurveAria)}">
+  <defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="var(--accent)" stop-opacity=".28"/>
+    <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
+  </linearGradient></defs>
+  ${bands}${marks}
+  <path class="fill" d="${area}"/>
+  <path class="ln" d="${line}"/>
+  ${axis}${hover}
+</svg></div>`;
+}
+
+/** CSS des Ladeverlaufs — einmal pro Seite eingebunden. */
+export const CHART_CSS = `
+/* height:auto, NICHT eine feste Höhe: Ohne preserveAspectRatio="none" passt
+   der Browser das SVG in die Box ein (xMidYMid meet). Eine feste Höhe, die
+   nicht zum Seitenverhältnis passt, zentriert das Diagramm dann mit Leerraum
+   darüber und darunter. */
+.curve{width:100%;height:auto;display:block;margin:2px 0 4px;overflow:visible}
+.curve .band{fill:var(--accent);opacity:.10}
+.curve .gl{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
+.curve .mark{stroke:var(--dim);stroke-width:1;stroke-dasharray:3 3;opacity:.45}
+.curve .fill{fill:url(#cg)}
+.curve .ln{fill:none;stroke:var(--accent);stroke-width:2;stroke-linejoin:round;
+ stroke-linecap:round;vector-effect:non-scaling-stroke}
+.curve .ax{fill:var(--dim);font-size:10px}
+.curve .ax.mk{font-size:9.5px;opacity:.85}
+.curvewrap{position:relative;touch-action:pan-y}
+.curve .cross{opacity:0;transition:opacity .12s}
+.curvewrap.on .cross{opacity:1}
+.curve .cl{stroke:var(--dim);stroke-width:1;stroke-dasharray:2 2;
+ vector-effect:non-scaling-stroke}
+.curve .cd{fill:var(--accent);stroke:var(--card);stroke-width:2;
+ vector-effect:non-scaling-stroke}
+/* Label folgt dem Zeiger; -translate hält es über dem Punkt und innerhalb
+   des Diagramms, damit es am Rand nicht abgeschnitten wird. */
+.curvetip{position:absolute;top:2px;transform:translateX(-50%);pointer-events:none;
+ background:var(--fg);color:var(--bg);border-radius:8px;padding:4px 9px;
+ font-size:12px;font-weight:600;white-space:nowrap;z-index:2;
+ box-shadow:0 2px 10px rgba(0,0,0,.25)}
+.curvetip span{font-weight:400;opacity:.7;margin-left:6px}
+.curvetip[hidden]{display:none}
+`;
+
+export interface BarPoint {
+  label: string;
+  value: number;
+  /** Zusatzzeile für den Tooltip. */
+  detail?: string;
+  /** Hebt den laufenden Zeitraum hervor. */
+  current?: boolean;
+}
+
+/**
+ * Balkendiagramm der Energie je Zeitraum.
+ *
+ * Ersetzt eine Flexbox-Lösung, bei der zwei Datenpunkte zu zwei bildschirm-
+ * breiten Blöcken wurden. Hier haben Balken eine Höchstbreite und sitzen
+ * linksbündig auf einer Achse — zwei Tage sehen dann aus wie zwei Tage und
+ * nicht wie ein kaputtes Diagramm.
+ */
+export function barChart(points: BarPoint[], L: Labels, unit = 'kWh'): string {
+  if (points.length === 0) {
+    return '';
+  }
+  const W = 640;
+  const H = 132;
+  const PAD = { l: 34, r: 8, t: 10, b: 22 };
+  const plotW = W - PAD.l - PAD.r;
+  const plotH = H - PAD.t - PAD.b;
+
+  const max = Math.max(...points.map((p) => p.value));
+  // Auf eine runde Zahl aufrunden, damit die Achse lesbar bleibt.
+  const step = max <= 5 ? 1 : max <= 25 ? 5 : max <= 60 ? 10 : max <= 150 ? 25 : 50;
+  const top = Math.max(step, Math.ceil(max / step) * step);
+
+  const slot = plotW / points.length;
+  // Höchstbreite verhindert die „zwei Riesenblöcke"-Optik bei wenig Daten.
+  const bw = Math.min(38, Math.max(3, slot - 2));
+
+  const y = (v: number): number => PAD.t + (1 - v / top) * plotH;
+
+  const grid = [0, 0.5, 1]
+    .map((f) => {
+      const gv = top * f;
+      return `<line class="gl" x1="${PAD.l}" x2="${W - PAD.r}" y1="${y(gv).toFixed(1)}" y2="${y(
+        gv,
+      ).toFixed(1)}"/><text class="ax" x="${PAD.l - 5}" y="${(y(gv) + 3.5).toFixed(
+        1,
+      )}" text-anchor="end">${gv % 1 ? gv.toFixed(1) : gv}</text>`;
+    })
+    .join('');
+
+  const bars = points
+    .map((p, i) => {
+      const cx = PAD.l + slot * i + slot / 2;
+      const h = p.value > 0 ? Math.max(2, plotH - (y(p.value) - PAD.t)) : 0;
+      const title = `${p.label}: ${p.value.toFixed(1)} ${unit}${p.detail ? ` · ${p.detail}` : ''}`;
+      const cls = `bar${p.current ? ' cur' : ''}${p.value === 0 ? ' zero' : ''}`;
+      return `<g class="${cls}">
+        <rect class="hit" x="${(cx - slot / 2).toFixed(1)}" y="${PAD.t}" width="${slot.toFixed(
+          1,
+        )}" height="${plotH}"><title>${esc(title)}</title></rect>
+        ${
+          p.value > 0
+            ? `<rect class="v" x="${(cx - bw / 2).toFixed(1)}" y="${y(p.value).toFixed(
+                1,
+              )}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="4"/>`
+            : `<rect class="v0" x="${(cx - bw / 2).toFixed(1)}" y="${(PAD.t + plotH - 2).toFixed(
+                1,
+              )}" width="${bw.toFixed(1)}" height="2" rx="1"/>`
+        }
+      </g>`;
+    })
+    .join('');
+
+  // Beschriftung ausdünnen, damit sich nichts überlappt.
+  //
+  // Das Jahr fällt weg, sofern noch etwas davorsteht: „Juli 2026" wird zu
+  // „Juli", „KW 31 / 2026" zu „KW 31" — das nackte Jahr im Jahresdiagramm
+  // bleibt aber stehen. Das vollständige Label steht ohnehin im Tooltip.
+  const short = (s: string): string => s.replace(/[ /]+\d{4}$/, '').slice(0, 12);
+  const every = Math.ceil(points.length / 7);
+  const labels = points
+    .map((p, i) =>
+      i % every === 0 || i === points.length - 1
+        ? `<text class="ax" x="${(PAD.l + slot * i + slot / 2).toFixed(1)}" y="${
+            H - 6
+          }" text-anchor="middle">${esc(short(p.label))}</text>`
+        : '',
+    )
+    .join('');
+
+  return `<svg class="bars" viewBox="0 0 ${W} ${H}" role="img"
+   aria-label="${esc(L.chartBarsAria)}">
+  <defs><linearGradient id="bg1" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#35c77b"/><stop offset="100%" stop-color="var(--accent)"/>
+  </linearGradient></defs>
+  ${grid}${bars}${labels}
+</svg>`;
+}
+
+/** CSS des Balkendiagramms. */
+export const BARS_CSS = `
+.bars{width:100%;height:auto;display:block;overflow:visible}
+.bars .gl{stroke:var(--line);stroke-width:1}
+.bars .ax{fill:var(--dim);font-size:10px}
+.bars .v{fill:var(--accent);transition:opacity .12s}
+.bars .v0{fill:var(--line)}
+.bars .cur .v{fill:url(#bg1)}
+.bars g:hover .v{opacity:.75}
+.bars .hit{fill:transparent}
+`;

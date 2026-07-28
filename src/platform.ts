@@ -14,15 +14,42 @@ import { loadTokens, saveTokens } from './auth/tokenStore';
 import { PorscheClient } from './api/porscheClient';
 import { VehicleState } from './api/measurements';
 import { PorscheCommand } from './api/commands';
-import { clampPollInterval } from './wake';
+import { clampPollInterval, effectivePollMinutes } from './wake';
+import { appendSample } from './chargeLog';
+import { startDashboard, readSamples } from './dashboard';
+import { buildSessions } from './sessions';
+import { aggregate, efficiency } from './aggregate';
+import {
+  sendNotification,
+  buildDailyMessage,
+  buildSessionMessage,
+  msUntilHour,
+  type NotifyConfig,
+} from './notify';
 import { createKit, resolveConfig, ResolvedPorscheConfig, PLUGIN_NAME, PLATFORM_NAME } from './accessories/kit';
 import chargingModule from './accessories/charging';
 import climateModule from './accessories/climate';
 import accessModule from './accessories/access';
 import telemetryModule from './accessories/telemetry';
 import { createWatchdog } from './accessories/watchdog';
+import { labelsFor } from './i18n';
+import { isCarHome } from './accessories/helpers';
 
 export { PLATFORM_NAME };
+
+/** Wie lange nach einem Rate-Limit wieder regulär gepollt wird. */
+const RATE_LIMIT_COOLDOWN_MS = 30 * 60000;
+
+/**
+ * Wie lange ein zuletzt bekannter Steckerzustand weitergilt, wenn die API
+ * keinen liefert.
+ *
+ * Lang genug, um die regelmäßigen Leerantworten zu überbrücken, kurz genug,
+ * dass ein dauerhaft stummes Backend nicht ewig den schnellen Takt hält.
+ */
+const LAST_KNOWN_TTL_MS = 20 * 60000;
+
+
 
 /**
  * ALLE Messwert-Keys, die pro Poll vom gecachten Endpunkt gelesen werden.
@@ -70,6 +97,10 @@ const STATE_KEYS: string[] = [
   // Datenschutz / Konnektivität
   'REMOTE_ACCESS_AUTHORIZATION',
   'GLOBAL_PRIVACY_MODE',
+  // Fahrstatistik — liefert den vom Fahrzeug SELBST gemessenen Verbrauch
+  // (kWh/100 km). Dient als unabhängige Gegenprobe zu unserer Rechnung aus
+  // geladener Energie je gefahrenem Kilometer.
+  'TRIP_STATISTICS_CYCLIC',
 ];
 
 /**
@@ -100,11 +131,44 @@ export class PorschePlatform implements DynamicPlatformPlugin {
   private readonly resolvedConfig: ResolvedPorscheConfig;
   private readonly pollIntervalMinutes: number;
   private readonly tokenPath: string;
+  /** Zielverzeichnis des Rohdaten-Mitschriebs (tagesrotierte JSONL-Dateien). */
+  private readonly logDir: string;
 
   // --- Laufzeit-Zustand ------------------------------------------------------
   private client?: PorscheClient;
   private vin?: string;
   private pollTimer?: NodeJS.Timeout;
+  /** Gesetzt beim Shutdown — verhindert, dass ein laufender Poll neu plant. */
+  private stopped = false;
+  /** Zuletzt eingeplantes Intervall (nur fürs Logging bei Wechseln). */
+  private activePollMinutes?: number;
+  /** Zeitpunkt des letzten Poll-Versuchs — deckt unerwartete Lücken auf. */
+  private lastPollAt?: number;
+  /** Dashboard-Server (optional, per dashboardPort=0 abschaltbar). */
+  private dashboard?: import('http').Server;
+  /** Timer der Tagesmeldung. */
+  private dailyTimer?: NodeJS.Timeout;
+  /** Letzter beobachteter Steckerzustand — erkennt das Ende einer Ladung. */
+  private lastPlugged?: boolean;
+  /**
+   * Letzter BEKANNTER Lade-/Steckerzustand samt Zeitpunkt.
+   *
+   * Die API liefert regelmäßig Antworten ohne Lade-Information. Ohne diesen
+   * Rückgriff fiele der Poll danach auf das reguläre Intervall zurück und
+   * risse ein 20-Minuten-Loch in die Ladekurve — obwohl eine Minute zuvor
+   * noch bekannt war, dass das Kabel steckt.
+   */
+  private lastKnown?: { plugged?: boolean; charging?: boolean; at: number };
+  /**
+   * Zeitpunkt, bis zu dem nach einem Rate-Limit langsam gepollt wird (ms).
+   *
+   * Ohne diese Sperre entstünde ein Ping-Pong: Ein 429 lässt den Poll
+   * scheitern, der nächste sieht wieder ein steckendes Kabel und beschleunigt
+   * erneut — bis Auth0 ein Captcha verlangt und das Login neu aufgesetzt
+   * werden müsste.
+   */
+  private rateLimitedUntil = 0;
+
 
   /** Update-Closures aller Domänen-Module (bei jedem Poll mit dem State gefüttert). */
   private updaters: Array<(state: VehicleState) => void> = [];
@@ -122,6 +186,7 @@ export class PorschePlatform implements DynamicPlatformPlugin {
     this.tokenPath =
       (config.tokenPath as string) ||
       path.join(api.user.storagePath(), 'porsche-tokens.json');
+    this.logDir = path.join(api.user.storagePath(), 'porsche-log');
 
     this.log.info('homebridge-porsche loaded (cockpit)');
 
@@ -129,12 +194,38 @@ export class PorschePlatform implements DynamicPlatformPlugin {
     this.api.on('didFinishLaunching', () => {
       this.setupAccessories();
       void this.start();
+      const c = this.resolvedConfig;
+      this.dashboard = startDashboard({
+        port: c.dashboardPort,
+        logDir: this.logDir,
+        capacityKwh: c.capacityKwh,
+        // Effektivpreis = Arbeitspreis abzüglich Ladebonus, in EUR/kWh.
+        pricePerKwh: (c.pricePerKwhCt - c.chargingBonusCt) / 100,
+        priceCt: c.pricePerKwhCt,
+        bonusCt: c.chargingBonusCt,
+        dayBoundaryHour: c.dayBoundaryHour,
+        vehicleName: c.vehicleName,
+        uiPort: 8581,
+        labels: labelsFor(c.language),
+        log: (m) => this.log.info(m),
+        // Manueller Abruf aus dem Dashboard: derselbe Poll wie der zyklische,
+        // inklusive Mitschrieb und Neuplanung des nächsten Laufs.
+        onRefresh: () => this.poll(),
+      });
+      this.scheduleDailyPush();
     });
+
     this.api.on('shutdown', () => {
+      this.stopped = true;
       if (this.pollTimer) {
-        clearInterval(this.pollTimer);
+        clearTimeout(this.pollTimer);
+      }
+      this.dashboard?.close();
+      if (this.dailyTimer) {
+        clearTimeout(this.dailyTimer);
       }
     });
+
   }
 
   /** DynamicPlatform: aus dem Cache geladene Accessories nur merken. */
@@ -269,15 +360,8 @@ export class PorschePlatform implements DynamicPlatformPlugin {
       this.vin = vin;
       this.client = client;
 
-      // Sofort einmal pollen, danach im geklemmten Intervall.
+      // Sofort einmal pollen; poll() plant den jeweils nächsten Lauf selbst.
       void this.poll();
-      this.pollTimer = setInterval(
-        () => void this.poll(),
-        this.pollIntervalMinutes * 60000,
-      );
-      if (typeof this.pollTimer.unref === 'function') {
-        this.pollTimer.unref();
-      }
       this.log.info(
         `Poll loop started (every ${this.pollIntervalMinutes} min) for VIN ${vin}.`,
       );
@@ -295,23 +379,217 @@ export class PorschePlatform implements DynamicPlatformPlugin {
     if (!this.client || !this.vin) {
       return;
     }
+    // Unerwartete Lücke aufdecken: Weicht der tatsächliche Abstand deutlich
+    // vom eingeplanten ab, fehlt ein Stück Ladekurve — das soll auffallen,
+    // statt still in den Daten zu verschwinden.
+    const now = Date.now();
+    if (this.lastPollAt !== undefined && this.activePollMinutes !== undefined) {
+      const actual = (now - this.lastPollAt) / 60000;
+      if (actual > this.activePollMinutes * 2 + 1) {
+        this.log.warn(
+          `Messlücke: ${actual.toFixed(0)} min statt ${this.activePollMinutes} min ` +
+            '— in diesem Zeitraum fehlen Datenpunkte.',
+        );
+      }
+    }
+    this.lastPollAt = now;
+
+    let charging: boolean | undefined;
+    let plugged: boolean | undefined;
+    let dataAgeMinutes: number | undefined;
     try {
       const state = await this.client.getState(this.vin, STATE_KEYS);
+      charging = state.charging;
+      plugged = state.plugged;
+      if (typeof state.dataTimestamp === 'number') {
+        dataAgeMinutes = Math.max(0, (Date.now() - state.dataTimestamp) / 60000);
+      }
+      // Rohdaten festhalten, bevor irgendein Modul den State anfasst.
+      // Position nur als „zuhause ja/nein" — kein Bewegungsprofil im Mitschrieb.
+      const c = this.resolvedConfig;
+      const atHome =
+        state.lat !== undefined && state.lon !== undefined
+          ? isCarHome(state, c.homeLat, c.homeLon, c.homeRadiusM)
+          : undefined;
+      appendSample(this.logDir, state, new Date(), atHome);
+      this.checkChargeEnd(state.plugged);
+      if (state.plugged !== undefined) {
+        this.lastKnown = { plugged: state.plugged, charging: state.charging, at: Date.now() };
+      }
       this.log.info(
-        `Poll OK: SoC=${state.soc}% range=${state.rangeKm}km locked=${state.locked} climate=${state.climateOn}`,
+        `Poll OK: SoC=${state.soc}% Reichweite=${state.rangeKm}km verriegelt=${state.locked} Klima=${state.climateOn}`,
       );
       for (const update of this.updaters) {
         try {
           update(state);
         } catch (err) {
           // Ein einzelnes Modul darf den Zyklus nicht reißen.
-          this.log.warn(`Module update failed: ${String(err)}`);
+          this.log.warn(`Accessory update failed: ${String(err)}`);
         }
       }
       this.setHealth?.({ ok: true });
     } catch (err) {
-      this.log.warn(`Status poll failed: ${String(err)}`);
-      this.setHealth?.({ ok: false, message: `Poll: ${String(err)}` });
+      const msg = String(err);
+      if (/\b429\b|rate.?limit/i.test(msg)) {
+        this.rateLimitedUntil = Date.now() + RATE_LIMIT_COOLDOWN_MS;
+        this.log.warn(
+          `Rate-Limit erreicht — ${RATE_LIMIT_COOLDOWN_MS / 60000} min lang reguläres Poll-Intervall.`,
+        );
+      }
+      this.log.warn(`Status poll failed: ${msg}`);
+      this.setHealth?.({ ok: false, message: `Poll: ${msg}` });
+    } finally {
+      // Bei Fehlern bleiben beide Werte undefined → reguläres 12V-sicheres Intervall.
+      this.scheduleNextPoll({ charging, plugged, dataAgeMinutes });
+    }
+  }
+
+  /** Push-Konfiguration; `topic` leer bedeutet: Push abgeschaltet. */
+  private notifyConfig(): NotifyConfig {
+    return {
+      server: this.resolvedConfig.ntfyServer,
+      topic: this.resolvedConfig.ntfyTopic ?? '',
+      log: (m) => this.log.warn(m),
+    };
+  }
+
+  /** Effektivpreis in EUR/kWh (Arbeitspreis abzüglich Ladebonus). */
+  private effectivePrice(): number {
+    return (this.resolvedConfig.pricePerKwhCt - this.resolvedConfig.chargingBonusCt) / 100;
+  }
+
+  /**
+   * Meldet eine soeben beendete Ladung.
+   *
+   * Ausgelöst wird am Übergang eingesteckt → ausgesteckt, nicht am Ende des
+   * Ladens: Bei preisgesteuertem Laden pausiert der Tarif ständig, das wäre
+   * ein Dauerfeuer an Meldungen.
+   */
+  private checkChargeEnd(plugged: boolean | undefined): void {
+    if (plugged === undefined) {
+      return; // fehlgeschlagener Poll ist kein Ausstecken
+    }
+    const was = this.lastPlugged;
+    this.lastPlugged = plugged;
+    if (was !== true || plugged !== false) {
+      return;
+    }
+    if (!this.resolvedConfig.pushOnChargeEnd || !this.resolvedConfig.ntfyTopic) {
+      return;
+    }
+    try {
+      const sessions = buildSessions(readSamples(this.logDir), {
+        capacityKwh: this.resolvedConfig.capacityKwh,
+        pricePerKwh: this.effectivePrice(),
+        grossPricePerKwh: this.resolvedConfig.pricePerKwhCt / 100,
+      });
+      const last = sessions[sessions.length - 1];
+      // Kurzes Ein- und Ausstecken ohne nennenswerte Energie nicht melden.
+      if (!last || (last.energyKwh ?? 0) < 0.5) {
+        return;
+      }
+      const { title, message } = buildSessionMessage(last);
+      void sendNotification(this.notifyConfig(), title, message);
+      this.log.info('Ladeende gemeldet.');
+    } catch (err) {
+      this.log.warn(`Charge-finished notification failed: ${String(err)}`);
+    }
+  }
+
+  /**
+   * Plant die Tagesmeldung zur konfigurierten Stunde.
+   *
+   * Nach jedem Versand wird neu geplant statt ein 24-Stunden-Intervall zu
+   * setzen — so bleibt die Uhrzeit auch über Sommerzeitwechsel korrekt.
+   */
+  private scheduleDailyPush(): void {
+    const hour = this.resolvedConfig.dailyPushHour;
+    if (this.stopped || hour < 0 || !this.resolvedConfig.ntfyTopic) {
+      return;
+    }
+    const delay = msUntilHour(hour, new Date());
+    this.dailyTimer = setTimeout(() => {
+      this.sendDailyPush();
+      this.scheduleDailyPush();
+    }, delay);
+    if (typeof this.dailyTimer.unref === 'function') {
+      this.dailyTimer.unref();
+    }
+    this.log.info(
+      `Tagesmeldung um ${hour}:00 Uhr (in ${Math.round(delay / 60000)} min).`,
+    );
+  }
+
+  /** Baut und verschickt die Tagesmeldung. */
+  private sendDailyPush(): void {
+    try {
+      const samples = readSamples(this.logDir);
+      const opts = {
+        capacityKwh: this.resolvedConfig.capacityKwh,
+        pricePerKwh: this.effectivePrice(),
+        grossPricePerKwh: this.resolvedConfig.pricePerKwhCt / 100,
+        dayBoundaryHour: this.resolvedConfig.dayBoundaryHour,
+        labels: labelsFor(this.resolvedConfig.language),
+      };
+      const days = aggregate(samples, 'day', opts);
+      const months = aggregate(samples, 'month', opts);
+      const { title, message } = buildDailyMessage(
+        days,
+        months[months.length - 1],
+        efficiency(months),
+      );
+      void sendNotification(this.notifyConfig(), title, message);
+    } catch (err) {
+      this.log.warn(`Daily report failed: ${String(err)}`);
+    }
+  }
+
+  /**
+   * Plant den nächsten Poll.
+   *
+   * Das Intervall folgt dem Ladezustand ({@link effectivePollMinutes}): eng nur
+   * während eines laufenden Ladevorgangs, in JEDEM anderen Fall – auch bei
+   * unbekanntem Zustand nach einem Fehler – das reguläre, geklemmte Intervall.
+   */
+  private scheduleNextPoll(state: {
+    charging?: boolean;
+    plugged?: boolean;
+    dataAgeMinutes?: number;
+  }): void {
+    if (this.stopped) {
+      return;
+    }
+    if (this.pollTimer) {
+      clearTimeout(this.pollTimer);
+    }
+    // Ist der Zustand unbekannt (leere Antwort oder Fehler), gilt der zuletzt
+    // bekannte weiter — aber nur begrenzt lange, damit ein dauerhaft stummes
+    // Backend nicht ewig den schnellen Takt aufrechterhält.
+    const known =
+      this.lastKnown && Date.now() - this.lastKnown.at <= LAST_KNOWN_TTL_MS
+        ? this.lastKnown
+        : undefined;
+    const minutes = effectivePollMinutes(this.resolvedConfig.pollIntervalMinutes, {
+      ...state,
+      plugged: state.plugged ?? known?.plugged,
+      charging: state.charging ?? known?.charging,
+      // Bei unbekanntem Zustand zählt das Alter des zuletzt bekannten.
+      dataAgeMinutes:
+        state.dataAgeMinutes ??
+        (known ? (Date.now() - known.at) / 60000 : undefined),
+      pluggedMinutes: this.resolvedConfig.pluggedPollMinutes,
+      rateLimited: Date.now() < this.rateLimitedUntil,
+    });
+    if (minutes !== this.activePollMinutes) {
+      this.log.info(
+        `Poll-Intervall: ${minutes} min (Kabel=${state.plugged === true ? 'ja' : 'nein'}, ` +
+          `Laden=${state.charging === true ? 'ja' : 'nein'}).`,
+      );
+      this.activePollMinutes = minutes;
+    }
+    this.pollTimer = setTimeout(() => void this.poll(), minutes * 60000);
+    if (typeof this.pollTimer.unref === 'function') {
+      this.pollTimer.unref();
     }
   }
 

@@ -225,7 +225,9 @@ describe('parseMeasurements (echte PPA-Struktur)', () => {
       expect(() => parseMeasurements(input)).not.toThrow();
       const s = parseMeasurements(input);
       expect(s.charging).toBe(false);
-      expect(s.plugged).toBe(false);
+      // Ohne jede Lade-Information: unbekannt, NICHT „ausgesteckt" — sonst
+      // zerschneidet jede leere Antwort eine laufende Ladung.
+      expect(s.plugged).toBeUndefined();
       expect(s.climateOn).toBe(false);
       expect(s.soc).toBeUndefined();
     }

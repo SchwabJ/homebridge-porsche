@@ -10,7 +10,30 @@
  */
 
 /** Lade-Status-Werte, die als "aktiv ladend" gelten. */
-const CHARGING_STATES = ['CHARGING', 'CHARGING_AC', 'CHARGING_DC'];
+const CHARGING_STATES = ['CHARGING', 'CHARGING_AC', 'CHARGING_DC', 'FAST_CHARGING'];
+
+/**
+ * Zustände, in denen das Kabel steckt, ohne dass gerade Strom fließt.
+ *
+ * Real beobachtet (2026-07-27): Bei tarifgesteuertem Laden meldet die API
+ * `status: "CHARGING_PAUSED"` mit `mode: "SINGLE_TIMER"` — das Auto hängt am
+ * Kabel und wartet auf sein Zeitfenster. Ein `plugState`-Feld liefert die
+ * Antwort in diesem Fall NICHT, weshalb eine Prüfung allein darauf den
+ * Steckerzustand während jeder Ladepause verliert.
+ *
+ * Deshalb wird jeder `CHARGING_*`-Zustand als „eingesteckt" gewertet: Ohne
+ * Kabel gäbe es überhaupt keinen Ladezustand zu melden.
+ */
+const PLUGGED_STATES = [
+  'CHARGING_PAUSED',
+  'CHARGING_COMPLETED',
+  'CHARGING_INTERRUPTED',
+  'CHARGING_ERROR',
+  'CHARGING_SLOW',
+  'INITIALISING',
+  'INITIALIZING',
+];
+
 
 /** Vier-Eck-Werte (Türen, Fenster, Reifen, Klimazonen). */
 export interface Corners<T> {
@@ -38,8 +61,18 @@ export interface VehicleState {
   // --- Laden ----------------------------------------------------------------
   /** Lädt das Fahrzeug aktuell? (CHARGING_SUMMARY.status) */
   charging: boolean;
-  /** Ladekabel eingesteckt? (aus Lade-Status / plugState abgeleitet). */
-  plugged: boolean;
+  /**
+   * Ladekabel eingesteckt? `undefined` = UNBEKANNT.
+   *
+   * Der Unterschied ist wesentlich: Die API liefert etwa stündlich eine
+   * Antwort ganz ohne `CHARGING_SUMMARY`. Würde das als „nicht eingesteckt"
+   * gelten, zerschnitte jede dieser Lücken eine laufende Ladung in zwei
+   * Sessions — samt Verlust des Ladestand-Sprungs dazwischen, der dann in
+   * keiner der beiden Sessions auftaucht. Genau das erzeugte am 2026-07-28
+   * sechs „Ladungen" statt einer und schluckte 5 Prozentpunkte.
+   */
+  plugged?: boolean;
+
   /** Lade-Typ "AC" | "DC" (CHARGING_SUMMARY.type). */
   chargingType?: string;
   /** Aktuelle Ladeleistung in kW (CHARGING_RATE.chargingPowerkW). */
@@ -54,6 +87,14 @@ export interface VehicleState {
   targetSoc?: number;
   /** Name des aktiven Ladeprofils (CHARGING_PROFILES.list.find(isEnabled).name). */
   activeProfileName?: string;
+  /**
+   * Mindestladestand des aktiven Profils in Prozent.
+   *
+   * NICHT das Ladelimit: Bis zu diesem Wert lädt das Fahrzeug sofort und
+   * unabhängig von jedem Zeitfenster (Reserve); erst darüber richtet es sich
+   * nach Timer bzw. optimiertem Laden. Deshalb getrennt von `targetSoc`.
+   */
+  minSocProfile?: number;
 
   // --- Klima ----------------------------------------------------------------
   /** Läuft die Klimatisierung? (CLIMATIZER_STATE.isOn) */
@@ -104,6 +145,21 @@ export interface VehicleState {
   remoteAccess?: boolean;
   /** Zeitstempel der Daten in ms seit Epoch (aus response.timestamp). */
   dataTimestamp?: number;
+
+  // --- Fahrstatistik ---------------------------------------------------------
+  /**
+   * Vom Fahrzeug selbst gemessener Fahrverbrauch in kWh/100 km
+   * (TRIP_STATISTICS_*, jüngster Eintrag).
+   *
+   * Unabhängige Gegenprobe zur eigenen Rechnung „geladene Energie je
+   * gefahrenem Kilometer": Dieser Wert misst, was beim FAHREN aus der Batterie
+   * geht; unsere Rechnung misst, was insgesamt BEZAHLT wurde. Die Differenz
+   * sind Ladeverluste und Standverbrauch — solange die Datenbasis groß genug
+   * ist, um überhaupt aussagekräftig zu sein.
+   */
+  tripConsumptionKwhPer100Km?: number;
+  /** Gefahrene Strecke des jüngsten Statistik-Eintrags in km. */
+  tripDistanceKm?: number;
 }
 
 /** Ein einzelner Messwert-Eintrag aus der PPA-API. */
@@ -226,11 +282,23 @@ export function parseMeasurements(response: unknown, nowMs: number = Date.now())
   const service = byKey.get('MAIN_SERVICE_RANGE');
   const gps = byKey.get('GPS_LOCATION');
   const privacy = byKey.get('GLOBAL_PRIVACY_MODE');
+  const trip = byKey.get('TRIP_STATISTICS_CYCLIC');
   const remote = byKey.get('REMOTE_ACCESS_AUTHORIZATION');
 
   // --- Laden ----------------------------------------------------------------
   const chargeStatus = charge?.['status'] as string | undefined;
   const charging = chargeStatus !== undefined && CHARGING_STATES.includes(chargeStatus);
+  // Eingesteckt: explizites plugState, aktives Laden, ein bekannter Warte-
+  // Zustand — oder ersatzweise jeder unbekannte CHARGING_*-Zustand, damit
+  // künftige Statuswerte den Steckerzustand nicht wieder still verlieren.
+  // Ohne jede Lade-Information ist der Steckerzustand UNBEKANNT, nicht „aus".
+  const plugged =
+    charge === undefined && chargeStatus === undefined
+      ? undefined
+      : charge?.['plugState'] === 'CONNECTED' ||
+        charging ||
+        (chargeStatus !== undefined &&
+          (PLUGGED_STATES.includes(chargeStatus) || chargeStatus.startsWith('CHARGING')));
   const chargingProfile = charge?.['chargingProfile'] as { minSoC?: number } | undefined;
 
   // ETA: Differenz targetDateTimeWithOffset - jetzt, in Minuten, ≥0.
@@ -243,15 +311,55 @@ export function parseMeasurements(response: unknown, nowMs: number = Date.now())
     }
   }
 
+  // --- Fahrstatistik ---------------------------------------------------------
+  //
+  // Feldnamen sind zwischen Firmwareständen uneinheitlich: mal flach
+  // (`avgKwhPerHundredKm`), mal verschachtelt
+  // (`averageElectricEngineConsumption.valueKwhPer100Km`). Beide Formen werden
+  // akzeptiert, damit ein Formatwechsel den Wert nicht still verschwinden lässt.
+  let tripConsumptionKwhPer100Km: number | undefined;
+  let tripDistanceKm: number | undefined;
+  const tripList = trip?.['list'];
+  const latestTrip = (
+    Array.isArray(tripList) && tripList.length > 0 ? tripList[tripList.length - 1] : trip
+  ) as Record<string, unknown> | undefined;
+  if (latestTrip) {
+    const nested = (obj: unknown, key: string): number | undefined => {
+      const v = (obj as Record<string, unknown> | undefined)?.[key];
+      return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+    };
+    tripConsumptionKwhPer100Km =
+      num(latestTrip, 'avgKwhPerHundredKm') ??
+      nested(latestTrip['averageElectricEngineConsumption'], 'valueKwhPer100Km') ??
+      nested(latestTrip['averageElectricEngineConsumption'], 'value');
+    tripDistanceKm =
+      num(latestTrip, 'distanceKm') ??
+      nested(latestTrip['tripMileage'], 'valueInKilometers') ??
+      nested(latestTrip['tripMileage'], 'value');
+  }
+
   // --- aktives Ladeprofil ---------------------------------------------------
+  //
+  // Real beobachtet (2026-07-27): `CHARGING_PROFILES.list` enthält vier
+  // Profile, von denen KEINES aktiv sein muss (`isEnabled: false` bei allen).
+  // Der Ziel-Ladestand kommt dann aus einem Timer, nicht aus einem Profil.
+  // Außerdem heißt das Feld dort `minSoc` (kleines c) — nicht wie im
+  // CHARGING_SUMMARY-Zweig `minSoC`.
   let activeProfileName: string | undefined;
+  let activeProfileMinSoc: number | undefined;
   const list = profiles?.['list'];
   if (Array.isArray(list)) {
     const active = list.find(
       (p) => p && typeof p === 'object' && (p as { isEnabled?: unknown }).isEnabled === true,
-    ) as { name?: unknown } | undefined;
-    if (active && typeof active.name === 'string') {
-      activeProfileName = active.name;
+    ) as { name?: unknown; minSoc?: unknown; minSoC?: unknown } | undefined;
+    if (active) {
+      if (typeof active.name === 'string') {
+        activeProfileName = active.name;
+      }
+      const min = typeof active.minSoc === 'number' ? active.minSoc : active.minSoC;
+      if (typeof min === 'number' && Number.isFinite(min)) {
+        activeProfileMinSoc = min;
+      }
     }
   }
 
@@ -319,14 +427,23 @@ export function parseMeasurements(response: unknown, nowMs: number = Date.now())
     odometerKm: num(mileage, 'kilometers'),
 
     charging,
-    plugged: charging || charge?.['plugState'] === 'CONNECTED',
+    plugged,
     chargingType: charge?.['type'] as string | undefined,
     chargingPowerKw: num(rate, 'chargingPowerkW'),
     maxChargingPowerKw: num(rate, 'maxChargingPowerkW'),
     chargeRateKmMin: num(rate, 'chargingRatekmPerMin'),
     chargeEtaMinutes,
-    targetSoc: num(charge, 'targetSoc') ?? chargingProfile?.minSoC,
+    // Die API schreibt das Feld `targetSoC` (großes C) — real beobachtet
+    // 2026-07-27. Die Kleinschreibung bleibt als Fallback stehen, falls
+    // andere Modelle oder Firmwarestände sie verwenden.
+    targetSoc:
+      num(charge, 'targetSoC') ??
+      num(charge, 'targetSoc') ??
+      activeProfileMinSoc ??
+      chargingProfile?.minSoC,
+
     activeProfileName,
+    minSocProfile: activeProfileMinSoc ?? chargingProfile?.minSoC,
 
     climateOn: climate?.['isOn'] === true,
     targetTempC: targetTempK !== undefined ? kelvinToCelsius(targetTempK) : undefined,
@@ -352,5 +469,7 @@ export function parseMeasurements(response: unknown, nowMs: number = Date.now())
     privacyMode: bool(privacy, 'isEnabled'),
     remoteAccess: bool(remote, 'isEnabled'),
     dataTimestamp: parseTimestamp(response),
+    tripConsumptionKwhPer100Km,
+    tripDistanceKm,
   };
 }

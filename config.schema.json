@@ -12,7 +12,8 @@
         "title": "Display name",
         "type": "string",
         "required": true,
-        "default": "Porsche"
+        "default": "Porsche",
+        "description": "Names every accessory in the Home app and titles the charging dashboard, including its browser tab and home-screen icon."
       },
       "language": {
         "title": "Language",
@@ -21,8 +22,18 @@
         "default": "en",
         "description": "Language of the HomeKit tile names.",
         "oneOf": [
-          { "title": "English", "enum": ["en"] },
-          { "title": "German / Deutsch", "enum": ["de"] }
+          {
+            "title": "English",
+            "enum": [
+              "en"
+            ]
+          },
+          {
+            "title": "German / Deutsch",
+            "enum": [
+              "de"
+            ]
+          }
         ]
       },
       "vin": {
@@ -44,8 +55,18 @@
         "default": "essential",
         "description": "\"Essential\" shows only the most important everyday tiles. \"Full\" shows the complete cockpit (all ~55 tiles).",
         "oneOf": [
-          { "title": "Essential (recommended)", "enum": ["essential"] },
-          { "title": "Full (everything)", "enum": ["full"] }
+          {
+            "title": "Essential (recommended)",
+            "enum": [
+              "essential"
+            ]
+          },
+          {
+            "title": "Full (everything)",
+            "enum": [
+              "full"
+            ]
+          }
         ]
       },
       "vehicleType": {
@@ -55,9 +76,24 @@
         "default": "ev",
         "description": "Controls the energy tiles. \"Electric\" = charge level/range/charging. \"Combustion\" = fuel level/range. \"Plug-in hybrid\" = both. Note: only electric (Taycan) is live-tested.",
         "oneOf": [
-          { "title": "Electric (EV)", "enum": ["ev"] },
-          { "title": "Combustion", "enum": ["combustion"] },
-          { "title": "Plug-in hybrid (PHEV)", "enum": ["phev"] }
+          {
+            "title": "Electric (EV)",
+            "enum": [
+              "ev"
+            ]
+          },
+          {
+            "title": "Combustion",
+            "enum": [
+              "combustion"
+            ]
+          },
+          {
+            "title": "Plug-in hybrid (PHEV)",
+            "enum": [
+              "phev"
+            ]
+          }
         ]
       },
       "spin": {
@@ -170,6 +206,76 @@
         "type": "boolean",
         "required": false,
         "default": false
+      },
+      "pricePerKwhCt": {
+        "title": "Electricity price (ct/kWh)",
+        "type": "number",
+        "default": 0,
+        "minimum": 0,
+        "description": "Your energy price per kWh in cents. Leave at 0 to hide all cost figures — a made-up price would be worse than none."
+      },
+      "chargingBonusCt": {
+        "title": "Charging bonus (ct/kWh)",
+        "type": "number",
+        "default": 0,
+        "minimum": 0,
+        "description": "Discount per kWh deducted from the price, e.g. for tariff-controlled charging. Effective price = price minus bonus."
+      },
+      "capacityKwh": {
+        "title": "Usable battery capacity (kWh)",
+        "type": "number",
+        "default": 83.7,
+        "minimum": 10,
+        "description": "Net usable capacity. Charged energy is derived from the state-of-charge delta times this value. The dashboard measures your real capacity from driving data and shows it next to this setting."
+      },
+      "dashboardPort": {
+        "title": "Charging dashboard port",
+        "type": "integer",
+        "default": 8099,
+        "minimum": 0,
+        "maximum": 65535,
+        "description": "Port of the built-in charging history dashboard (LAN only). Set to 0 to disable it."
+      },
+      "pluggedPollMinutes": {
+        "title": "Poll interval while plugged in (min)",
+        "type": "integer",
+        "default": 1,
+        "minimum": 1,
+        "maximum": 30,
+        "description": "How often to poll while the cable is connected. May go below the 10-minute floor: the car is on mains power, so the 12V concern does not apply. Lower values catch short tariff windows."
+      },
+      "dayBoundaryHour": {
+        "title": "Day starts at (hour)",
+        "type": "integer",
+        "default": 0,
+        "minimum": 0,
+        "maximum": 12,
+        "description": "Hour at which a new day begins for the statistics. Default 0 splits an overnight charge across both days; set to e.g. 4 so a 22:00-06:00 charge counts towards the evening it started."
+      },
+      "ntfyTopic": {
+        "title": "ntfy topic (push notifications)",
+        "type": "string",
+        "description": "Topic on the ntfy server. Leave empty to disable push. Choose something unguessable — ntfy topics are publicly addressable."
+      },
+      "ntfyServer": {
+        "title": "ntfy server",
+        "type": "string",
+        "default": "https://ntfy.sh",
+        "description": "Push server. Change only if you self-host ntfy."
+      },
+      "dailyPushHour": {
+        "title": "Daily report hour",
+        "type": "integer",
+        "default": 8,
+        "minimum": -1,
+        "maximum": 23,
+        "description": "Local hour for the daily charging report. Set to -1 to disable."
+      },
+      "pushOnChargeEnd": {
+        "title": "Notify when charging ends",
+        "type": "boolean",
+        "default": true,
+        "description": "Send a push when the car is unplugged, summarising the completed charge."
       }
     }
   },
@@ -180,7 +286,10 @@
     "vehicleModel",
     "detailLevel",
     "vehicleType",
-    { "key": "spin", "type": "password" },
+    {
+      "key": "spin",
+      "type": "password"
+    },
     {
       "type": "fieldset",
       "title": "Polling & Climate",
@@ -227,6 +336,40 @@
         "honkAutoOffSeconds",
         "exposeClimateZones",
         "exposeTheftSensor"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Charging History & Costs",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        {
+          "type": "help",
+          "helpvalue": "<p class=\"help-block\">The plugin records every poll and reconstructs your charging sessions from it. A dashboard on your local network shows them by day, week, month and year.<br><br><b>Costs are opt-in:</b> leave the price at 0 and no cost figures appear anywhere — a made-up price would be worse than none.</p>"
+        },
+        "pricePerKwhCt",
+        "chargingBonusCt",
+        "capacityKwh",
+        "dashboardPort",
+        "pluggedPollMinutes",
+        "dayBoundaryHour"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Push Notifications (ntfy)",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        {
+          "type": "help",
+          "helpvalue": "<p class=\"help-block\">Optional. Leave the topic empty to disable push entirely — nothing is sent and no connection is made.</p>"
+        },
+        "ntfyTopic",
+        "ntfyServer",
+        "dailyPushHour",
+        "pushOnChargeEnd"
       ]
     }
   ]

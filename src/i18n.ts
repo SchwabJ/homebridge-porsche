@@ -15,6 +15,17 @@ export type Language = 'en' | 'de';
 
 /** Alle lokalisierbaren Kachel-Labels (Suffix nach dem `vehicleName`-Präfix). */
 export interface Labels {
+  /**
+   * BCP-47-Kennung für Datums-, Zeit- und Zahlenformate im Dashboard.
+   *
+   * Gehört hierher und nicht in die Konfiguration: Wer `language: 'en'` setzt,
+   * meint die ganze Oberfläche — deutsche Datumsformate und deutsche
+   * Tausenderpunkte in einer englischen Seite sind schlicht ein Fehler. Für
+   * Englisch bewusst `en-GB`: 24-Stunden-Zeit und Tag vor Monat, was zu einem
+   * Fahrzeug-Dashboard besser passt als AM/PM.
+   */
+  locale: string;
+
   // --- Laden / Batterie (charging.ts) ---
   chargeLevel: string;
   range: string;
@@ -82,10 +93,82 @@ export interface Labels {
   // --- Wächter (watchdog.ts) ---
   connection: string;
   dataFresh: string;
+
+  // --- Ladehistorie-Dashboard (dashboard.ts, chart.ts) ---
+  dashTitle: string;
+  dashAsOf: string;
+  dashRefresh: string;
+  dashSettings: string;
+  dashInstantTo: string;
+  dashTarget: string;
+  dashNotPlugged: string;
+  dashPluggedWaiting: string;
+  dashCharging: string;
+  dashAtHome: string;
+  dashAway: string;
+  dashMonitorOk: string;
+  dashMonitorAgo: string;
+  dashNoDataFor: string;
+  dashNoDataYet: string;
+  dashDay: string;
+  dashWeek: string;
+  dashMonth: string;
+  dashYear: string;
+  dashCost: string;
+  dashInsteadOf: string;
+  dashSaved: string;
+  dashBonus: string;
+  dashTotal: string;
+  dashChargedRange: string;
+  dashRange: string;
+  dashConsumption: string;
+  dashPerVehicle: string;
+  dashCalculated: string;
+  dashPaid: string;
+  dashDriven: string;
+  dashChargeTime: string;
+  dashRecorded: string;
+  dashCharges: string;
+  dashNone: string;
+  dashAvgPerCharge: string;
+  dashRunning: string;
+  dashSince: string;
+  dashFrom: string;
+  dashMeasuredCapacity: string;
+  dashTrips: string;
+  dashHealth: string;
+  dashConfigured: string;
+  dashMeasurement: string;
+  dashSpread: string;
+  dashTooFewPoints: string;
+  dashGaps: string;
+  dashStart: string;
+  dashDuration: string;
+  dashOfWhichCharging: string;
+  dashChargeState: string;
+  dashEnergy: string;
+  dashPhase: string;
+  dashPhases: string;
+  dashInDetail: string;
+  aggWeek: string;
+  dashActive: string;
+  dashComparedTo: string;
+  dashInProgress: string;
+  chartInstantTo: string;
+  chartTargetMark: string;
+  chartCurveAria: string;
+  chartBarsAria: string;
+  dashSocDropped: string;
+  dashWaitSeconds: string;
+  dashRefreshFailed: string;
+  dashNoCharges: string;
+  dashNoChargesHint: string;
+
 }
 
 /** Englische Labels (Default). */
 export const LABELS_EN: Labels = {
+  locale: 'en-GB',
   chargeLevel: 'Charge level',
   range: 'Range',
   electricRange: 'Electric range',
@@ -148,10 +231,82 @@ export const LABELS_EN: Labels = {
 
   connection: 'Connection',
   dataFresh: 'Data fresh',
+
+  // --- Charging history dashboard ---
+  dashTitle: 'Charging history',
+  dashAsOf: 'as of',
+  dashRefresh: 'Refresh now',
+  dashSettings: 'Settings',
+  dashInstantTo: 'instant to',
+  dashTarget: 'target',
+  dashNotPlugged: 'Not plugged in',
+  dashPluggedWaiting: 'Plugged in, waiting',
+  dashCharging: 'Charging',
+  dashAtHome: 'at home',
+  dashAway: 'away',
+  dashMonitorOk: 'Monitoring active',
+  dashMonitorAgo: 'ago',
+  dashNoDataFor: 'No data for',
+  dashNoDataYet: 'No data yet',
+  dashDay: 'Day',
+  dashWeek: 'Week',
+  dashMonth: 'Month',
+  dashYear: 'Year',
+  dashCost: 'Cost',
+  dashInsteadOf: 'instead of',
+  dashSaved: 'Saved',
+  dashBonus: 'bonus',
+  dashTotal: 'total',
+  dashChargedRange: 'Charged',
+  dashRange: 'range',
+  dashConsumption: 'Consumption',
+  dashPerVehicle: 'per vehicle',
+  dashCalculated: 'calculated',
+  dashPaid: 'paid',
+  dashDriven: 'Driven',
+  dashChargeTime: 'Plugged in',
+  dashRecorded: 'recorded',
+  dashCharges: 'Charges',
+  dashNone: 'none',
+  dashAvgPerCharge: 'avg per charge',
+  dashRunning: 'Running now',
+  dashSince: 'since',
+  dashFrom: 'from',
+  dashMeasuredCapacity: 'Measured capacity',
+  dashTrips: 'trips',
+  dashHealth: 'health',
+  dashConfigured: 'Configured',
+  dashMeasurement: 'measurement',
+  dashSpread: 'spread',
+  dashTooFewPoints: 'Too little data (%n readings) — figures not yet reliable',
+  dashGaps: 'Data gaps: %p % recorded, %h h missing — energy may be understated',
+  dashStart: 'Start',
+  dashDuration: 'Duration',
+  dashOfWhichCharging: 'of which charging',
+  dashChargeState: 'State of charge',
+  dashEnergy: 'Energy',
+  dashPhase: 'phase',
+  dashPhases: 'phases',
+  dashInDetail: 'in detail',
+  aggWeek: 'CW',
+  dashActive: 'active',
+  dashComparedTo: 'vs.',
+  dashInProgress: 'in progress',
+  chartInstantTo: 'instant',
+  chartTargetMark: 'target',
+  chartCurveAria: 'Charging curve: state of charge over time',
+  chartBarsAria: 'Energy charged per period',
+  dashSocDropped: 'charge dropped',
+  dashWaitSeconds: 'Wait %n s',
+  dashRefreshFailed: 'Refresh failed',
+  dashNoCharges: 'No charge recorded yet.',
+  dashNoChargesHint: 'It will appear here as soon as the car is plugged in.',
+
 };
 
 /** Deutsche Labels (entspricht dem bisherigen, deutschsprachigen Stand). */
 export const LABELS_DE: Labels = {
+  locale: 'de-DE',
   chargeLevel: 'Ladestand',
   range: 'Reichweite',
   electricRange: 'E-Reichweite',
@@ -214,6 +369,77 @@ export const LABELS_DE: Labels = {
 
   connection: 'Verbindung',
   dataFresh: 'Daten aktuell',
+
+  // --- Charging history dashboard ---
+  dashTitle: 'Ladehistorie',
+  dashAsOf: 'Stand',
+  dashRefresh: 'Jetzt abrufen',
+  dashSettings: 'Einstellungen',
+  dashInstantTo: 'sofort bis',
+  dashTarget: 'Ziel',
+  dashNotPlugged: 'Nicht eingesteckt',
+  dashPluggedWaiting: 'Eingesteckt, wartet',
+  dashCharging: 'Lädt',
+  dashAtHome: 'zuhause',
+  dashAway: 'auswärts',
+  dashMonitorOk: 'Überwachung aktiv',
+  dashMonitorAgo: 'vor',
+  dashNoDataFor: 'Keine Daten seit',
+  dashNoDataYet: 'Noch keine Daten',
+  dashDay: 'Tag',
+  dashWeek: 'Woche',
+  dashMonth: 'Monat',
+  dashYear: 'Jahr',
+  dashCost: 'Kosten',
+  dashInsteadOf: 'statt',
+  dashSaved: 'Gespart',
+  dashBonus: 'Bonus',
+  dashTotal: 'ges.',
+  dashChargedRange: 'Geladen',
+  dashRange: 'Reichw.',
+  dashConsumption: 'Verbrauch',
+  dashPerVehicle: 'lt. Auto',
+  dashCalculated: 'gerechnet',
+  dashPaid: 'bezahlt',
+  dashDriven: 'Gefahren',
+  dashChargeTime: 'Ladezeit',
+  dashRecorded: 'erfasst',
+  dashCharges: 'Ladungen',
+  dashNone: 'keine',
+  dashAvgPerCharge: 'Ø je Ladung',
+  dashRunning: 'Läuft gerade',
+  dashSince: 'seit',
+  dashFrom: 'ab',
+  dashMeasuredCapacity: 'Gemessene Kapazität',
+  dashTrips: 'Fahrten',
+  dashHealth: 'Gesundheit',
+  dashConfigured: 'Eingestellt',
+  dashMeasurement: 'Messung',
+  dashSpread: 'Streuung',
+  dashTooFewPoints: 'Zu wenig Daten (%n Messpunkte) — Zahlen noch nicht belastbar',
+  dashGaps: 'Datenlücken: %p % erfasst, %h h fehlen — Energie kann zu niedrig sein',
+  dashStart: 'Start',
+  dashDuration: 'Dauer',
+  dashOfWhichCharging: 'davon laden',
+  dashChargeState: 'Ladestand',
+  dashEnergy: 'Energie',
+  dashPhase: 'Phase',
+  dashPhases: 'Phasen',
+  dashInDetail: 'im Detail',
+  aggWeek: 'KW',
+  dashActive: 'aktiv',
+  dashComparedTo: 'ggü.',
+  dashInProgress: 'laufend',
+  chartInstantTo: 'sofort',
+  chartTargetMark: 'Ziel',
+  chartCurveAria: 'Ladeverlauf: Ladestand über die Zeit',
+  chartBarsAria: 'Geladene Energie je Zeitraum',
+  dashSocDropped: 'SoC gefallen',
+  dashWaitSeconds: 'Noch %n s warten',
+  dashRefreshFailed: 'Abruf fehlgeschlagen',
+  dashNoCharges: 'Noch kein Ladevorgang erfasst.',
+  dashNoChargesHint: 'Sobald das Auto ansteckt, erscheint er hier.',
+
 };
 
 /** Liefert den Label-Satz für die gewählte Sprache (Fallback Englisch). */

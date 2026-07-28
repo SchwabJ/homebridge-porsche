@@ -107,6 +107,44 @@ export interface ResolvedPorscheConfig {
   exposeClimateZones: boolean;
   /** Diebstahl-/Theft-Sensor exponieren? */
   exposeTheftSensor: boolean;
+
+  // --- Ladehistorie / Kosten -------------------------------------------------
+  /** Arbeitspreis in Cent je kWh (Grundpreis, ohne Bonus). */
+  pricePerKwhCt: number;
+  /**
+   * Ladebonus in Cent je kWh, der vom Arbeitspreis abgezogen wird.
+   *
+   * Getrennt vom Grundpreis gehalten, damit sichtbar bleibt, woraus sich der
+   * Effektivpreis zusammensetzt — und damit ein wegfallender Bonus nicht
+   * rückwirkend die Historie verfälscht.
+   */
+  chargingBonusCt: number;
+  /** Nutzbare Netto-Kapazität in kWh (Basis der Energieberechnung). */
+  capacityKwh: number;
+  /** Port des Ladehistorie-Dashboards; 0 = aus. */
+  dashboardPort: number;
+  /**
+   * Poll-Intervall in Minuten, solange das Kabel steckt (Minimum 1).
+   *
+   * Darf bewusst unter der 12V-Untergrenze liegen: Am Kabel hängt das
+   * Fahrzeug am Netz. Einziger Kostenfaktor ist das Rate-Limit der API.
+   */
+  pluggedPollMinutes: number;
+  /**
+   * Stunde, zu der ein neuer Tag beginnt (0 = Mitternacht).
+   *
+   * Bei Nachtladen sorgt z. B. 4 dafür, dass eine Ladung von 22 bis 6 Uhr
+   * vollständig zum Vorabend zählt statt sich auf zwei Tage zu verteilen.
+   */
+  dayBoundaryHour: number;
+  /** ntfy-Thema für Push-Meldungen. Leer = Push aus. */
+  ntfyTopic?: string;
+  /** ntfy-Server (Standard `https://ntfy.sh`). */
+  ntfyServer: string;
+  /** Stunde der Tagesmeldung (lokale Zeit); < 0 = keine Tagesmeldung. */
+  dailyPushHour: number;
+  /** Meldung nach jedem abgeschlossenen Ladevorgang? */
+  pushOnChargeEnd: boolean;
 }
 
 /** Defaults. Heim-Koordinaten 0 = „Auto zuhause" deaktiviert (in der Config setzen). */
@@ -133,6 +171,16 @@ export const DEFAULT_CONFIG: ResolvedPorscheConfig = {
   staleMinutes: 30,
   heatingAutoOffMinutes: 15,
   honkAutoOffSeconds: 3,
+  pricePerKwhCt: 0,
+  chargingBonusCt: 0,
+  capacityKwh: 83.7,
+  dashboardPort: 8099,
+  pluggedPollMinutes: 1,
+  dayBoundaryHour: 0,
+  ntfyTopic: undefined,
+  ntfyServer: 'https://ntfy.sh',
+  dailyPushHour: 8,
+  pushOnChargeEnd: true,
   exposeClimateZones: true,
   exposeTheftSensor: false,
 };
@@ -192,6 +240,16 @@ export function resolveConfig(raw: Record<string, unknown> | undefined | null): 
     vehicleType,
     spin,
     pollIntervalMinutes: numOr('pollIntervalMinutes', DEFAULT_CONFIG.pollIntervalMinutes),
+    pricePerKwhCt: numOr('pricePerKwhCt', DEFAULT_CONFIG.pricePerKwhCt),
+    chargingBonusCt: numOr('chargingBonusCt', DEFAULT_CONFIG.chargingBonusCt),
+    capacityKwh: numOr('capacityKwh', DEFAULT_CONFIG.capacityKwh),
+    dashboardPort: numOr('dashboardPort', DEFAULT_CONFIG.dashboardPort),
+    pluggedPollMinutes: numOr('pluggedPollMinutes', DEFAULT_CONFIG.pluggedPollMinutes),
+    dayBoundaryHour: numOr('dayBoundaryHour', DEFAULT_CONFIG.dayBoundaryHour),
+    ntfyTopic: strOr('ntfyTopic', '') || undefined,
+    ntfyServer: strOr('ntfyServer', DEFAULT_CONFIG.ntfyServer),
+    dailyPushHour: numOr('dailyPushHour', DEFAULT_CONFIG.dailyPushHour),
+    pushOnChargeEnd: boolOr('pushOnChargeEnd', DEFAULT_CONFIG.pushOnChargeEnd),
     homeLat: numOr('homeLat', DEFAULT_CONFIG.homeLat),
     homeLon: numOr('homeLon', DEFAULT_CONFIG.homeLon),
     homeRadiusM: numOr('homeRadiusM', DEFAULT_CONFIG.homeRadiusM),
@@ -505,7 +563,7 @@ export function createKit(ctx: KitContext): {
     onChar.onSet((value: CharacteristicValue) => {
       const on = value === true;
       void Promise.resolve(opts.onSet(on)).catch((err) => {
-        log.warn(`${name}: onSet fehlgeschlagen: ${String(err)}`);
+        log.warn(`${name}: onSet failed: ${String(err)}`);
       });
       if (opts.momentaryMs !== undefined && on) {
         if (resetTimer) {

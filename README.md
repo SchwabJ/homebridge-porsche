@@ -7,7 +7,8 @@
 A self-contained [Homebridge](https://homebridge.io) plugin that talks directly to Porsche's
 Connect / PPA API and exposes your car as clean, everyday HomeKit tiles: climate as a
 **thermostat**, charge level (or fuel level) as a **slider**, lock, charging, vehicle status,
-find-my-car, and more.
+find-my-car, and more — plus a **charging history** the Porsche API itself doesn't offer, with its
+own dashboard on your network.
 
 > Works with the general **Porsche Connect** API across models. **Developed and live-tested on the
 > Taycan (EV);** combustion / plug-in-hybrid support (`vehicleType`) is implemented from the same API
@@ -16,7 +17,7 @@ find-my-car, and more.
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg)](https://nodejs.org)
 [![Homebridge](https://img.shields.io/badge/homebridge-%E2%89%A51.6-purple.svg)](https://homebridge.io)
-[![Tests](https://img.shields.io/badge/tests-214%20passing-success.svg)](#-development)
+[![Tests](https://img.shields.io/badge/tests-366%20passing-success.svg)](#-development)
 
 </div>
 
@@ -37,6 +38,10 @@ Most "car in HomeKit" setups need a Docker stack or Home Assistant bridge. This 
 Homebridge plugin** — install it, log in once, done. It runs **headless** afterwards on a refresh
 token and is built to be gentle on the car's 12 V battery (it never force-wakes the vehicle; it only
 polls the cached status endpoint on a clamped interval).
+
+It also keeps a record: because the API has no charging history, the plugin writes one and serves it
+as a [dashboard](#-charging-history--dashboard) — when you charged, how much, how fast, and what it
+cost.
 
 ## 🎛️ What you get in Apple Home
 
@@ -179,6 +184,10 @@ Add the **Porsche** platform via the Homebridge UI, or in `config.json`:
 | `defaultTargetTemp` | `21` | Default climate target (°C) until the car reports its own |
 | `spin` | _(empty)_ | Porsche **S-PIN** — required only for **unlocking** (see below) |
 
+The charging history adds `pricePerKwhCt`, `chargingBonusCt`, `capacityKwh`, `dashboardPort`,
+`dayBoundaryHour`, `pluggedPollMinutes` and the `ntfy*` keys — all optional, all explained under
+[Charging history & dashboard](#-charging-history--dashboard).
+
 ### 🔓 Unlocking (optional, needs your S-PIN)
 
 Locking works out of the box. **Unlocking** requires your 4-digit Porsche **S-PIN**
@@ -187,10 +196,67 @@ lock/unlock toggle. The S-PIN is used locally for Porsche's challenge/response
 (`SPIN_CHALLENGE → SHA-512 → UNLOCK`) and is stored in plain text in your Homebridge config — only
 add it if you're comfortable with that.
 
+## ⚡ Charging history & dashboard
+
+Porsche's API offers **no charging history** — the app shows you the present, and that's it. So the
+plugin builds one itself: every poll is appended to a day-rotated JSONL file, and charging sessions
+are reconstructed from that log. A small dashboard on your local network shows them by **day, week,
+month and year**.
+
+Open it at `http://<your-homebridge-host>:8099`. It's a single self-contained page — no build step,
+no external assets — and installs to your home screen as a web app.
+
+| What it shows | Notes |
+| --- | --- |
+| ⚡ **Energy per period** | kWh charged, with a bar chart per day/week/month/year |
+| 💶 **Cost and savings** | Only if you configure a price — see below |
+| 🛣️ **Range added & km/min** | Measured from the car's own range estimate, not derived from kWh |
+| 📈 **Charge curve per session** | State of charge over time, with the tariff windows as bands |
+| 🔋 **Measured battery capacity** | Estimated from driving data, so you can sanity-check `capacityKwh` |
+| ⚠️ **Data-quality warnings** | Says so when polls were missed, instead of quietly understating |
+
+**One session = one cable connection.** The boundary is *plugged in → unplugged*, not
+*charging → not charging*. If your tariff switches the car on and off in 15-minute windows (Octopus,
+Tibber and friends), that's still **one** charge, shown with its individual phases when you expand it.
+
+### 💶 Costs are opt-in
+
+There are two price fields, both **0 by default**:
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `pricePerKwhCt` | `0` | Your energy price in **cents per kWh**. At `0`, no cost figures appear anywhere |
+| `chargingBonusCt` | `0` | Discount per kWh, e.g. for letting a tariff pick the charging times. The dashboard shows what you paid, what it would have cost without the bonus, and the difference |
+| `capacityKwh` | `83.7` | **Set this for your car.** Charged energy is `state-of-charge delta × capacity`, so a wrong value scales every kWh figure |
+| `dashboardPort` | `8099` | `0` disables the dashboard entirely |
+| `dayBoundaryHour` | `0` | Set to e.g. `4` so an overnight charge counts towards the evening it started |
+| `pluggedPollMinutes` | `1` | Poll interval while the cable is connected. Allowed below the 10-minute floor because the car is on mains power — short tariff windows need it |
+
+Leaving the price at `0` is a deliberate default: an invented price would be worse than none.
+
+### 🎯 Accuracy, honestly
+
+- Energy comes from the **state-of-charge delta**, not from integrating power. That survives missed
+  polls, but it depends on `capacityKwh` being right for *your* car — the dashboard measures your
+  real capacity from driving data and shows it, so you can correct the setting.
+- The figures are the energy that reached the **battery**, while your meter bills what left the
+  **wall**. Expect real cost to run a few percent above what's shown.
+- Where the data is too thin to say anything useful, the dashboard says so rather than printing a
+  confident-looking number.
+
+### 🔔 Push notifications (optional)
+
+Set `ntfyTopic` to get a daily summary and a message when a charge finishes, via
+[ntfy](https://ntfy.sh). Leave it empty and nothing is sent — no connection is made at all. Pick an
+unguessable topic name: ntfy topics are publicly addressable.
+
 ## 🔒 Safety & privacy
 
 - **12 V-friendly:** never schedules a wake-up; only reads the cached measurement endpoint, poll
   interval clamped to ≥ 10 min.
+- **The dashboard has no authentication** and is meant for your LAN only. Anyone who can reach the
+  port can read your charging history. Don't forward it through your router; it serves `GET` only
+  and has no write routes, but that is not a substitute for keeping it off the internet.
 - **Tokens** live solely in your local token file (`0600`), never transmitted anywhere but Porsche.
 - **Lock** is a HomeKit *secure accessory*: unlocking via Siri/automation requires Face ID / passcode.
 
@@ -205,7 +271,7 @@ notification toggle), or charge-on-arrival via **Car at home**.
 ```bash
 npm install
 npm run build      # tsc → dist/
-npm test           # jest (214 tests)
+npm test           # jest (366 tests)
 ```
 
 The codebase is split by domain: `src/api` (PPA client, commands, measurements, auth),

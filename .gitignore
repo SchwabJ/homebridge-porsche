@@ -12,3 +12,6 @@ taycan-tokens.json
 # Captcha-Bilder (vom porsche-auth-CLI erzeugt)
 porsche-captcha.*
 taycan-captcha.*
+
+# macOS
+.DS_Store

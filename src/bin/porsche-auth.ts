@@ -93,24 +93,24 @@ type Prompter = ReturnType<typeof createPrompter>;
 async function readCredentials(
   prompter: Prompter,
 ): Promise<{ email: string; password: string } | null> {
-  const emailRaw = await prompter.ask('E-Mail: ', false);
+  const emailRaw = await prompter.ask('E-mail: ', false);
   if (emailRaw === null) {
-    console.error('\nAbgebrochen: keine Eingabe (EOF).');
+    console.error('\nAborted: no input (EOF).');
     return null;
   }
   const email = emailRaw.trim();
   if (!email) {
-    console.error('Fehler: Es wurde keine E-Mail-Adresse eingegeben.');
+    console.error('Error: no e-mail address entered.');
     return null;
   }
 
-  const password = await prompter.ask('Passwort (Eingabe ist verborgen): ', true);
+  const password = await prompter.ask('Password (input is hidden): ', true);
   if (password === null) {
-    console.error('Abgebrochen: kein Passwort (EOF).');
+    console.error('Aborted: no password (EOF).');
     return null;
   }
   if (!password) {
-    console.error('Fehler: Es wurde kein Passwort eingegeben.');
+    console.error('Error: no password entered.');
     return null;
   }
 
@@ -149,7 +149,7 @@ function tryOpen(file: string): void {
 function makeCaptchaHandler(prompter: Prompter, tokenPath: string) {
   return async (image: string): Promise<string> => {
     console.log('');
-    console.log('⚠  Porsche verlangt ein Captcha – einmalig zu lösen.');
+    console.log('\u26a0  Porsche requires a captcha - solve it once.');
 
     const m = image.match(/^data:image\/([a-z0-9.+-]+);base64,(.+)$/i);
     if (m) {
@@ -160,20 +160,20 @@ function makeCaptchaHandler(prompter: Prompter, tokenPath: string) {
         const data =
           ext === 'svg' ? Buffer.from(m[2], 'base64').toString('utf8') : Buffer.from(m[2], 'base64');
         fs.writeFileSync(file, data);
-        console.log(`   • Captcha als Bild gespeichert: ${file}`);
+        console.log(`   \u2022 Captcha saved as image: ${file}`);
         tryOpen(file);
-        console.log('     (öffnet sich automatisch; falls nicht, Datei manuell öffnen –');
-        console.log('      auf einem Headless-Server per scp/Samba auf deinen Rechner holen)');
+        console.log('     (opens automatically; if not, open the file manually -');
+        console.log('      on a headless server copy it over via scp/Samba)');
       } catch {
-        console.log('   • Konnte das Bild nicht speichern – nutze die data-URI unten im Browser.');
+        console.log('   \u2022 Could not save the image - use the data URI below in a browser.');
       }
     }
-    console.log('   • Alternativ diese komplette Zeile in die Browser-Adresszeile kopieren:');
+    console.log('   \u2022 Alternatively paste this whole line into a browser address bar:');
     console.log('');
     console.log(image);
     console.log('');
 
-    const solution = await prompter.ask('Captcha-Text aus dem Bild eingeben: ', false);
+    const solution = await prompter.ask('Captcha text from the image: ', false);
     return (solution ?? '').trim();
   };
 }
@@ -211,7 +211,7 @@ async function printVehicles(
     return;
   }
   console.log('');
-  console.log('Gefundene Fahrzeuge (für die Plugin-Config):');
+  console.log('Vehicles found (for the plugin config):');
   for (const v of vehicles) {
     const model = v.modelName ? ` (${v.modelName})` : '';
     console.log(`  • VIN: ${v.vin}${model}`);
@@ -222,9 +222,9 @@ async function printVehicles(
 async function main(): Promise<number> {
   const tokenPath = process.argv[2] ?? DEFAULT_TOKEN_PATH;
 
-  console.log('Taycan-Auth – einmaliges Login für das Homebridge-Taycan-Plugin');
+  console.log('porsche-auth - one-time login for the homebridge-porsche plugin');
   console.log('----------------------------------------------------------------');
-  console.log(`Token-Datei: ${tokenPath}`);
+  console.log(`Token file: ${tokenPath}`);
   console.log('');
 
   const prompter = createPrompter();
@@ -247,13 +247,13 @@ async function main(): Promise<number> {
     } catch (err) {
       if (err instanceof CaptchaRequiredError) {
         console.error('');
-        console.error('✗ Captcha verlangt, konnte aber nicht gelöst werden.');
-        console.error('  Bitte erneut versuchen.');
+        console.error('\u2717 A captcha was required but could not be solved.');
+        console.error('  Please try again.');
         return 2;
       }
       console.error('');
       console.error(`✗ Login fehlgeschlagen: ${errorMessage(err)}`);
-      console.error('  Bitte E-Mail/Passwort (und ggf. das Captcha) prüfen und erneut versuchen.');
+      console.error('  Check your e-mail/password (and the captcha) and try again.');
       return 1;
     }
 
@@ -265,14 +265,14 @@ async function main(): Promise<number> {
       });
     } catch (err) {
       console.error('');
-      console.error(`✗ Login ok, aber Token-Speichern schlug fehl: ${errorMessage(err)}`);
-      console.error(`  Schreibrechte für ${tokenPath} prüfen.`);
+      console.error(`\u2717 Login succeeded, but writing the token file failed: ${errorMessage(err)}`);
+      console.error(`  Check write permissions for ${tokenPath}.`);
       return 1;
     }
 
     console.log('');
-    console.log('✓ Login erfolgreich – Tokens wurden gespeichert.');
-    console.log(`  Datei: ${tokenPath} (Rechte 0600)`);
+    console.log('\u2713 Login successful - tokens have been saved.');
+    console.log(`  File: ${tokenPath} (mode 0600)`);
 
     try {
       await printVehicles(http, auth, tokens, tokenPath);
@@ -292,6 +292,6 @@ async function main(): Promise<number> {
 main()
   .then((code) => process.exit(code))
   .catch((err) => {
-    console.error('Unerwarteter Fehler:', errorMessage(err));
+    console.error('Unexpected error:', errorMessage(err));
     process.exit(1);
   });

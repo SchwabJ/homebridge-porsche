@@ -107,7 +107,13 @@ export interface Labels {
   dashAtHome: string;
   dashAway: string;
   dashMonitorOk: string;
-  dashMonitorAgo: string;
+  /**
+   * Alter des letzten Messpunkts, `%s` = die fertige Dauer.
+   *
+   * Als MUSTER und nicht als Einzelwort: Im Deutschen steht „vor" davor, im
+   * Englischen „ago" dahinter. Ein übersetztes Einzelwort ergab „ago 11 min".
+   */
+  dashMonitorAge: string;
   dashNoDataFor: string;
   dashNoDataYet: string;
   dashDay: string;
@@ -245,7 +251,7 @@ export const LABELS_EN: Labels = {
   dashAtHome: 'at home',
   dashAway: 'away',
   dashMonitorOk: 'Monitoring active',
-  dashMonitorAgo: 'ago',
+  dashMonitorAge: '%s ago',
   dashNoDataFor: 'No data for',
   dashNoDataYet: 'No data yet',
   dashDay: 'Day',
@@ -383,7 +389,7 @@ export const LABELS_DE: Labels = {
   dashAtHome: 'zuhause',
   dashAway: 'auswärts',
   dashMonitorOk: 'Überwachung aktiv',
-  dashMonitorAgo: 'vor',
+  dashMonitorAge: 'vor %s',
   dashNoDataFor: 'Keine Daten seit',
   dashNoDataYet: 'Noch keine Daten',
   dashDay: 'Tag',

@@ -19,6 +19,10 @@ own dashboard on your network.
 [![Homebridge](https://img.shields.io/badge/homebridge-%E2%89%A51.6-purple.svg)](https://homebridge.io)
 [![Tests](https://img.shields.io/badge/tests-366%20passing-success.svg)](#-development)
 
+<img src="https://raw.githubusercontent.com/SchwabJ/homebridge-porsche/main/docs/img/dashboard-cards.png" alt="Charging dashboard: state of charge, energy, cost and savings per period, with the charge curve of each session" width="360">
+
+*The charging history the Porsche API doesn't give you — [see below](#-charging-history--dashboard).*
+
 </div>
 
 > ⚠️ **Unofficial project.** Not affiliated with, endorsed by, or supported by Dr. Ing. h.c. F. Porsche AG.
@@ -68,6 +72,9 @@ brake, heading, privacy mode and more (≈ 55 tiles).
 
 > 💡 **Tip:** Put the plugin on its own **child bridge** (Homebridge UI → plugin settings → *Bridge*)
 > to give the Taycan its own room in Apple Home.
+
+Beyond the tiles, the plugin records every poll and turns it into a **charging history** with its own
+dashboard — Porsche's API has none. → [Charging history & dashboard](#-charging-history--dashboard)
 
 ## 📦 Installation
 
@@ -205,6 +212,10 @@ month and year**.
 
 Open it at `http://<your-homebridge-host>:8099`. It's a single self-contained page — no build step,
 no external assets — and installs to your home screen as a web app.
+
+<img src="https://raw.githubusercontent.com/SchwabJ/homebridge-porsche/main/docs/img/dashboard-desktop.png" alt="The dashboard on a wide screen: tiles for energy, cost, savings, range and consumption; a bar chart per period; and the session list with one charge expanded to show its curve" width="820">
+
+*Sample data. Expand a charge to see its curve; expand once more for the individual tariff windows.*
 
 | What it shows | Notes |
 | --- | --- |

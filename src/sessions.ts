@@ -7,7 +7,7 @@
  *
  * ## Warum die Sessiongrenze am Stecker hängt, nicht am Laden
  *
- * Bei preisgesteuertem Laden (Octopus & Co.) schaltet der Tarif in 15-Minuten-
+ * Bei preisgesteuertem Laden (dynamische Tarife wie Octopus, Tibber u. a.) schaltet der Tarif in 15-Minuten-
  * Slots ein und aus. Eine Nachtladung zerfiele über `charging` in ein Dutzend
  * Fragmente. `plugged` bleibt dagegen über die gesamte Standzeit true – von
  * Einstecken bis Ausstecken – und liefert damit genau eine Session pro Nacht.

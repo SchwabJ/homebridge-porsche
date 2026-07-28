@@ -133,7 +133,7 @@ describe('manual refresh', () => {
     const { url, stop } = await serve(async () => {
       calls++;
     });
-    const r = await (await fetch(`${url}/api/refresh`)).json();
+    const r = await (await fetch(`${url}/api/refresh`, { method: 'POST' })).json();
     expect(r).toEqual({ ok: true });
     expect(calls).toBe(1);
     stop();
@@ -145,8 +145,8 @@ describe('manual refresh', () => {
     const { url, stop } = await serve(async () => {
       calls++;
     });
-    await fetch(`${url}/api/refresh`);
-    const second = await (await fetch(`${url}/api/refresh`)).json();
+    await fetch(`${url}/api/refresh`, { method: 'POST' });
+    const second = await (await fetch(`${url}/api/refresh`, { method: 'POST' })).json();
     expect(second.ok).toBe(false);
     expect(second.reason).toBe('cooldown');
     expect(second.retryInMs).toBeGreaterThan(0);
@@ -156,18 +156,60 @@ describe('manual refresh', () => {
 
   it('reports unavailable instead of failing when no handler is wired', async () => {
     const { url, stop } = await serve(undefined);
-    const r = await (await fetch(`${url}/api/refresh`)).json();
+    const r = await (await fetch(`${url}/api/refresh`, { method: 'POST' })).json();
     expect(r).toEqual({ ok: false, reason: 'not-available' });
     stop();
   });
 
   it('reports a failing poll instead of crashing the server', async () => {
     const { url, stop } = await serve(async () => {
-      throw new Error('backend down');
+      throw new Error('backend down at /home/someone/.homebridge/tokens.json');
     });
-    const r = await (await fetch(`${url}/api/refresh`)).json();
+    const r = await (await fetch(`${url}/api/refresh`, { method: 'POST' })).json();
     expect(r.ok).toBe(false);
-    expect(String(r.reason)).toContain('backend down');
+    // Der Grund bleibt generisch: Node-Fehler tragen gern absolute Pfade, und
+    // die gehören nicht in eine Antwort, die jeder im Netz abrufen kann.
+    expect(r.reason).toBe('refresh-failed');
+    expect(JSON.stringify(r)).not.toContain('.homebridge');
+    stop();
+  });
+
+  it('lehnt GET ab — sonst genügt ein <img src> auf einer fremden Seite', async () => {
+    // Ein GET löst keinen Preflight aus. Ohne diesen Riegel könnte jede
+    // Webseite, die jemand im selben Netz öffnet, Abrufe beim Porsche-Backend
+    // auslösen und das Ratenlimit gegen die Wand fahren.
+    let calls = 0;
+    const { url, stop } = await serve(async () => {
+      calls++;
+    });
+    const res = await fetch(`${url}/api/refresh`);
+    expect(res.status).toBe(405);
+    expect(calls).toBe(0);
+    stop();
+  });
+
+  it('lehnt einen POST mit fremdem Origin ab', async () => {
+    let calls = 0;
+    const { url, stop } = await serve(async () => {
+      calls++;
+    });
+    const res = await fetch(`${url}/api/refresh`, {
+      method: 'POST',
+      headers: { origin: 'http://evil.example' },
+    });
+    expect(res.status).toBe(403);
+    expect(calls).toBe(0);
+    stop();
+  });
+
+  it('lässt einen POST ohne Origin durch (curl, Homescreen-Modus)', async () => {
+    let calls = 0;
+    const { url, stop } = await serve(async () => {
+      calls++;
+    });
+    const r = await (await fetch(`${url}/api/refresh`, { method: 'POST' })).json();
+    expect(r).toEqual({ ok: true });
+    expect(calls).toBe(1);
     stop();
   });
 });

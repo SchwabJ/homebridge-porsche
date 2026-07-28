@@ -19,10 +19,10 @@
  * öffentlicher Adresse ist die Seite offen. Deshalb warnt der Start jetzt im
  * Log, und das README sagt es ebenfalls.
  *
- * Abgesichert ist stattdessen die Angriffsfläche selbst: nur GET, keine
- * schreibenden Routen, keine Route liefert Dateien nach freiem Pfad aus, und
- * der einzige Aufruf mit Nebenwirkung (`/api/refresh`) hat eine Sperrzeit,
- * damit er sich nicht gegen das Ratenlimit der Porsche-API richten lässt.
+ * Abgesichert ist stattdessen die Angriffsfläche selbst: Alles Lesende ist ein
+ * reines GET auf feste Pfade — keine Route nimmt einen Dateipfad aus der URL
+ * entgegen. Der einzige Aufruf mit Wirkung nach draußen (`/api/refresh`)
+ * verlangt POST samt gleichem Origin und ist zusätzlich ratenbegrenzt.
  */
 
 import * as http from 'http';
@@ -69,7 +69,7 @@ export interface DashboardOptions {
  * die 429er, gegen die der Poll-Zyklus abgesichert ist — im schlimmsten Fall
  * bis zur Captcha-Sperre, die ein neues Login erzwingen würde.
  */
-const REFRESH_COOLDOWN_MS = 20000;
+const REFRESH_COOLDOWN_MS = 60000;
 
 /**
  * Signatur des Verzeichnisses: Dateinamen, Größen und Änderungszeiten.
@@ -330,8 +330,8 @@ function renderPage(
   // eine Ladung IST ein Ereignis mit einem Beginn, anders als die Energie,
   // die sich über die Zeit verteilt.
   // Eine Ladung zählt zu JEDEM Zeitraum, in den sie hineinreicht — nicht nur
-  // zu dem ihres Starts. Sonst zeigte der 28. „20,1 kWh geladen, 0 Ladungen",
-  // weil die Nachtladung am 27. um 23:34 begann.
+  // zu dem ihres Starts. Sonst zeigt ein Tag „Energie geladen, 0 Ladungen",
+  // weil die Nachtladung schon am Vorabend begann.
   const inPeriod = current
     ? sessions.filter((x) => {
         const shift = o.dayBoundaryHour * 3600000;
@@ -359,7 +359,7 @@ function renderPage(
     : st.last.charging
       ? `${esc(L.dashCharging)}${
           st.last.powerKw !== undefined
-            ? ` mit ${st.last.powerKw.toFixed(1)} kW${
+            ? ` · ${st.last.powerKw.toFixed(1)} kW${
                 st.last.rateKmMin !== undefined ? ` · ${st.last.rateKmMin.toFixed(1)} km/min` : ''
               }`
             : ''
@@ -518,7 +518,7 @@ function renderPage(
     .join('');
 
   return `<!doctype html>
-<html lang="de"><head>
+<html lang="${esc(L.locale)}"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -795,7 +795,7 @@ ${CHART_CSS}${BARS_CSS}
     hasBonus
       ? `<div class="card save"><span>${esc(L.dashSaved)}</span>
     <b>${current ? current.saved.toFixed(2) : '0.00'} €</b>
-    <span>${o.bonusCt.toFixed(2)} ct/kWh Bonus${
+    <span>${o.bonusCt.toFixed(2)} ct/kWh ${esc(L.dashBonus)}${
       current && eff.saved > current.saved + 0.005 ? ` · ${esc(L.dashTotal)} ${eff.saved.toFixed(2)} €` : ''
     }</span></div>`
       : `<div class="card"><span>${esc(L.dashDriven)}</span><b>${eff.km.toLocaleString(L.locale)} km</b>
@@ -854,7 +854,7 @@ ${
               : ''
           }
         </div>
-        <div class="capfoot">Eingestellt ${o.capacityKwh} kWh${
+        <div class="capfoot">${esc(L.dashConfigured)} ${o.capacityKwh} kWh${
           capDelta !== undefined
             ? ` · ${esc(L.dashMeasurement)} ${capDelta > 0 ? '+' : ''}${capDelta.toFixed(1)} %`
             : ''
@@ -868,7 +868,7 @@ ${
        <th class="num">${esc(L.dashEnergy)}</th><th class="num">${
          hasPrice ? esc(L.dashCost) : ''
        }</th></tr></thead><tbody>${rows}</tbody></table></div>`
-    : '<div class="empty">${esc(L.dashNoCharges)}<br>${esc(L.dashNoChargesHint)}</div>'
+    : `<div class="empty">${esc(L.dashNoCharges)}<br>${esc(L.dashNoChargesHint)}</div>`
 }
 <script>
 // Aktualisiert sich still im Hintergrund: alle 60 s, aber nur wenn die Seite
@@ -952,9 +952,9 @@ ${
     // es sich während des Abrufs, und die Sperre wird im Titel erklärt.
     rf.disabled=true; rf.classList.add('busy');
     var back=function(ms){ setTimeout(function(){
-      rf.classList.remove('busy'); rf.disabled=false; rf.title='Jetzt abrufen';
+      rf.classList.remove('busy'); rf.disabled=false; rf.title=${JSON.stringify(L.dashRefresh)};
     }, ms); };
-    fetch('/api/refresh').then(function(r){return r.json();}).then(function(j){
+    fetch('/api/refresh',{method:'POST'}).then(function(r){return r.json();}).then(function(j){
       if(j.ok){ location.reload(); return; }
       rf.classList.remove('busy');
       rf.title = j.reason==='cooldown'
@@ -995,8 +995,8 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
     };
   };
 
-  const json = (res: http.ServerResponse, data: unknown): void => {
-    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+  const json = (res: http.ServerResponse, data: unknown, status = 200): void => {
+    res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(data));
   };
 
@@ -1028,7 +1028,7 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
         res.writeHead(200, { 'content-type': 'application/manifest+json; charset=utf-8' });
         res.end(
           JSON.stringify({
-            name: `${o.vehicleName} — Ladehistorie`,
+            name: `${o.vehicleName} — ${o.labels.dashTitle}`,
             short_name: o.vehicleName,
             start_url: '/?g=month',
             display: 'standalone',
@@ -1048,6 +1048,28 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
           json(res, { ok: false, reason: 'not-available' });
           return;
         }
+        // Die einzige Route mit Wirkung nach draußen — sie stößt einen echten
+        // Abruf beim Porsche-Backend an. Als schlichtes GET genügte eine
+        // beliebige Webseite, die jemand im selben Netz öffnet: Ein GET löst
+        // keinen Preflight aus, die Antwort muss der Angreifer gar nicht lesen,
+        // der Abruf läuft trotzdem. Bei 20 s Sperre wären das 180 Abrufe je
+        // Stunde — gerichtet gegen genau das Ratenlimit, dessen Überschreiten
+        // eine Captcha-Sperre und damit ein neues Login erzwingt.
+        //
+        // Zwei Riegel, beide nötig: POST verlangt bei einem fremden Origin
+        // einen Preflight, und den beantwortet dieser Server nicht (er sendet
+        // keine CORS-Header). Der Origin-Vergleich fängt zusätzlich alles ab,
+        // was den Preflight umgeht. Ein fehlender Origin bleibt erlaubt —
+        // curl und der eigene Knopf im Homescreen-Modus senden keinen.
+        if (req.method !== 'POST') {
+          json(res, { ok: false, reason: 'method-not-allowed' }, 405);
+          return;
+        }
+        const origin = req.headers.origin;
+        if (typeof origin === 'string' && origin !== `http://${req.headers.host ?? ''}`) {
+          json(res, { ok: false, reason: 'cross-origin' }, 403);
+          return;
+        }
         const since = Date.now() - lastRefresh;
         if (since < REFRESH_COOLDOWN_MS) {
           json(res, { ok: false, reason: 'cooldown', retryInMs: REFRESH_COOLDOWN_MS - since });
@@ -1056,7 +1078,11 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
         lastRefresh = Date.now();
         o.onRefresh()
           .then(() => json(res, { ok: true }))
-          .catch((err) => json(res, { ok: false, reason: String(err) }));
+          .catch((err) => {
+            // Detail nur ins Log: Node-Fehler tragen gern absolute Pfade.
+            o.log?.(`Manual refresh failed: ${String(err)}`);
+            json(res, { ok: false, reason: 'refresh-failed' });
+          });
         return;
       }
       if (url.pathname.startsWith('/api/sessions')) {

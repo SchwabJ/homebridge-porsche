@@ -15,7 +15,7 @@ const CHARGING_STATES = ['CHARGING', 'CHARGING_AC', 'CHARGING_DC', 'FAST_CHARGIN
 /**
  * Zustände, in denen das Kabel steckt, ohne dass gerade Strom fließt.
  *
- * Real beobachtet (2026-07-27): Bei tarifgesteuertem Laden meldet die API
+ * An der Live-API beobachtet: Bei tarifgesteuertem Laden meldet die API
  * `status: "CHARGING_PAUSED"` mit `mode: "SINGLE_TIMER"` — das Auto hängt am
  * Kabel und wartet auf sein Zeitfenster. Ein `plugState`-Feld liefert die
  * Antwort in diesem Fall NICHT, weshalb eine Prüfung allein darauf den
@@ -68,8 +68,9 @@ export interface VehicleState {
    * Antwort ganz ohne `CHARGING_SUMMARY`. Würde das als „nicht eingesteckt"
    * gelten, zerschnitte jede dieser Lücken eine laufende Ladung in zwei
    * Sessions — samt Verlust des Ladestand-Sprungs dazwischen, der dann in
-   * keiner der beiden Sessions auftaucht. Genau das erzeugte am 2026-07-28
-   * sechs „Ladungen" statt einer und schluckte 5 Prozentpunkte.
+   * keiner der beiden Sessions auftaucht. Aus einer Nachtladung werden so
+   * schnell ein halbes Dutzend Geister-Ladungen über 0 kWh, und die tatsächlich
+   * geladene Energie verschwindet in den Lücken zwischen ihnen.
    */
   plugged?: boolean;
 
@@ -340,7 +341,7 @@ export function parseMeasurements(response: unknown, nowMs: number = Date.now())
 
   // --- aktives Ladeprofil ---------------------------------------------------
   //
-  // Real beobachtet (2026-07-27): `CHARGING_PROFILES.list` enthält vier
+  // An der Live-API beobachtet: `CHARGING_PROFILES.list` enthält vier
   // Profile, von denen KEINES aktiv sein muss (`isEnabled: false` bei allen).
   // Der Ziel-Ladestand kommt dann aus einem Timer, nicht aus einem Profil.
   // Außerdem heißt das Feld dort `minSoc` (kleines c) — nicht wie im
@@ -433,8 +434,8 @@ export function parseMeasurements(response: unknown, nowMs: number = Date.now())
     maxChargingPowerKw: num(rate, 'maxChargingPowerkW'),
     chargeRateKmMin: num(rate, 'chargingRatekmPerMin'),
     chargeEtaMinutes,
-    // Die API schreibt das Feld `targetSoC` (großes C) — real beobachtet
-    // 2026-07-27. Die Kleinschreibung bleibt als Fallback stehen, falls
+    // Die API schreibt das Feld `targetSoC` (großes C) — an der Live-API
+    // beobachtet. Die Kleinschreibung bleibt als Fallback stehen, falls
     // andere Modelle oder Firmwarestände sie verwenden.
     targetSoc:
       num(charge, 'targetSoC') ??

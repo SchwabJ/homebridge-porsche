@@ -234,7 +234,7 @@
         "default": 8099,
         "minimum": 0,
         "maximum": 65535,
-        "description": "Port of the built-in charging history dashboard (LAN only). Set to 0 to disable it."
+        "description": "Port of the built-in charging history dashboard. It binds to ALL network interfaces and has NO password — anyone who can reach this port can read your charging history. Keep it off the public internet. Set to 0 to disable the dashboard entirely."
       },
       "pluggedPollMinutes": {
         "title": "Poll interval while plugged in (min)",

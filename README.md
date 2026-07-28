@@ -255,8 +255,10 @@ unguessable topic name: ntfy topics are publicly addressable.
 - **12 V-friendly:** never schedules a wake-up; only reads the cached measurement endpoint, poll
   interval clamped to ≥ 10 min.
 - **The dashboard has no authentication** and is meant for your LAN only. Anyone who can reach the
-  port can read your charging history. Don't forward it through your router; it serves `GET` only
-  and has no write routes, but that is not a substitute for keeping it off the internet.
+  port can read your charging history. Don't forward it through your router. Everything the page
+  reads is a plain `GET` on a fixed path — no route takes a file path from the URL — and the one
+  call with an outward effect (`/api/refresh`, which polls Porsche) requires a same-origin `POST`
+  and is rate-limited, so a web page you happen to open cannot trigger it.
 - **Tokens** live solely in your local token file (`0600`), never transmitted anywhere but Porsche.
 - **Lock** is a HomeKit *secure accessory*: unlocking via Siri/automation requires Face ID / passcode.
 

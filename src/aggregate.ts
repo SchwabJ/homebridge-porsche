@@ -220,9 +220,10 @@ export function aggregate(
   // Grund: Die API liefert regelmäßig Zeilen ohne jeden Messwert. Verglichen
   // man nur Nachbarn, fiele jeder Sprung über eine solche Lücke hinweg aus der
   // Rechnung: 70 % → (leer) → 75 % ergäbe zweimal „kein Vergleich möglich" und
-  // die fünf Prozentpunkte zählte niemand. Am 2026-07-28 fehlten dadurch
-  // 5,9 der 20,1 geladenen kWh in der Tagesansicht, während die Session-
-  // Rechnung (nur Anfang und Ende) korrekt blieb.
+  // die fünf Prozentpunkte zählte niemand. In der Zeitreihe fehlt dadurch ein
+  // erheblicher Teil der geladenen Energie, während die Session-Rechnung
+  // (nur Anfang und Ende) korrekt bleibt — Tabelle und Diagramm widersprechen
+  // sich dann, was den Fehler erst auffällig macht.
   let lastSoc: ChargeLogSample | undefined;
   let lastOdo: ChargeLogSample | undefined;
   let lastRange: ChargeLogSample | undefined;

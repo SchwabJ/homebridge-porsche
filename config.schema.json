@@ -221,6 +221,13 @@
         "minimum": 0,
         "description": "Discount per kWh deducted from the price, e.g. for tariff-controlled charging. Effective price = price minus bonus."
       },
+      "externalPricePerKwhCt": {
+        "title": "Price away from home (ct/kWh)",
+        "type": "number",
+        "default": 0,
+        "minimum": 0,
+        "description": "Default price for charges away from home. Your home tariff does not apply there — a rapid charger costs several times as much. At 0 the cost stays empty until you enter a price per charge in the dashboard, where this value can also be overridden individually."
+      },
       "capacityKwh": {
         "title": "Usable battery capacity (kWh)",
         "type": "number",
@@ -350,6 +357,7 @@
         },
         "pricePerKwhCt",
         "chargingBonusCt",
+        "externalPricePerKwhCt",
         "capacityKwh",
         "dashboardPort",
         "pluggedPollMinutes",

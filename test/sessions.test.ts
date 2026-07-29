@@ -244,3 +244,58 @@ describe('Ladephasen', () => {
     expect(s[0].phases[0].energyKwh).toBe(4);
   });
 });
+
+describe('Ort der Ladung', () => {
+  it('nimmt ein einziges „zuhause" für die ganze Session', () => {
+    // Beim Anstecken trägt die zwischengespeicherte Antwort oft noch die
+    // Position von unterwegs — real beobachtet waren elf Minuten, bis
+    // „zuhause" ankam. Der Anfang der Ladung darf dadurch nicht verloren gehen.
+    const s = buildSessions([
+      at(0, { plugged: true, soc: 40 }),
+      at(3, { plugged: true, soc: 40 }),
+      at(11, { plugged: true, soc: 42, atHome: true }),
+      at(60, { plugged: true, soc: 60, atHome: true }),
+      at(70, { plugged: false, soc: 60 }),
+    ]);
+    expect(s[0].atHome).toBe(true);
+  });
+
+  it('meldet auswärts, wenn NIE ein „zuhause" kam', () => {
+    const s = buildSessions([
+      at(0, { plugged: true, soc: 40, atHome: false }),
+      at(60, { plugged: true, soc: 70, atHome: false }),
+      at(70, { plugged: false, soc: 70 }),
+    ]);
+    expect(s[0].atHome).toBe(false);
+  });
+
+  it('lässt den Ort offen, solange nie eine Position vorlag', () => {
+    const s = buildSessions([
+      at(0, { plugged: true, soc: 40 }),
+      at(60, { plugged: true, soc: 70 }),
+      at(70, { plugged: false, soc: 70 }),
+    ]);
+    expect(s[0].atHome).toBeUndefined();
+  });
+
+  it('lässt „zuhause" gegen ein späteres „auswärts" bestehen', () => {
+    // Das Fahrzeug bewegt sich am Kabel nicht. Ein „auswärts" nach einem
+    // „zuhause" ist eine veraltete Position, kein Ortswechsel.
+    const s = buildSessions([
+      at(0, { plugged: true, soc: 40, atHome: true }),
+      at(30, { plugged: true, soc: 55, atHome: false }),
+      at(60, { plugged: false, soc: 55 }),
+    ]);
+    expect(s[0].atHome).toBe(true);
+  });
+
+  it('trennt zwei Ladungen an verschiedenen Orten', () => {
+    const s = buildSessions([
+      at(0, { plugged: true, soc: 30, atHome: true }),
+      at(60, { plugged: false, soc: 70 }),
+      at(600, { plugged: true, soc: 40, atHome: false }),
+      at(660, { plugged: false, soc: 80 }),
+    ]);
+    expect(s.map((x) => x.atHome)).toEqual([true, false]);
+  });
+});

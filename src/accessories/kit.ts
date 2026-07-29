@@ -119,6 +119,14 @@ export interface ResolvedPorscheConfig {
    * rückwirkend die Historie verfälscht.
    */
   chargingBonusCt: number;
+  /**
+   * Vorgabe-Arbeitspreis für Ladungen UNTERWEGS in ct/kWh.
+   *
+   * Der Haustarif taugt dafür nicht — an der Schnellladesäule zahlt man ein
+   * Vielfaches. 0 bedeutet: keine Vorgabe, und dann bleiben die Kosten einer
+   * Fremdladung leer, bis im Dashboard einer eingetragen wird.
+   */
+  externalPricePerKwhCt: number;
   /** Nutzbare Netto-Kapazität in kWh (Basis der Energieberechnung). */
   capacityKwh: number;
   /** Port des Ladehistorie-Dashboards; 0 = aus. */
@@ -173,6 +181,7 @@ export const DEFAULT_CONFIG: ResolvedPorscheConfig = {
   honkAutoOffSeconds: 3,
   pricePerKwhCt: 0,
   chargingBonusCt: 0,
+  externalPricePerKwhCt: 0,
   capacityKwh: 83.7,
   dashboardPort: 8099,
   pluggedPollMinutes: 1,
@@ -242,6 +251,10 @@ export function resolveConfig(raw: Record<string, unknown> | undefined | null): 
     pollIntervalMinutes: numOr('pollIntervalMinutes', DEFAULT_CONFIG.pollIntervalMinutes),
     pricePerKwhCt: numOr('pricePerKwhCt', DEFAULT_CONFIG.pricePerKwhCt),
     chargingBonusCt: numOr('chargingBonusCt', DEFAULT_CONFIG.chargingBonusCt),
+    externalPricePerKwhCt: numOr(
+      'externalPricePerKwhCt',
+      DEFAULT_CONFIG.externalPricePerKwhCt,
+    ),
     capacityKwh: numOr('capacityKwh', DEFAULT_CONFIG.capacityKwh),
     dashboardPort: numOr('dashboardPort', DEFAULT_CONFIG.dashboardPort),
     pluggedPollMinutes: numOr('pluggedPollMinutes', DEFAULT_CONFIG.pluggedPollMinutes),

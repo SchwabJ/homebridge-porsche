@@ -4,6 +4,10 @@ import * as path from 'path';
 import { readSamples, summarize, startDashboard, optionsFor } from '../src/dashboard';
 import type { ChargeSession } from '../src/sessions';
 import { labelsFor } from '../src/i18n';
+import { filterByPlace } from '../src/dashboard';
+import { buildSessions } from '../src/sessions';
+import { aggregate } from '../src/aggregate';
+import type { ChargeLogSample } from '../src/chargeLog';
 
 const session = (over: Partial<ChargeSession> = {}): ChargeSession => ({
   startedAt: '2026-07-27T20:00:00.000Z',
@@ -75,6 +79,7 @@ describe('optionsFor', () => {
     pricePerKwh: 0.2,
     priceCt: 30,
     bonusCt: 10,
+    externalPriceCt: 0,
     dayBoundaryHour: 4,
     vehicleName: 'Taycan',
     uiPort: 8581,
@@ -104,6 +109,7 @@ describe('manual refresh', () => {
     pricePerKwh: 0.2,
     priceCt: 32,
     bonusCt: 12,
+    externalPriceCt: 0,
     dayBoundaryHour: 0,
     vehicleName: 'Taycan',
     uiPort: 8581,
@@ -224,6 +230,7 @@ describe('startDashboard', () => {
         pricePerKwh: 0.2,
         priceCt: 32,
         bonusCt: 12,
+        externalPriceCt: 0,
         dayBoundaryHour: 0,
         vehicleName: 'Taycan',
         uiPort: 8581,
@@ -290,6 +297,7 @@ describe('Zielmarke je Ladung', () => {
       pricePerKwh: 0.2,
       priceCt: 30,
       bonusCt: 10,
+      externalPriceCt: 0,
       dayBoundaryHour: 0,
       vehicleName: 'Testwagen',
       uiPort: 8581,
@@ -363,5 +371,294 @@ describe('Zielmarke je Ladung', () => {
       { ts: t(300), soc: 62, plugged: false, targetSoc: 55 },
     ]);
     expect(html).toContain('55 %');
+  });
+});
+
+describe('Ortsfilter', () => {
+  const t = (min: number): string =>
+    new Date(Date.UTC(2026, 6, 28, 6, 0, 0) + min * 60000).toISOString();
+
+  /** Zwei Ladungen: eine zuhause, eine unterwegs, dazwischen eine Fahrt. */
+  const daten = () => {
+    const samples: ChargeLogSample[] = [
+      { ts: t(0), soc: 40, odometerKm: 50000, plugged: true, charging: true, atHome: true },
+      { ts: t(60), soc: 70, odometerKm: 50000, plugged: true, charging: true, atHome: true },
+      { ts: t(70), soc: 70, odometerKm: 50000, plugged: false },
+      { ts: t(200), soc: 30, odometerKm: 50180, plugged: false, tripKwh100: 21 },
+      { ts: t(300), soc: 30, odometerKm: 50180, plugged: true, charging: true, atHome: false },
+      { ts: t(360), soc: 80, odometerKm: 50180, plugged: true, charging: true, atHome: false },
+      { ts: t(370), soc: 80, odometerKm: 50180, plugged: false },
+    ];
+    return { samples, sessions: buildSessions(samples, { capacityKwh: 100 }) };
+  };
+
+  it('erkennt beide Orte', () => {
+    expect(daten().sessions.map((s) => s.atHome)).toEqual([true, false]);
+  });
+
+  it('behält bei „zuhause" nur die Messpunkte der Heimladung', () => {
+    const { samples, sessions } = daten();
+    const home = filterByPlace(samples, sessions, 'home');
+    expect(home.some((s) => s.atHome === false)).toBe(false);
+    expect(home.some((s) => s.atHome === true)).toBe(true);
+  });
+
+  it('lässt die Messpunkte AUSSERHALB der Ladungen stehen', () => {
+    // Sonst verlöre ein Ortsfilter die gefahrenen Kilometer — dort entsteht
+    // keine geladene Energie, wohl aber die Fahrleistung.
+    const { samples, sessions } = daten();
+    const home = filterByPlace(samples, sessions, 'home');
+    expect(home.some((s) => s.ts === t(200))).toBe(true);
+    expect(home.some((s) => s.odometerKm === 50180 && s.plugged === false)).toBe(true);
+  });
+
+  it('trennt die Energie sauber auf beide Orte', () => {
+    const { samples, sessions } = daten();
+    const opts = { capacityKwh: 100, labels: labelsFor('en') };
+    const kwh = (p: 'all' | 'home' | 'away'): number =>
+      aggregate(filterByPlace(samples, sessions, p), 'day', opts).reduce((a, b) => a + b.kwh, 0);
+    // Zuhause 40→70 = 30 kWh, unterwegs 30→80 = 50 kWh.
+    expect(kwh('home')).toBeCloseTo(30, 1);
+    expect(kwh('away')).toBeCloseTo(50, 1);
+    expect(kwh('all')).toBeCloseTo(80, 1);
+  });
+
+  it('gibt bei „alle" die Messpunkte unverändert zurück', () => {
+    const { samples, sessions } = daten();
+    expect(filterByPlace(samples, sessions, 'all')).toBe(samples);
+  });
+
+  it('lässt eine Ladung ohne bekannten Ort aus BEIDEN Filtern fallen', () => {
+    const samples: ChargeLogSample[] = [
+      { ts: t(0), soc: 40, plugged: true, charging: true },
+      { ts: t(60), soc: 70, plugged: true, charging: true },
+      { ts: t(70), soc: 70, plugged: false },
+    ];
+    const sessions = buildSessions(samples, { capacityKwh: 100 });
+    expect(sessions[0].atHome).toBeUndefined();
+    expect(filterByPlace(samples, sessions, 'home')).toHaveLength(0);
+    expect(filterByPlace(samples, sessions, 'away')).toHaveLength(0);
+  });
+});
+
+describe('Preis je Ladung eintragen', () => {
+  let dir: string;
+  let nextPort = 8400;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-'));
+    const t = (m: number): string =>
+      new Date(Date.UTC(2026, 6, 28, 6, 0, 0) + m * 60000).toISOString();
+    fs.writeFileSync(
+      path.join(dir, '2026-07-28.jsonl'),
+      [
+        { ts: t(0), soc: 30, plugged: true, charging: true, atHome: false },
+        { ts: t(60), soc: 80, plugged: true, charging: true, atHome: false },
+        { ts: t(70), soc: 80, plugged: false },
+      ]
+        .map((r) => JSON.stringify(r))
+        .join('\n') + '\n',
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const serve = async (): Promise<{ url: string; stop: () => void }> => {
+    const server = startDashboard({
+      port: nextPort++,
+      logDir: dir,
+      capacityKwh: 100,
+      pricePerKwh: 0.2,
+      priceCt: 30,
+      bonusCt: 0,
+      externalPriceCt: 0,
+      dayBoundaryHour: 0,
+      vehicleName: 'T',
+      uiPort: 8581,
+      labels: labelsFor('en'),
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server.once('listening', r));
+    const a = server.address();
+    return {
+      url: `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`,
+      stop: () => server.close(),
+    };
+  };
+
+  const post = (url: string, body: unknown, extra: Record<string, string> = {}) =>
+    fetch(`${url}/api/price`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...extra },
+      body: JSON.stringify(body),
+    });
+
+  const key = '2026-07-28T06:00:00.000Z';
+
+  it('nimmt einen Preis an und rechnet ihn in die Ladung', async () => {
+    const { url, stop } = await serve();
+    const r = await (await post(url, { key, price: { eur: 24.8 } })).json();
+    expect(r).toEqual({ ok: true });
+    const sessions = await (await fetch(`${url}/api/sessions`)).json();
+    expect(sessions[0].costEur).toBe(24.8);
+    stop();
+  });
+
+  it('weist einen unbekannten Zeitpunkt ab', async () => {
+    // Sonst ließe sich die Preisdatei mit beliebigen Schlüsseln vollschreiben.
+    const { url, stop } = await serve();
+    const res = await post(url, { key: '2001-01-01T00:00:00.000Z', price: { eur: 5 } });
+    expect(res.status).toBe(400);
+    stop();
+  });
+
+  it('weist ein verrutschtes Komma ab', async () => {
+    const { url, stop } = await serve();
+    const res = await post(url, { key, price: { eur: 9000 } });
+    expect(res.status).toBe(400);
+    stop();
+  });
+
+  it('lehnt GET ab', async () => {
+    const { url, stop } = await serve();
+    expect((await fetch(`${url}/api/price`)).status).toBe(405);
+    stop();
+  });
+
+  it('lehnt einen fremden Origin ab', async () => {
+    const { url, stop } = await serve();
+    const res = await post(url, { key, price: { eur: 10 } }, { origin: 'http://evil.example' });
+    expect(res.status).toBe(403);
+    stop();
+  });
+
+  it('löscht einen Eintrag wieder', async () => {
+    const { url, stop } = await serve();
+    await post(url, { key, price: { eur: 24.8 } });
+    await post(url, { key, clear: true });
+    const sessions = await (await fetch(`${url}/api/sessions`)).json();
+    expect(sessions[0].costEur).toBeUndefined();
+    stop();
+  });
+
+  it('rechnet den Betrag aus ct/kWh, wenn kein Betrag angegeben ist', async () => {
+    const { url, stop } = await serve();
+    await post(url, { key, price: { ct: 59 } });
+    const sessions = await (await fetch(`${url}/api/sessions`)).json();
+    // 30 → 80 % von 100 kWh = 50 kWh × 0,59 €
+    expect(sessions[0].costEur).toBeCloseTo(29.5, 2);
+    stop();
+  });
+});
+
+describe('Einstellungsseite', () => {
+  let dir: string;
+  let nextPort = 8500;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ds-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const serve = async (): Promise<{ url: string; stop: () => void }> => {
+    const server = startDashboard({
+      port: nextPort++,
+      logDir: dir,
+      capacityKwh: 83.7,
+      pricePerKwh: 0.3,
+      priceCt: 30,
+      bonusCt: 0,
+      externalPriceCt: 0,
+      dayBoundaryHour: 0,
+      vehicleName: 'T',
+      uiPort: 8581,
+      labels: labelsFor('en'),
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server.once('listening', r));
+    const a = server.address();
+    return {
+      url: `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`,
+      stop: () => server.close(),
+    };
+  };
+
+  const save = (url: string, body: unknown, extra: Record<string, string> = {}) =>
+    fetch(`${url}/api/settings`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...extra },
+      body: JSON.stringify(body),
+    });
+
+  it('liefert die Seite aus', async () => {
+    const { url, stop } = await serve();
+    const html = await (await fetch(`${url}/settings`)).text();
+    expect(html).toContain('Energy price');
+    expect(html).toContain('Price away');
+    stop();
+  });
+
+  it('weist aus, dass ein Wert aus den Plugin-Einstellungen stammt', async () => {
+    const { url, stop } = await serve();
+    const html = await (await fetch(`${url}/settings`)).text();
+    expect(html).toContain('From the plugin settings');
+    stop();
+  });
+
+  it('übernimmt einen Wert und wendet ihn sofort an', async () => {
+    // Ohne Neustart — genau dafür gibt es die Seite.
+    const { url, stop } = await serve();
+    expect((await save(url, { priceCt: '28,45' })).status).toBe(200);
+    const html = await (await fetch(`${url}/settings`)).text();
+    expect(html).toContain('Set here: 28.45');
+    stop();
+  });
+
+  it('macht die Übernahme in der Auswertung wirksam', async () => {
+    const { url, stop } = await serve();
+    await save(url, { capacityKwh: 70 });
+    const html = await (await fetch(`${url}/settings`)).text();
+    expect(html).toContain('Set here: 70');
+    stop();
+  });
+
+  it('lehnt GET auf die Schreibroute ab', async () => {
+    const { url, stop } = await serve();
+    expect((await fetch(`${url}/api/settings`)).status).toBe(405);
+    stop();
+  });
+
+  it('lehnt einen fremden Origin ab', async () => {
+    const { url, stop } = await serve();
+    const res = await save(url, { priceCt: 30 }, { origin: 'http://evil.example' });
+    expect(res.status).toBe(403);
+    stop();
+  });
+
+  it('verwirft unsinnige Werte, ohne die Seite zu beschädigen', async () => {
+    const { url, stop } = await serve();
+    await save(url, { priceCt: 99999, capacityKwh: 1 });
+    const html = await (await fetch(`${url}/settings`)).text();
+    expect(html).toContain('From the plugin settings');
+    expect(html).not.toContain('99999');
+    stop();
+  });
+
+  it('nimmt einen Wert per leerem Feld wieder zurück', async () => {
+    const { url, stop } = await serve();
+    await save(url, { priceCt: 40 });
+    await save(url, { priceCt: '' });
+    const html = await (await fetch(`${url}/settings`)).text();
+    expect(html).toContain('From the plugin settings: 30');
+    stop();
   });
 });

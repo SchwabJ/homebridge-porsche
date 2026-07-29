@@ -34,6 +34,15 @@ import type { ChargeLogSample } from './chargeLog';
 import { ICONS } from './icons';
 import type { Labels } from './i18n';
 import { estimateCapacity, stateOfHealth } from './capacity';
+import { readPrices, writePrice, costFrom, sanitize, type PriceStore } from './prices';
+import {
+  readSettings,
+  writeSettings,
+  sanitizeSettings,
+  mergeSettings,
+  type DashboardSettings,
+  type Source,
+} from './settings';
 import { chargeCurve, barChart, CHART_CSS, BARS_CSS, type BarPoint } from './chart';
 
 export interface DashboardOptions {
@@ -45,6 +54,8 @@ export interface DashboardOptions {
   /** Nur für die Anzeige: Grundpreis und Bonus in Cent. */
   priceCt: number;
   bonusCt: number;
+  /** Vorgabepreis für Ladungen unterwegs in Cent je kWh (0 = keiner). */
+  externalPriceCt: number;
   /** Stunde, zu der ein neuer Tag beginnt (lokale Zeit). */
   dayBoundaryHour: number;
   vehicleName: string;
@@ -156,6 +167,88 @@ function normalizeSample(s: ChargeLogSample): ChargeLogSample {
   return s;
 }
 
+/** Ortsfilter des Dashboards. */
+export type Place = 'all' | 'home' | 'away';
+
+/**
+ * Blendet die Messpunkte aus, die zu einer Ladung am FALSCHEN Ort gehören.
+ *
+ * Bewusst subtraktiv: Entfernt werden nur Messpunkte innerhalb einer Session
+ * mit unpassendem Ort. Alles außerhalb der Kabelzeit bleibt stehen, denn dort
+ * entsteht keine geladene Energie — wohl aber die gefahrenen Kilometer und der
+ * Verbrauch. Ein Filter auf „zuhause" soll die Ladekosten trennen, nicht die
+ * Fahrleistung halbieren.
+ *
+ * Ladungen ohne bekannten Ort zählen zu keinem der beiden Filter. Sie
+ * verschwinden damit aus beiden Ansichten — sichtbar bleibt das in der
+ * Gesamtansicht, wo die Summe dann höher ist als zuhause plus unterwegs.
+ */
+export function filterByPlace(
+  samples: ChargeLogSample[],
+  sessions: ChargeSession[],
+  place: Place,
+): ChargeLogSample[] {
+  if (place === 'all') {
+    return samples;
+  }
+  const want = place === 'home';
+  const drop = sessions
+    .filter((x) => x.atHome !== want)
+    .map((x) => ({
+      from: Date.parse(x.startedAt),
+      to: x.endedAt ? Date.parse(x.endedAt) : Number.MAX_SAFE_INTEGER,
+    }));
+  if (drop.length === 0) {
+    return samples;
+  }
+  return samples.filter((s) => {
+    const t = Date.parse(s.ts);
+    return !drop.some((d) => t >= d.from && t <= d.to);
+  });
+}
+
+/**
+ * Setzt die Kosten der Ladungen UNTERWEGS aus eingetragenem Preis oder Vorgabe.
+ *
+ * Reihenfolge mit Absicht: Ein je Ladung eingetragener Preis schlägt die
+ * Vorgabe — er ist die konkrete Beobachtung, die Vorgabe nur ein Mittelwert
+ * über Säulen, die sich um den Faktor drei unterscheiden. Liegt beides nicht
+ * vor, bleiben die Kosten LEER statt auf den Haustarif zurückzufallen.
+ *
+ * Heimladungen bleiben unangetastet: Für sie hat `buildSessions` bereits mit
+ * dem Haustarif gerechnet.
+ */
+export function applyExternalPrices(
+  sessions: ChargeSession[],
+  prices: PriceStore,
+  fallbackCt: number,
+): ChargeSession[] {
+  return sessions.map((s) => {
+    if (s.atHome !== false) {
+      return s;
+    }
+    const own = prices[s.startedAt];
+    const cost =
+      costFrom(own, s.energyKwh) ??
+      (fallbackCt > 0 && s.energyKwh !== undefined
+        ? (fallbackCt / 100) * s.energyKwh
+        : undefined);
+    const out: ChargeSession = { ...s };
+    delete out.costGrossEur;
+    delete out.savedEur;
+    if (cost === undefined) {
+      delete out.costEur;
+      delete out.pricePerKwh;
+      return out;
+    }
+    out.costEur = Math.round(cost * 100) / 100;
+    if (s.energyKwh) {
+      out.pricePerKwh = Math.round((cost / s.energyKwh) * 10000) / 10000;
+    }
+    return out;
+  });
+}
+
 /** Monatsschlüssel `YYYY-MM` einer Session (nach Startzeitpunkt). */
 const monthOf = (s: ChargeSession): string => s.startedAt.slice(0, 7);
 
@@ -232,6 +325,32 @@ const lastValue = (
  * Tagesgrenze verlor — die Ersparnis stand dann auf 0 und die Tagesgrenze
  * wirkte nur in der JSON-Schnittstelle.
  */
+/**
+ * Die tatsächlich wirksamen Auswertungswerte.
+ *
+ * Bei JEDEM Aufruf frisch von der Platte gelesen: Eine Änderung auf der
+ * Einstellungsseite soll beim nächsten Laden greifen, nicht erst nach einem
+ * Neustart des Plugins — genau darum gibt es sie.
+ */
+export function effective(o: DashboardOptions): {
+  values: { priceCt: number; bonusCt: number; externalPriceCt: number; capacityKwh: number; dayBoundaryHour: number };
+  source: Record<'priceCt' | 'bonusCt' | 'externalPriceCt' | 'capacityKwh' | 'dayBoundaryHour', Source>;
+  stored: DashboardSettings;
+} {
+  const stored = readSettings(o.logDir);
+  const { values, source } = mergeSettings(
+    {
+      priceCt: o.priceCt,
+      bonusCt: o.bonusCt,
+      externalPriceCt: o.externalPriceCt,
+      capacityKwh: o.capacityKwh,
+      dayBoundaryHour: o.dayBoundaryHour,
+    },
+    stored,
+  );
+  return { values, source, stored };
+}
+
 export function optionsFor(o: DashboardOptions): {
   capacityKwh: number;
   pricePerKwh: number;
@@ -239,11 +358,15 @@ export function optionsFor(o: DashboardOptions): {
   dayBoundaryHour: number;
   labels: Labels;
 } {
+  // Über die Einstellungsseite, falls dort etwas gesetzt ist. Der Effektivpreis
+  // wird dabei neu gerechnet: Er ist Grundpreis minus Bonus, und beide können
+  // von dort kommen.
+  const { values } = effective(o);
   return {
-    capacityKwh: o.capacityKwh,
-    pricePerKwh: o.pricePerKwh,
-    grossPricePerKwh: o.priceCt / 100,
-    dayBoundaryHour: o.dayBoundaryHour,
+    capacityKwh: values.capacityKwh,
+    pricePerKwh: Math.max(0, values.priceCt - values.bonusCt) / 100,
+    grossPricePerKwh: values.priceCt / 100,
+    dayBoundaryHour: values.dayBoundaryHour,
     labels: o.labels,
   };
 }
@@ -284,15 +407,24 @@ const GRAN_LABEL: Record<Granularity, string> = {
 };
 
 function renderPage(
-  sessions: ChargeSession[],
-  samples: ChargeLogSample[],
+  allSessions: ChargeSession[],
+  allSamples: ChargeLogSample[],
   gran: Granularity,
   o: DashboardOptions,
   host: string,
+  place: Place = 'all',
 ): string {
   const L = o.labels;
+  const sessions =
+    place === 'all'
+      ? allSessions
+      : allSessions.filter((x) => x.atHome === (place === 'home'));
+  const samples = filterByPlace(allSamples, allSessions, place);
   const recent = [...sessions].reverse();
   const running = sessions.find((s) => !s.complete);
+  const priceStore = readPrices(o.logDir);
+  // Plugin-Konfiguration, überlagert von der Einstellungsseite.
+  const cfg = effective(o).values;
 
   // Zeitreihe aus den Rohdaten — nur so verteilt sich eine Nachtladung korrekt
   // auf beide Tage, statt komplett dem Startzeitpunkt zugeschlagen zu werden.
@@ -304,8 +436,16 @@ function renderPage(
 
   // Ohne konfigurierten Arbeitspreis werden keine Kosten gezeigt: 0,00 € wäre
   // eine Behauptung, keine Information.
-  const hasPrice = o.priceCt > 0;
-  const hasBonus = hasPrice && o.bonusCt > 0;
+  const awaySessions = allSessions.filter((x) => x.atHome === false);
+  // Ladungen unterwegs tragen ihre Kosten selbst — aus eingetragenem Preis
+  // oder Vorgabe. Ob überhaupt welche bekannt sind, entscheidet, ob die
+  // Kostenseite dort erscheint.
+  const awayPriced = awaySessions.some((x) => x.costEur !== undefined);
+  const hasPrice = place === 'away' ? awayPriced : cfg.priceCt > 0;
+  const awayUnpriced =
+    cfg.priceCt > 0 && awaySessions.some((x) => x.costEur === undefined);
+  // Der Ladebonus hängt am Haustarif. Unterwegs gibt es ihn nicht.
+  const hasBonus = hasPrice && cfg.bonusCt > 0 && place !== 'away';
 
 
   const barPoints: BarPoint[] = series.map((b) => ({
@@ -319,12 +459,32 @@ function renderPage(
   }));
   const bars = barChart(barPoints, L);
 
+  const q = (g: Granularity, p: Place): string =>
+    `?g=${g}${p === 'all' ? '' : `&p=${p}`}`;
   const tabs = (['day', 'week', 'month', 'year'] as Granularity[])
-    .map(
-      (g) =>
-        `<a href="?g=${g}"${g === gran ? ' class="on"' : ''}>${GRAN_LABEL[g]}</a>`,
-    )
+    .map((g) => `<a href="${q(g, place)}"${g === gran ? ' class="on"' : ''}>${GRAN_LABEL[g]}</a>`)
     .join('');
+
+  // Ortsumschalter — nur zeigen, wenn es überhaupt etwas zu trennen gibt.
+  // Ein Filter, der immer dieselbe Liste liefert, ist nur Bedienlast.
+  const homeCount = allSessions.filter((x) => x.atHome === true).length;
+  const awayCount = allSessions.filter((x) => x.atHome === false).length;
+  const places: [Place, string][] = [
+    ['all', L.placeAll],
+    ['home', L.placeHome],
+    ['away', L.placeAway],
+  ];
+  const placeTabs =
+    homeCount > 0 && awayCount > 0
+      ? `<nav class="tabs sub">${places
+          .map(
+            ([pl, label]) =>
+              `<a href="${q(gran, pl)}"${pl === place ? ' class="on"' : ''}>${esc(label)}${
+                pl === 'home' ? `<em>${homeCount}</em>` : pl === 'away' ? `<em>${awayCount}</em>` : ''
+              }</a>`,
+          )
+          .join('')}</nav>`
+      : '';
 
   // Ladungen im angezeigten Zeitraum. Zugeordnet wird nach Startzeitpunkt —
   // eine Ladung IST ein Ereignis mit einem Beginn, anders als die Energie,
@@ -334,7 +494,7 @@ function renderPage(
   // weil die Nachtladung schon am Vorabend begann.
   const inPeriod = current
     ? sessions.filter((x) => {
-        const shift = o.dayBoundaryHour * 3600000;
+        const shift = cfg.dayBoundaryHour * 3600000;
         const from = keyOf(new Date(Date.parse(x.startedAt) - shift), gran);
         const to = keyOf(
           new Date((x.endedAt ? Date.parse(x.endedAt) : Date.now()) - shift),
@@ -368,12 +528,13 @@ function renderPage(
   const plugClass = !st.last?.plugged ? 'off' : st.last.charging ? 'ok' : 'wait';
 
   // Gemessene Kapazität — die empfindlichste Größe der ganzen Auswertung.
-  const cap = estimateCapacity(samples);
-  const soh = stateOfHealth(cap.capacityKwh, o.capacityKwh);
+  // Aus ALLEN Fahrten: Wo geladen wurde, ändert die Batterie nicht.
+  const cap = estimateCapacity(allSamples);
+  const soh = stateOfHealth(cap.capacityKwh, cfg.capacityKwh);
   // Abweichung der Messung von der eingestellten Kapazität, in Prozent.
   const capDelta =
     cap.capacityKwh !== undefined
-      ? Math.round(((cap.capacityKwh - o.capacityKwh) / o.capacityKwh) * 1000) / 10
+      ? Math.round(((cap.capacityKwh - cfg.capacityKwh) / cfg.capacityKwh) * 1000) / 10
       : undefined;
 
   // Fahrverbrauch laut Fahrzeug — unabhängig von unserer Rechnung.
@@ -435,6 +596,14 @@ function renderPage(
             (s.savedEur ? `<small>−${s.savedEur.toFixed(2)} € ${esc(L.dashBonus)}</small>` : '');
       const flag = s.complete ? '' : ` <span class="tag">${esc(L.dashRunning)}</span>`;
       const drop = s.socDropped ? ` <span class="tag warn">${esc(L.dashSocDropped)}</span>` : '';
+      // Ort je Ladung sichtbar machen. Ohne ihn bliebe die Zuordnung, an der
+      // die ganze Kostentrennung hängt, unüberprüfbar.
+      const where =
+        s.atHome === true
+          ? ` <span class="tag home">${esc(L.placeHome.toLowerCase())}</span>`
+          : s.atHome === false
+            ? ` <span class="tag away">${esc(L.placeAway.toLowerCase())}</span>`
+            : '';
 
       // Kopfzeile = die ganze Zeit am Kabel; darunter je Ladephase eine Zeile.
       // Beides zusammen, weil die Summe die Energiebilanz trägt, die Phasen
@@ -452,7 +621,7 @@ function renderPage(
       }>
         <td>${s.phases.length ? '<span class="chev">›</span>' : ''}${esc(
           fmtDate(s.startedAt, L.locale),
-        )}${flag}${drop}${
+        )}${flag}${drop}${where}${
           s.phases.length
             ? `<small class="pc">${s.phases.length} ${
                 s.phases.length === 1 ? L.dashPhase : L.dashPhases
@@ -479,12 +648,31 @@ function renderPage(
         minSoc: lastValue(own, (x) => x.minSoc),
         labels: L,
       });
+      // Preiseingabe — nur für Ladungen unterwegs, wo kein Tarif bekannt ist.
+      const entered = priceStore[s.startedAt];
+      const priceForm =
+        s.atHome === false
+          ? `<form class="pf" data-key="${esc(s.startedAt)}">
+              <label>€ <input name="eur" type="text" inputmode="decimal" value="${
+                entered?.eur !== undefined ? entered.eur.toFixed(2) : ''
+              }" placeholder="${esc(L.pfAmount)}"></label>
+              <label>ct/kWh <input name="ct" type="text" inputmode="decimal" value="${
+                entered?.ct !== undefined ? String(entered.ct) : ''
+              }" placeholder="${cfg.externalPriceCt > 0 ? String(cfg.externalPriceCt) : ''}"></label>
+              <input name="note" type="text" value="${esc(
+                entered?.note ?? '',
+              )}" placeholder="${esc(L.pfProvider)}">
+              <button type="submit">${esc(L.pfSave)}</button>
+              <em></em>
+            </form>`
+          : '';
+
       // Ohne Kurve (zu wenige Messpunkte) gäbe es keinen Schalter für die
       // zweite Ebene — dann rücken die Phasen auf die erste.
       const lvl2 = curve ? 'lvl2' : 'lvl1';
       const curveRow = curve
         ? `<tr class="phase curve lvl1 p${idx}${open ? '' : ' hidden'}">
-            <td colspan="5">${curve}<button class="more" type="button" data-i="${idx}">${
+            <td colspan="5">${curve}${priceForm}<button class="more" type="button" data-i="${idx}">${
               s.phases.length
             } ${s.phases.length === 1 ? L.dashPhase : L.dashPhases} ${esc(
               L.dashInDetail,
@@ -593,6 +781,9 @@ h1 button.cog.busy svg{animation:spin .9s linear infinite}
 .capbar u{position:absolute;top:0;height:100%;background:rgba(255,255,255,.45);
  border-radius:5px;mix-blend-mode:overlay}
 .capfoot{color:var(--dim);font-size:11.5px}
+/* Die Unsicherheit steht direkt an der Zahl, nicht im Kleingedruckten: Eine
+   Kapazität ohne ihre Spanne lädt dazu ein, sie für einen Messwert zu halten. */
+.capunc{color:var(--dim);font-size:14px;font-style:normal;margin-left:-2px}
 .quality{border-radius:10px;padding:9px 12px;font-size:12.5px;margin-bottom:12px;
  border:1px solid var(--line)}
 .quality.warn{background:rgba(200,129,26,.14);color:#c8811a;border-color:rgba(200,129,26,.35)}
@@ -641,6 +832,24 @@ button.more:active{opacity:.6}
  border-radius:11px;text-decoration:none;color:var(--dim);background:var(--card);
  border:1px solid var(--line);font-size:15px;transition:background .12s}
 .tabs a.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.tabs.sub{margin-top:-8px;position:static}
+.tabs.sub a{min-height:34px;font-size:13.5px;border-radius:9px;background:transparent}
+.tabs.sub a.on{background:var(--card);border-color:var(--line);color:var(--fg);font-weight:600}
+.tabs.sub em{font-style:normal;opacity:.55;margin-left:5px;font-size:12px}
+.note{background:var(--card);border:1px solid var(--line);border-radius:10px;
+ padding:9px 12px;margin:-4px 0 14px;color:var(--dim);font-size:12.5px}
+form.pf{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0 2px;
+ padding:9px 10px;background:var(--bg);border:1px solid var(--line);border-radius:10px}
+form.pf label{display:flex;align-items:center;gap:5px;color:var(--dim);font-size:12px}
+form.pf input{width:78px;min-height:32px;padding:4px 7px;border-radius:7px;
+ border:1px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:13px}
+form.pf input[name=note]{width:104px}
+form.pf button{min-height:32px;padding:0 12px;border-radius:7px;border:1px solid var(--line);
+ background:var(--card);color:var(--fg);font:inherit;font-size:13px;cursor:pointer}
+form.pf button:active{opacity:.6}
+form.pf em{font-style:normal;font-size:12px;color:var(--dim)}
+form.pf.ok em{color:#35c77b}
+form.pf.bad em{color:#d9534f}
 .tabs a:active{opacity:.6}
 
 /* Kein Verlauf am rechten Rand mehr: Er sollte einst auf waagerechtes
@@ -674,6 +883,8 @@ td small{display:block;color:var(--dim);font-size:12px}
 .tag{display:inline-block;background:var(--accent);color:#fff;border-radius:5px;
  padding:1px 6px;font-size:11px;vertical-align:middle}
 .tag.warn{background:#c8811a}
+.tag.home{background:transparent;color:var(--dim);border:1px solid var(--line)}
+.tag.away{background:#3a6ea5;color:#fff}
 
 .empty{background:var(--card);border:1px solid var(--line);border-radius:12px;
  padding:26px;text-align:center;color:var(--dim)}
@@ -780,6 +991,13 @@ ${CHART_CSS}${BARS_CSS}
   </div>
 </div>
 <nav class="tabs">${tabs}</nav>
+${placeTabs}${
+  place === 'away' && !awayPriced
+    ? `<div class="note">${esc(L.dashNoAwayPrice)}</div>`
+    : awayUnpriced
+      ? `<div class="note">${esc(L.dashSomeAwayUnpriced)}</div>`
+      : ''
+}
 <div class="grid">
   <div class="card"><span>${esc(current ? current.label : GRAN_LABEL[gran])}</span>
     <b>${current ? current.kwh.toFixed(1) : '0'} kWh</b>${trend}</div>
@@ -799,7 +1017,7 @@ ${CHART_CSS}${BARS_CSS}
     hasBonus
       ? `<div class="card save"><span>${esc(L.dashSaved)}</span>
     <b>${current ? current.saved.toFixed(2) : '0.00'} €</b>
-    <span>${o.bonusCt.toFixed(2)} ct/kWh ${esc(L.dashBonus)}${
+    <span>${cfg.bonusCt.toFixed(2)} ct/kWh ${esc(L.dashBonus)}${
       current && eff.saved > current.saved + 0.005 ? ` · ${esc(L.dashTotal)} ${eff.saved.toFixed(2)} €` : ''
     }</span></div>`
       : `<div class="card"><span>${esc(L.dashDriven)}</span><b>${eff.km.toLocaleString(L.locale)} km</b>
@@ -841,10 +1059,15 @@ ${
     ? `<div class="cap">
         <div class="caphead">
           <span>${esc(L.dashMeasuredCapacity)}</span>
-          <em>${cap.samples} ${esc(L.dashTrips)} · ${cap.km} km</em>
+          <em>${cap.samples} ${esc(cap.samples === 1 ? L.capCycle : L.capCycles)} · ${cap.km} km</em>
         </div>
         <div class="capmain">
           <b>${cap.capacityKwh.toFixed(1)}<i>kWh</i></b>
+          ${
+            cap.uncertaintyKwh !== undefined
+              ? `<i class="capunc">± ${cap.uncertaintyKwh.toFixed(1)}</i>`
+              : ''
+          }
           ${soh !== undefined ? `<span class="soh">${soh.toFixed(0)} % ${esc(L.dashHealth)}</span>` : ''}
         </div>
         <div class="capbar">
@@ -853,12 +1076,12 @@ ${
             cap.spreadKwh !== undefined
               ? `<u style="left:${Math.max(0, Math.min(96, (soh ?? 0) - 2))}%;width:${Math.min(
                   20,
-                  (cap.spreadKwh / o.capacityKwh) * 100,
+                  (cap.spreadKwh / cfg.capacityKwh) * 100,
                 )}%"></u>`
               : ''
           }
         </div>
-        <div class="capfoot">${esc(L.dashConfigured)} ${o.capacityKwh} kWh${
+        <div class="capfoot">${esc(L.dashConfigured)} ${cfg.capacityKwh} kWh${
           capDelta !== undefined
             ? ` · ${esc(L.dashMeasurement)} ${capDelta > 0 ? '+' : ''}${capDelta.toFixed(1)} %`
             : ''
@@ -942,6 +1165,32 @@ ${
       }
     });
   });
+  // Preis einer Fremdladung sichern. Ohne Neuladen — die Seite scrollt sonst
+  // an den Anfang zurück, und man trägt oft mehrere hintereinander ein.
+  document.querySelectorAll('form.pf').forEach(function(f){
+    f.addEventListener('click', function(e){ e.stopPropagation(); });
+    f.addEventListener('submit', function(e){
+      e.preventDefault();
+      e.stopPropagation();
+      var note = f.querySelector('[name=note]').value;
+      var eur = f.querySelector('[name=eur]').value.trim();
+      var ct = f.querySelector('[name=ct]').value.trim();
+      var out = f.querySelector('em');
+      var body = { key: f.dataset.key, clear: !eur && !ct,
+                   price: { eur: eur, ct: ct, note: note } };
+      f.classList.remove('ok','bad');
+      out.textContent = '…';
+      fetch('/api/price', { method:'POST', headers:{'content-type':'application/json'},
+                            body: JSON.stringify(body) })
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+          f.classList.add(j.ok ? 'ok' : 'bad');
+          out.textContent = j.ok ? ${JSON.stringify(L.pfSaved)} : ${JSON.stringify(L.pfFailed)};
+          if(j.ok) setTimeout(function(){ location.reload(); }, 700);
+        })
+        .catch(function(){ f.classList.add('bad'); out.textContent = ${JSON.stringify(L.pfFailed)}; });
+    });
+  });
   document.querySelectorAll('button.more').forEach(function(b){
     b.addEventListener('click', function(e){
       // Der Schalter liegt innerhalb der aufgeklappten Ladung — ohne das
@@ -982,6 +1231,152 @@ ${
 }
 
 /**
+ * Grundgerüst, das Dashboard und Einstellungsseite teilen.
+ *
+ * Ausgelagert, damit die Einstellungen nicht wie ein fremdes Werkzeug wirken:
+ * gleiche Farben, gleiche Kopfzeile, gleiche Kartenfläche.
+ */
+const BASE_CSS = `
+:root{--bg:#f6f6f7;--card:#fff;--fg:#16171a;--dim:#6b6f76;--line:#e3e4e8;--accent:#0a84ff}
+@media(prefers-color-scheme:dark){:root{--bg:#111214;--card:#1c1d21;--fg:#f2f3f5;--dim:#9aa0a8;--line:#2c2e33}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{max-width:760px;margin:0 auto;background:var(--bg);color:var(--fg);
+ font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+ padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom));
+ -webkit-font-smoothing:antialiased}
+h1{font-size:19px;margin:0 0 14px;display:flex;justify-content:space-between;
+ align-items:center;gap:8px}
+h1>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+h1 em{font-style:normal;font-size:12px;color:var(--dim);font-weight:400;
+ display:flex;align-items:center;gap:8px;white-space:nowrap}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+`;
+
+/**
+ * Die Einstellungsseite.
+ *
+ * Zeigt je Feld, woher der wirksame Wert stammt. Ohne diese Angabe wäre nicht
+ * erklärbar, warum eine Änderung in den Homebridge-Einstellungen folgenlos
+ * bleibt, sobald hier einmal etwas eingetragen wurde.
+ */
+/**
+ * Ab wie vielen Zyklen der Messwert zur Übernahme angeboten wird.
+ *
+ * Justins Vorgabe, und sie ist richtig: Bei wenigen Zyklen schwankt die
+ * Schätzung noch deutlich. Ein Knopf, der einen vorläufigen Wert in die
+ * Konfiguration schreibt, würde die Vorläufigkeit verstecken — und weil die
+ * Kapazität rückwirkend jede kWh-Zahl verändert, wäre das teuer.
+ */
+const ADOPT_MIN_CYCLES = 10;
+
+function renderSettings(o: DashboardOptions, host: string, measured?: number, cycles = 0): string {
+  const L = o.labels;
+  const { values, source, stored } = effective(o);
+  const field = (
+    key: keyof DashboardSettings,
+    label: string,
+    hint: string,
+    step: string,
+  ): string => {
+    const own = stored[key];
+    const from = source[key as keyof typeof source];
+    return `<div class="srow">
+      <label for="f-${key}">${esc(label)}</label>
+      <input id="f-${key}" name="${key}" type="text" inputmode="decimal" step="${step}"
+             value="${own !== undefined ? String(own) : ''}"
+             placeholder="${values[key as keyof typeof values]}">
+      <small>${esc(hint)}<br><i>${
+        from === 'dashboard'
+          ? `${L.setFromDashboard}: ${values[key as keyof typeof values]}`
+          : `${L.setFromPlugin}: ${values[key as keyof typeof values]}`
+      }</i></small>
+    </div>`;
+  };
+
+  return `<!doctype html>
+<html lang="${esc(L.locale)}"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>${esc(o.vehicleName)} — ${esc(L.setTitle)}</title>
+<style>${BASE_CSS}
+.srow{display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center;
+ padding:12px 0;border-bottom:1px solid var(--line)}
+.srow:last-of-type{border-bottom:0}
+.srow label{font-size:15px}
+.srow input{width:112px;min-height:38px;padding:6px 9px;border-radius:9px;text-align:right;
+ border:1px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:15px}
+.srow small{grid-column:1/-1;color:var(--dim);font-size:12px;line-height:1.5}
+.srow small i{font-style:normal;opacity:.75}
+.adopt{padding:10px 0 2px;border-bottom:1px solid var(--line)}
+.adopt button{min-height:38px;padding:0 14px;border-radius:9px;border:1px solid var(--accent);
+ background:transparent;color:var(--accent);font:inherit;font-size:14px;cursor:pointer}
+.adopt button:active{opacity:.6}
+.adopt small{display:block;color:var(--dim);font-size:12px;line-height:1.5;margin-top:6px}
+.sbar{display:flex;align-items:center;gap:12px;margin-top:18px}
+.sbar button{min-height:44px;padding:0 18px;border-radius:11px;border:0;background:var(--accent);
+ color:#fff;font:inherit;font-size:15px;font-weight:600;cursor:pointer}
+.sbar button:active{opacity:.7}
+.sbar em{font-style:normal;color:var(--dim);font-size:13px}
+.sbar.ok em{color:#35c77b}
+.sbar.bad em{color:#d9534f}
+.back{display:inline-flex;align-items:center;gap:6px;color:var(--dim);text-decoration:none;
+ font-size:14px;min-height:44px}
+</style></head><body>
+<h1><span>${esc(L.setTitle)}</span><em><a class="back" href="/">‹ ${esc(L.setBack)}</a></em></h1>
+<form id="sf" class="card" style="display:block;padding:4px 14px 14px">
+  ${field('priceCt', L.setPrice, L.setPriceHint, '0.01')}
+  ${field('bonusCt', L.setBonus, L.setBonusHint, '0.01')}
+  ${field('externalPriceCt', L.setExternal, L.setExternalHint, '0.01')}
+  ${field('capacityKwh', L.setCapacity, L.setCapacityHint, '0.1')}
+  ${
+    measured !== undefined && cycles >= ADOPT_MIN_CYCLES
+      ? `<div class="adopt"><button type="button" id="adopt" data-v="${measured}">${esc(L.setAdopt)}: ${measured.toFixed(
+          1,
+        )} kWh</button><small>${esc(L.setAdoptHint)}</small></div>`
+      : measured !== undefined
+        ? `<div class="adopt"><small>${esc(L.setMeasured)}: ${measured.toFixed(1)} kWh (${cycles}) — ${esc(L.setAdoptFrom)} ${ADOPT_MIN_CYCLES}</small></div>`
+        : ''
+  }
+  ${field('dayBoundaryHour', L.setDayBoundary, L.setDayBoundaryHint, '1')}
+  <div class="sbar"><button type="submit">${esc(L.pfSave)}</button><em></em></div>
+</form>
+<p style="color:var(--dim);font-size:12.5px;line-height:1.6;margin-top:18px">
+  ${esc(L.setFooter)}
+  <a href="//${esc(host)}:${o.uiPort}/" target="_blank" rel="noopener"
+     style="color:var(--accent)">Homebridge</a> ${esc(L.setFooterTail)}
+</p>
+<script>
+(function(){
+  var f=document.getElementById('sf'), bar=f.querySelector('.sbar'), out=bar.querySelector('em');
+  var ad=document.getElementById('adopt');
+  // Nur ins Feld schreiben, nicht sofort sichern: Wer den Wert sieht, soll ihn
+  // noch verwerfen können, bevor die ganze Historie neu gerechnet wird.
+  if(ad) ad.addEventListener('click',function(){
+    document.getElementById('f-capacityKwh').value=ad.dataset.v;
+    out.textContent=${JSON.stringify(L.pfSaved)};
+  });
+  f.addEventListener('submit',function(e){
+    e.preventDefault();
+    var body={};
+    f.querySelectorAll('input').forEach(function(i){ body[i.name]=i.value.trim(); });
+    bar.classList.remove('ok','bad'); out.textContent='…';
+    fetch('/api/settings',{method:'POST',headers:{'content-type':'application/json'},
+                           body:JSON.stringify(body)})
+      .then(function(r){return r.json();})
+      .then(function(j){
+        bar.classList.add(j.ok?'ok':'bad');
+        out.textContent=j.ok?${JSON.stringify(L.pfSaved)}:${JSON.stringify(L.pfFailed)};
+        if(j.ok) setTimeout(function(){location.reload();},600);
+      })
+      .catch(function(){bar.classList.add('bad');out.textContent=${JSON.stringify(L.pfFailed)};});
+  });
+})();
+</script>
+</body></html>`;
+}
+
+/**
  * Startet das Dashboard. Gibt `undefined` zurück, wenn der Port 0 ist (aus).
  *
  * Fehler beim Binden werden geloggt, aber nie geworfen: Ein belegter Port darf
@@ -995,7 +1390,11 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
     const samples = readSamples(o.logDir);
     return {
       samples,
-      sessions: buildSessions(samples, optionsFor(o)),
+      sessions: applyExternalPrices(
+        buildSessions(samples, optionsFor(o)),
+        readPrices(o.logDir),
+        effective(o).values.externalPriceCt,
+      ),
     };
   };
 
@@ -1012,6 +1411,8 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
       const g = url.searchParams.get('g');
       const gran: Granularity =
         g === 'day' || g === 'week' || g === 'year' ? g : 'month';
+      const pRaw = url.searchParams.get('p');
+      const place: Place = pRaw === 'home' || pRaw === 'away' ? pRaw : 'all';
 
       // --- Web-App-Beiwerk (Homescreen-Symbol, Manifest) ---
       const iconMatch = /^\/icon-(\d+)\.png$/.exec(url.pathname);
@@ -1027,6 +1428,18 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
           res.end(buf);
           return;
         }
+      }
+      if (url.pathname === '/settings') {
+        const est = estimateCapacity(readSamples(o.logDir));
+        const page = renderSettings(
+          o,
+          String(req.headers.host ?? '').split(':')[0],
+          est.capacityKwh,
+          est.samples,
+        );
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end(page);
+        return;
       }
       if (url.pathname === '/manifest.json') {
         res.writeHead(200, { 'content-type': 'application/manifest+json; charset=utf-8' });
@@ -1089,6 +1502,98 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
           });
         return;
       }
+      if (url.pathname === '/api/settings') {
+        // Wie jede schreibende Route: POST und gleicher Origin.
+        if (req.method !== 'POST') {
+          json(res, { ok: false, reason: 'method-not-allowed' }, 405);
+          return;
+        }
+        const origin = req.headers.origin;
+        if (typeof origin === 'string' && origin !== `http://${req.headers.host ?? ''}`) {
+          json(res, { ok: false, reason: 'cross-origin' }, 403);
+          return;
+        }
+        let body = '';
+        let tooBig = false;
+        req.on('data', (chunk: Buffer) => {
+          body += chunk.toString('utf8');
+          if (body.length > 4096) {
+            tooBig = true;
+            req.destroy();
+          }
+        });
+        req.on('end', () => {
+          if (tooBig) {
+            return;
+          }
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(body || '{}');
+          } catch {
+            json(res, { ok: false, reason: 'bad-json' }, 400);
+            return;
+          }
+          const next = sanitizeSettings(parsed);
+          if (next === undefined) {
+            json(res, { ok: false, reason: 'bad-settings' }, 400);
+            return;
+          }
+          const ok = writeSettings(o.logDir, next);
+          json(res, ok ? { ok: true } : { ok: false, reason: 'write-failed' }, ok ? 200 : 500);
+        });
+        return;
+      }
+      if (url.pathname === '/api/price') {
+        if (req.method !== 'POST') {
+          json(res, { ok: false, reason: 'method-not-allowed' }, 405);
+          return;
+        }
+        const origin = req.headers.origin;
+        if (typeof origin === 'string' && origin !== `http://${req.headers.host ?? ''}`) {
+          json(res, { ok: false, reason: 'cross-origin' }, 403);
+          return;
+        }
+        let body = '';
+        let tooBig = false;
+        req.on('data', (chunk: Buffer) => {
+          body += chunk.toString('utf8');
+          // Ein Preis braucht keine 4 kB. Alles darüber wird verworfen,
+          // statt Speicher für einen offenen Datenstrom zu binden.
+          if (body.length > 4096) {
+            tooBig = true;
+            req.destroy();
+          }
+        });
+        req.on('end', () => {
+          if (tooBig) {
+            return;
+          }
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(body || '{}');
+          } catch {
+            json(res, { ok: false, reason: 'bad-json' }, 400);
+            return;
+          }
+          const data = parsed as Record<string, unknown>;
+          const key = typeof data.key === 'string' ? data.key : '';
+          // Nur Zeitpunkte, die es im Mitschrieb wirklich gibt — sonst ließe
+          // sich die Datei mit beliebigen Schlüsseln vollschreiben.
+          const known = load().sessions.some((x) => x.startedAt === key);
+          if (!known) {
+            json(res, { ok: false, reason: 'unknown-session' }, 400);
+            return;
+          }
+          const price = data.clear === true ? undefined : sanitize(data.price);
+          if (data.clear !== true && price === undefined) {
+            json(res, { ok: false, reason: 'bad-price' }, 400);
+            return;
+          }
+          const ok = writePrice(o.logDir, key, price);
+          json(res, ok ? { ok: true } : { ok: false, reason: 'write-failed' }, ok ? 200 : 500);
+        });
+        return;
+      }
       if (url.pathname.startsWith('/api/sessions')) {
         json(res, load().sessions);
         return;
@@ -1107,7 +1612,7 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
       // Host aus dem Request, damit der Einstellungen-Link auch dann stimmt,
       // wenn das Dashboard über Hostname statt IP aufgerufen wurde.
       const host = (req.headers.host ?? '').split(':')[0] || '127.0.0.1';
-      const html = renderPage(sessions, samples, gran, o, host);
+      const html = renderPage(sessions, samples, gran, o, host, place);
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       res.end(html);
     } catch (err) {

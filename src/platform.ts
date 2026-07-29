@@ -203,6 +203,7 @@ export class PorschePlatform implements DynamicPlatformPlugin {
         pricePerKwh: (c.pricePerKwhCt - c.chargingBonusCt) / 100,
         priceCt: c.pricePerKwhCt,
         bonusCt: c.chargingBonusCt,
+        externalPriceCt: c.externalPricePerKwhCt,
         dayBoundaryHour: c.dayBoundaryHour,
         vehicleName: c.vehicleName,
         uiPort: 8581,

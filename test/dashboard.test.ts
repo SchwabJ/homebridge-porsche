@@ -118,7 +118,7 @@ describe('manual refresh', () => {
 
   // Port 0 bedeutet in der Konfiguration „Dashboard aus" — für die Tests
   // braucht es deshalb echte, je Test verschiedene Ports.
-  let nextPort = 8200;
+  let nextPort = 18200;
 
   /** Startet das Dashboard und liefert Adresse + Stopper. */
   const serve = async (
@@ -282,7 +282,7 @@ describe('Zielmarke je Ladung', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  let nextPort = 8300;
+  let nextPort = 18300;
 
   /** Rendert die Seite über den echten Server — prüft also auch die Verdrahtung. */
   const page = async (lines: object[], language: 'de' | 'en' = 'de'): Promise<string> => {
@@ -443,7 +443,7 @@ describe('Ortsfilter', () => {
 
 describe('Preis je Ladung eintragen', () => {
   let dir: string;
-  let nextPort = 8400;
+  let nextPort = 18400;
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-'));
@@ -557,7 +557,7 @@ describe('Preis je Ladung eintragen', () => {
 
 describe('Einstellungsseite', () => {
   let dir: string;
-  let nextPort = 8500;
+  let nextPort = 18500;
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ds-'));

@@ -33,8 +33,9 @@ import { aggregate, efficiency, keyOf, SUB, type Granularity } from './aggregate
 import type { ChargeLogSample } from './chargeLog';
 import { ICONS } from './icons';
 import type { Labels } from './i18n';
-import { estimateCapacity, stateOfHealth } from './capacity';
+import { capacityTrend, estimateCapacity, idleKwhPerDay, stateOfHealth } from './capacity';
 import { buildTrips, summarizeTrips } from './trips';
+import { buildReceipt, receiptCsv, receiptMonths, type Receipt } from './receipt';
 import { readPrices, writePrice, costFrom, sanitize, type PriceStore } from './prices';
 import {
   readSettings,
@@ -658,6 +659,8 @@ function renderPage(
   // Aus ALLEN Fahrten: Wo geladen wurde, ändert die Batterie nicht.
   const cap = estimateCapacity(allSamples);
   const soh = stateOfHealth(cap.capacityKwh, cfg.capacityKwh);
+  // Verlauf über die Monate — schweigt, solange er nichts hergibt.
+  const capTrend = capacityTrend(cap);
   // Abweichung der Messung von der eingestellten Kapazität, in Prozent.
   const capDelta =
     cap.capacityKwh !== undefined
@@ -791,6 +794,14 @@ function renderPage(
             (s.savedEur ? `<small>−${s.savedEur.toFixed(2)} € ${esc(L.dashBonus)}</small>` : '');
       const flag = s.complete ? '' : ` <span class="tag">${esc(L.dashRunning)}</span>`;
       const drop = s.socDropped ? ` <span class="tag warn">${esc(L.dashSocDropped)}</span>` : '';
+      // Abbruch: Das Ziel blieb offen, obwohl das Auto noch am Kabel stand.
+      const abort = s.aborted
+        ? ` <span class="tag warn">${esc(
+            L.dashAborted
+              .replace('%e', String(s.endSoc))
+              .replace('%t', String(s.targetSoc)),
+          )}</span>`
+        : '';
       // Ort je Ladung sichtbar machen. Ohne ihn bliebe die Zuordnung, an der
       // die ganze Kostentrennung hängt, unüberprüfbar.
       const where =
@@ -816,7 +827,7 @@ function renderPage(
       }>
         <td>${s.phases.length ? '<span class="chev">›</span>' : ''}${esc(
           fmtDate(s.startedAt, L.locale),
-        )}${flag}${drop}${where}${
+        )}${flag}${drop}${abort}${where}${
           s.phases.length
             ? `<small class="pc">${s.phases.length} ${
                 s.phases.length === 1 ? L.dashPhase : L.dashPhases
@@ -976,6 +987,10 @@ h1 button.cog.busy svg{animation:spin .9s linear infinite}
 .capbar u{position:absolute;top:0;height:100%;background:rgba(255,255,255,.45);
  border-radius:5px;mix-blend-mode:overlay}
 .capfoot{color:var(--dim);font-size:11.5px}
+/* Verlauf über die Monate: Linie und Spanne nebeneinander, damit die Karte
+   nicht in die Höhe wächst. */
+.captrend{display:flex;align-items:center;gap:10px;margin:2px 0 8px}
+.captrend em{font-style:normal;color:var(--dim);font-size:11.5px}
 /* Die Unsicherheit steht direkt an der Zahl, nicht im Kleingedruckten: Eine
    Kapazität ohne ihre Spanne lädt dazu ein, sie für einen Messwert zu halten. */
 .capunc{color:var(--dim);font-size:14px;font-style:normal;margin-left:-2px}
@@ -1104,7 +1119,7 @@ td small{display:block;color:var(--dim);font-size:12px}
 
 .empty{background:var(--card);border:1px solid var(--line);border-radius:12px;
  padding:26px;text-align:center;color:var(--dim)}
-${CHART_CSS}${BARS_CSS}
+${CHART_CSS}${BARS_CSS}${SPARK_CSS}
 @media(max-width:620px){
   /* Spaltenlayout bricht auf dem Telefon zu Wortsalat — deshalb je Ladung
      eine Karte. Positionen explizit über Zeile/Spalte statt benannter
@@ -1249,6 +1264,19 @@ ${
               : ''
           }
         </div>
+        ${
+          capTrend.length
+            ? `<div class="captrend">${sparkline(
+                capTrend.map((m) => ({ t: Date.parse(`${m.month}-15T12:00:00Z`), v: m.kwh })),
+                { minSpan: 2 },
+              )}<em>${esc(
+                L.capTrendOver
+                  .replace('%a', capTrend[0].kwh.toFixed(1))
+                  .replace('%b', capTrend[capTrend.length - 1].kwh.toFixed(1))
+                  .replace('%n', String(capTrend.length)),
+              )}</em></div>`
+            : ''
+        }
         <div class="capfoot">${esc(L.dashConfigured)} ${cfg.capacityKwh} kWh${
           capDelta !== undefined
             ? ` · ${esc(L.dashMeasurement)} ${capDelta > 0 ? '+' : ''}${capDelta.toFixed(1)} %`
@@ -1343,6 +1371,13 @@ ${
            : ''
        }`
     : `<div class="empty">${esc(L.dashNoCharges)}<br>${esc(L.dashNoChargesHint)}</div>`
+}
+${
+  allSessions.some((x) => x.complete && (x.energyKwh ?? 0) > 0)
+    ? `<p class="note"><a href="/beleg" style="color:var(--accent);text-decoration:none">${esc(
+        L.dashReceiptLink,
+      )}</a></p>`
+    : ''
 }
 ${
   tripsInPeriod.length
@@ -1720,6 +1755,28 @@ function renderStatus(o: DashboardOptions, samples: ChargeLogSample[], host: str
     }
   }
 
+  // Abgebrochene letzte Ladung — die einzige Ladeinformation, die auf die
+  // Statusseite gehört: Sie sagt, warum das Auto jetzt weniger hat als geplant.
+  //
+  // Nur die JÜNGSTE abgeschlossene Ladung, und nur solange nicht wieder am
+  // Kabel: Sobald die nächste läuft, ist die Warnung Geschichte.
+  const sessions = buildSessions(samples, optionsFor(o));
+  const lastDone = [...sessions].reverse().find((x) => x.complete);
+  const abortedLast =
+    st.last?.plugged !== true && lastDone?.aborted === true ? lastDone : undefined;
+
+  // Standverbrauch: was ohne Fahren verloren geht.
+  const cap = estimateCapacity(samples);
+  const idle = idleKwhPerDay(cap, optionsFor(o).capacityKwh);
+
+  // Wie ehrlich ist die Reichweitenanzeige? Gemessen daran, wie viel Anzeige
+  // ein gefahrener Kilometer kostet — nicht an einer eigenen Prognose.
+  const tripStats = summarizeTrips(buildTrips(samples));
+  const realOf100 =
+    tripStats.rangeFactor !== undefined && tripStats.rangeFactor > 0
+      ? Math.round(100 / tripStats.rangeFactor)
+      : undefined;
+
   const card = (label: string, value: string, sub = '', alert = false): string =>
     `<div class="card${alert ? ' alert' : ''}"><span>${esc(label)}</span><b>${value}</b>${
       sub ? `<span>${sub}</span>` : ''
@@ -1783,11 +1840,43 @@ ${
 <h2>${esc(L.stVehicle)}</h2>
 <div class="grid">
   ${
+    abortedLast
+      ? card(
+          L.stAborted,
+          `${abortedLast.endSoc}<i>${esc(
+            L.stAbortedUnit.replace('%t', String(abortedLast.targetSoc)),
+          )}</i>`,
+          esc(L.stAbortedDetail.replace('%d', fmtDate(abortedLast.endedAt as string, L.locale))),
+          true,
+        )
+      : ''
+  }
+  ${
     service
       ? card(L.stNextService, `${service.value.toLocaleString(L.locale)}<i>km</i>`, serviceEta)
       : ''
   }
   ${odoNow ? card(L.stOdometer, `${odoNow.value.toLocaleString(L.locale)}<i>km</i>`) : ''}
+  ${
+    realOf100 !== undefined
+      ? card(
+          L.stRealRange,
+          `${realOf100}<i>${esc(L.stRealRangeUnit)}</i>`,
+          // Knapp halten: Ein Detailtext über mehrere Zeilen bläht die Kachel
+          // auf und reißt ein Loch in die Reihe daneben.
+          esc(L.stRealRangeDetail.replace('%n', tripStats.rangeKm.toLocaleString(L.locale))),
+        )
+      : ''
+  }
+  ${
+    idle !== undefined
+      ? card(
+          L.stIdleDrain,
+          `${idle.toFixed(1)}<i>${esc(L.stIdleDrainUnit)}</i>`,
+          esc(L.stIdleDrainDetail.replace('%n', String(Math.round(cap.idleMinutes / 60)))),
+        )
+      : ''
+  }
   ${weekKm !== undefined ? card(L.stLast7Days, `${weekKm}<i>km</i>`) : ''}
   ${st.last?.soc !== undefined ? card(L.stChargeLevel, `${st.last.soc}<i>%</i>`,
       st.last.rangeKm !== undefined ? `${st.last.rangeKm} ${esc(L.stRangeSuffix)}` : '') : ''}
@@ -1864,6 +1953,132 @@ ${
  * Kapazität rückwirkend jede kWh-Zahl verändert, wäre das teuer.
  */
 const ADOPT_MIN_CYCLES = 10;
+
+/**
+ * Der Monatsbeleg als Seite — bewusst schlicht, weil sie gedruckt wird.
+ *
+ * Kein Diagramm, keine Farben, keine Interaktion außer dem Monatswechsel und
+ * dem CSV-Verweis: Was auf Papier landet, soll aussehen wie eine Abrechnung
+ * und nicht wie eine App.
+ */
+function renderReceipt(
+  o: DashboardOptions,
+  r: Receipt,
+  months: string[],
+): string {
+  const L = o.labels;
+  const fmtMonth = (m: string): string =>
+    new Date(`${m}-01T12:00:00Z`).toLocaleDateString(L.locale, {
+      month: 'long',
+      year: 'numeric',
+    });
+  const num = (n: number, d = 2): string =>
+    n.toLocaleString(L.locale, { minimumFractionDigits: d, maximumFractionDigits: d });
+  // Mit Jahr, ohne Wochentag: Auf einem Beleg zählt das vollständige Datum,
+  // nicht der Wochentag — und die Spalte bleibt schmal genug fürs Telefon.
+  const fmtStamp = (iso: string): string =>
+    new Date(iso).toLocaleString(L.locale, {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+  const rows = r.lines
+    .map(
+      (l) => `<tr>
+        <td>${esc(fmtStamp(l.startedAt))}</td>
+        <td>${esc(l.atHome === true ? L.dashAtHome : l.atHome === false ? L.dashAway : '—')}</td>
+        <td>${
+          l.startSoc !== undefined && l.endSoc !== undefined
+            ? `${l.startSoc} → ${l.endSoc} %`
+            : '—'
+        }</td>
+        <td class="num">${num(l.kwh)}</td>
+        <td class="num">${l.centPerKwh !== undefined ? num(l.centPerKwh) : ''}</td>
+        <td class="num">${l.costEur !== undefined ? num(l.costEur) : ''}</td>
+      </tr>`,
+    )
+    .join('');
+
+  const sum = ([label, g]: [string, { kwh: number; costEur: number; count: number }]): string =>
+    g.count === 0
+      ? ''
+      : `<tr class="sum"><td colspan="3">${esc(label)} · ${g.count} ${
+          g.count === 1 ? esc(L.dashChargeOne) : esc(L.dashCharges)
+        }</td>
+         <td class="num">${num(g.kwh)}</td><td></td>
+         <td class="num">${g.costEur > 0 ? num(g.costEur) : ''}</td></tr>`;
+
+  return `<!doctype html>
+<html lang="de"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>${esc(o.vehicleName)} — ${esc(L.rcTitle)} ${esc(fmtMonth(r.month))}</title>
+<style>${BASE_CSS}
+.wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;min-width:480px;border-collapse:collapse;margin:14px 0}
+th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;
+ font-size:13.5px;white-space:nowrap}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+tr.sum td{font-weight:600;border-top:2px solid var(--line);border-bottom:0;padding-top:10px}
+.months{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px}
+.months a{padding:6px 11px;border-radius:9px;border:1px solid var(--line);
+ color:var(--fg);text-decoration:none;font-size:13px}
+.months a.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.tools{display:flex;gap:14px;align-items:center;margin:10px 0 4px}
+.tools a{color:var(--accent);text-decoration:none;font-size:13.5px}
+.foot{color:var(--dim);font-size:12px;line-height:1.6;margin-top:18px}
+.back{display:inline-flex;align-items:center;gap:6px;color:var(--dim);
+ text-decoration:none;font-size:14px;min-height:44px}
+@media print{
+  /* Auf Papier stört jede Bedienung — und Weiß auf Schwarz kostet Toner. */
+  :root{--bg:#fff;--card:#fff;--fg:#000;--dim:#444;--line:#bbb}
+  .months,.tools,.back{display:none}
+  body{max-width:none}
+  .wrap{overflow:visible}
+  table{min-width:0}
+}
+</style></head><body>
+<h1><span>${esc(L.rcTitle)}</span><em><a class="back" href="/?g=month">‹ ${esc(L.setBack)}</a></em></h1>
+<div class="months">${months
+    .map(
+      (m) =>
+        `<a href="/beleg?m=${encodeURIComponent(m)}"${m === r.month ? ' class="on"' : ''}>${esc(
+          fmtMonth(m),
+        )}</a>`,
+    )
+    .join('')}</div>
+<div class="tools">
+  <a href="/beleg.csv?m=${encodeURIComponent(r.month)}">${esc(L.rcCsv)}</a>
+  <a href="#" onclick="window.print();return false">${esc(L.rcPrint)}</a>
+</div>
+${
+  r.lines.length
+    ? `<div class="wrap"><table>
+        <thead><tr><th>${esc(L.dashStart)}</th><th>${esc(L.rcPlace)}</th><th>${esc(L.dashChargeState)}</th>
+        <th class="num">kWh</th><th class="num">ct/kWh</th><th class="num">EUR</th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot>${[
+          [L.rcSumHome, r.home],
+          [L.rcSumAway, r.away],
+          [L.rcSumUnknown, r.unknown],
+        ]
+          .map((x) => sum(x as [string, { kwh: number; costEur: number; count: number }]))
+          .join('')}</tfoot>
+      </table></div>`
+    : `<div class="empty">${esc(L.rcNoCharges)}</div>`
+}
+<p class="foot">${esc(
+  L.rcFootnote
+    .replace('%v', o.vehicleName)
+    .replace('%m', fmtMonth(r.month))
+    .replace('%c', num(effective(o).values.capacityKwh, 1)),
+)}</p>
+</body></html>`;
+}
 
 function renderSettings(
   o: DashboardOptions,
@@ -2049,6 +2264,30 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
         );
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         res.end(page);
+        return;
+      }
+      if (url.pathname === '/beleg' || url.pathname === '/beleg.csv') {
+        const { sessions } = load();
+        const months = receiptMonths(sessions);
+        // Ohne Angabe der jüngste Monat MIT Ladungen — ein leerer Beleg für
+        // einen frisch begonnenen Monat wäre die schlechtere Vorgabe.
+        const wanted = url.searchParams.get('m');
+        const month =
+          wanted && /^\d{4}-\d{2}$/.test(wanted)
+            ? wanted
+            : (months[0] ?? new Date().toISOString().slice(0, 7));
+        const receipt = buildReceipt(sessions, month);
+        if (url.pathname === '/beleg.csv') {
+          res.writeHead(200, {
+            'content-type': 'text/csv; charset=utf-8',
+            'content-disposition': `attachment; filename="charging-receipt-${month}.csv"`,
+          });
+          // BOM voran: Ohne ihn zeigt Excel Umlaute als Kauderwelsch.
+          res.end('\ufeff' + receiptCsv(receipt, o.vehicleName, o.labels));
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end(renderReceipt(o, receipt, months));
         return;
       }
       if (url.pathname === '/settings') {

@@ -170,6 +170,40 @@ export interface Labels {
   dashTripsNote: string;
   /** Nicht bewertete Strecke. `%r` bewertet, `%k` gesamt. */
   dashTripsUnrated: string;
+  /** Beleg: Kopfzeilen und Spalten. */
+  rcTitle: string;
+  rcVehicle: string;
+  rcMonth: string;
+  rcPlace: string;
+  rcUnknownPlace: string;
+  rcSumHome: string;
+  rcSumAway: string;
+  rcSumUnknown: string;
+  rcCsv: string;
+  rcPrint: string;
+  rcNoCharges: string;
+  /** Fußnote des Belegs. `%v` Fahrzeug, `%m` Monat, `%c` Kapazität in kWh. */
+  rcFootnote: string;
+  /** Verweis auf den Beleg unter der Ladungsliste. */
+  dashReceiptLink: string;
+  /** Marke an einer abgebrochenen Ladung. `%e` erreicht, `%t` Ziel. */
+  dashAborted: string;
+  /** Kapazitätsverlauf. `%a` erster Wert, `%b` letzter, `%n` Monate. */
+  capTrendOver: string;
+  stRealRange: string;
+  /** Einheit der Reichweiten-Kachel — die Zahl steht davor. */
+  stRealRangeUnit: string;
+  /** Detail der Reichweiten-Kachel. `%n` = zugrunde liegende Strecke in km. */
+  stRealRangeDetail: string;
+  stIdleDrain: string;
+  stIdleDrainUnit: string;
+  /** Detail des Standverbrauchs. `%n` = beobachtete Standzeit in Stunden. */
+  stIdleDrainDetail: string;
+  stAborted: string;
+  /** Einheit der Abbruch-Kachel. `%t` = Ziel-Ladestand. */
+  stAbortedUnit: string;
+  /** Detail der Abbruch-Kachel. `%d` = Zeitpunkt. */
+  stAbortedDetail: string;
   stTitle: string;
   stBackToCharging: string;
   stTyrePressure: string;
@@ -385,6 +419,31 @@ export const LABELS_EN: Labels = {
   dashTripsNote:
     'Derived from the odometer — polled every %n minutes while unplugged, so short stops merge into a single trip.',
   dashTripsUnrated: ' Consumption is only reliable for %r of %k km.',
+  rcTitle: 'Charging receipt',
+  rcVehicle: 'Vehicle',
+  rcMonth: 'Month',
+  rcPlace: 'Place',
+  rcUnknownPlace: 'unknown',
+  rcSumHome: 'Total at home',
+  rcSumAway: 'Total away',
+  rcSumUnknown: 'Total without location',
+  rcCsv: 'Download as CSV',
+  rcPrint: 'Print',
+  rcNoCharges: 'No charging in this month.',
+  rcFootnote:
+    '%v · %m. The energy is not metered at the socket but calculated from the state of charge: the increase in percentage points times %c kWh of usable capacity. Charging losses between socket and battery are not included — the electricity actually drawn is correspondingly higher.',
+  dashReceiptLink: 'Monthly receipt, ready to print or hand on ›',
+  dashAborted: 'at %e % instead of %t %',
+  capTrendOver: '%a → %b kWh over %n months',
+  stRealRange: 'Real range',
+  stRealRangeUnit: 'of every 100 km',
+  stRealRangeDetail: 'Display vs. reality · %n km',
+  stIdleDrain: 'Idle drain',
+  stIdleDrainUnit: 'kWh/day',
+  stIdleDrainDetail: 'from %n h of observed idle time while unplugged',
+  stAborted: 'Charge aborted',
+  stAbortedUnit: '% instead of %t %',
+  stAbortedDetail: '%d — still plugged in, but without power for over an hour',
   stTitle: 'Vehicle status',
   stBackToCharging: 'Charging history',
   stTyrePressure: 'Tyre pressure',
@@ -600,6 +659,31 @@ export const LABELS_DE: Labels = {
   dashTripsNote:
     'Aus dem Kilometerstand abgeleitet — ohne Kabel wird alle %n Minuten abgefragt, kurze Pausen verschmelzen deshalb zu einer Fahrt.',
   dashTripsUnrated: ' Verbrauch nur für %r der %k km belastbar.',
+  rcTitle: 'Ladebeleg',
+  rcVehicle: 'Fahrzeug',
+  rcMonth: 'Monat',
+  rcPlace: 'Ort',
+  rcUnknownPlace: 'unbekannt',
+  rcSumHome: 'Summe zuhause',
+  rcSumAway: 'Summe unterwegs',
+  rcSumUnknown: 'Summe ohne Ortsangabe',
+  rcCsv: 'Als CSV laden',
+  rcPrint: 'Drucken',
+  rcNoCharges: 'In diesem Monat wurde nicht geladen.',
+  rcFootnote:
+    '%v · %m. Die Energiemenge ist nicht an der Steckdose gemessen, sondern aus dem Ladestand des Fahrzeugs gerechnet: Zuwachs in Prozentpunkten mal %c kWh nutzbarer Kapazität. Ladeverluste zwischen Steckdose und Batterie sind darin nicht enthalten — die tatsächlich bezogene Strommenge liegt entsprechend höher.',
+  dashReceiptLink: 'Monatsbeleg zum Ausdrucken oder Weiterreichen ›',
+  dashAborted: 'bei %e % statt %t %',
+  capTrendOver: '%a → %b kWh über %n Monate',
+  stRealRange: 'Reichweite real',
+  stRealRangeUnit: 'von je 100 km',
+  stRealRangeDetail: 'Anzeige vs. Wirklichkeit · %n km',
+  stIdleDrain: 'Standverbrauch',
+  stIdleDrainUnit: 'kWh/Tag',
+  stIdleDrainDetail: 'aus %n h beobachteter Standzeit ohne Kabel',
+  stAborted: 'Ladung abgebrochen',
+  stAbortedUnit: '% statt %t %',
+  stAbortedDetail: '%d — am Kabel, aber seit über einer Stunde ohne Strom',
   stTitle: 'Zustand',
   stBackToCharging: 'Ladehistorie',
   stTyrePressure: 'Reifendruck',

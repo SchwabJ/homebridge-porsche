@@ -1,4 +1,4 @@
-import { estimateCapacity, stateOfHealth } from '../src/capacity';
+import { capacityTrend, estimateCapacity, idleKwhPerDay, stateOfHealth } from '../src/capacity';
 import type { ChargeLogSample } from '../src/chargeLog';
 
 const at = (min: number, over: Partial<ChargeLogSample> = {}): ChargeLogSample => ({
@@ -189,5 +189,148 @@ describe('stateOfHealth', () => {
 
   it('vermeidet die Division durch null', () => {
     expect(stateOfHealth(74.5, 0)).toBeUndefined();
+  });
+});
+
+describe('Standverbrauch', () => {
+  /** `hours` Stunden Stillstand mit `drop` Prozentpunkten Verlust. */
+  const stehen = (hours: number, drop: number): ChargeLogSample[] => {
+    const rows: ChargeLogSample[] = [];
+    const steps = hours; // ein Messpunkt je Stunde
+    for (let i = 0; i <= steps; i++) {
+      rows.push(
+        at(i * 60, {
+          soc: Math.round(80 - (drop * i) / steps),
+          odometerKm: 50000,
+          plugged: false,
+        }),
+      );
+    }
+    return rows;
+  };
+
+  it('schweigt unter einem Tag beobachteter Standzeit', () => {
+    // Der Ladestand ist ganzzahlig — über wenige Stunden entscheidet allein
+    // die Rundung, ob 0 oder 10 kWh am Tag herauskämen.
+    expect(idleKwhPerDay(estimateCapacity(stehen(12, 2)), 83.7)).toBeUndefined();
+  });
+
+  it('rechnet den Verlust auf einen Tag hoch', () => {
+    // 48 h, 4 Punkte → 2 Punkte je Tag → 2 % von 100 kWh = 2,0 kWh/Tag.
+    expect(idleKwhPerDay(estimateCapacity(stehen(48, 4)), 100)).toBeCloseTo(2, 1);
+  });
+
+  it('hängt linear an der Kapazität', () => {
+    const est = estimateCapacity(stehen(48, 4));
+    expect(idleKwhPerDay(est, 50)).toBeCloseTo(1, 1);
+  });
+
+  it('zählt eine lange Datenlücke NICHT als beobachtete Standzeit', () => {
+    // Sonst verdünnte jeder Plugin-Ausfall den Wert beliebig — was in der
+    // Lücke geschah, weiß niemand.
+    const mit = estimateCapacity([
+      at(0, { soc: 80, odometerKm: 50000, plugged: false }),
+      at(60, { soc: 79, odometerKm: 50000, plugged: false }),
+      at(60 + 600, { soc: 78, odometerKm: 50000, plugged: false }), // 10 h Lücke
+    ]);
+    expect(mit.idleMinutes).toBe(60);
+    expect(mit.idleSocDrop).toBe(1);
+  });
+
+  it('zählt Zeit mit Streckenzuwachs nicht mit', () => {
+    const est = estimateCapacity([
+      at(0, { soc: 80, odometerKm: 50000, plugged: false }),
+      at(60, { soc: 79, odometerKm: 50000, plugged: false }),
+      at(120, { soc: 70, odometerKm: 50060, plugged: false }),
+    ]);
+    expect(est.idleMinutes).toBe(60);
+    expect(est.idleSocDrop).toBe(1);
+  });
+
+  it('sammelt auch aus Zyklen, die für die Kapazität zu kurz sind', () => {
+    // 30 h Stehen ohne einen einzigen Kilometer: als Entladezyklus wertlos,
+    // für den Standverbrauch die beste Datenquelle, die es gibt.
+    const est = estimateCapacity(stehen(30, 3));
+    expect(est.samples).toBe(0);
+    expect(est.idleMinutes).toBe(30 * 60);
+    expect(idleKwhPerDay(est, 100)).toBeCloseTo(2.4, 1);
+  });
+});
+
+describe('Kapazitätsverlauf', () => {
+  /**
+   * Ein verwertbarer Entladezyklus im Monat `month`, Tag `day`, mit einer
+   * Kapazität von `kwh`.
+   *
+   * Gerechnet wird rückwärts: Bei 30 Prozentpunkten Abfall und 100 km Strecke
+   * folgt aus `kwh` der nötige Verbrauchswert.
+   */
+  const zyklus = (month: string, day: number, kwh: number, odo: number): ChargeLogSample[] => {
+    const drop = 30;
+    const km = 100;
+    const kwh100 = Math.round(((kwh * drop) / 100 / km) * 100 * 10) / 10;
+    const iso = (h: number): string =>
+      `${month}-${String(day).padStart(2, '0')}T${String(h).padStart(2, '0')}:00:00.000Z`;
+    return [
+      { ts: iso(6), soc: 80, odometerKm: odo, plugged: true, charging: true },
+      { ts: iso(7), soc: 80, odometerKm: odo, plugged: false },
+      { ts: iso(9), soc: 80 - drop, odometerKm: odo + km, plugged: false, tripKwh100: kwh100 },
+      { ts: iso(10), soc: 80 - drop, odometerKm: odo + km, plugged: true, charging: true },
+    ];
+  };
+
+  /** `monate` Monate mit je `proMonat` Zyklen der Kapazität `kwh`. */
+  const reihe = (monate: string[], proMonat: number, kwh: (m: number) => number) => {
+    const rows: ChargeLogSample[] = [];
+    let odo = 50000;
+    monate.forEach((m, i) => {
+      for (let n = 0; n < proMonat; n++) {
+        rows.push(...zyklus(m, 5 + n * 5, kwh(i), odo));
+        odo += 100;
+      }
+    });
+    return rows;
+  };
+
+  it('schweigt bei zu wenigen Monaten', () => {
+    const est = estimateCapacity(reihe(['2026-01', '2026-02', '2026-03'], 2, () => 80));
+    expect(est.samples).toBe(6);
+    expect(capacityTrend(est)).toEqual([]);
+  });
+
+  it('lässt Monate mit nur einer Schätzung ganz weg', () => {
+    // Eine Linie, die zwischen belastbaren Werten über einen Zufallswert
+    // läuft, behauptet einen Verlauf, den es nicht gibt.
+    const rows = [
+      ...reihe(['2026-01', '2026-02', '2026-03', '2026-04'], 2, () => 80),
+      ...reihe(['2026-05'], 1, () => 60),
+    ];
+    const t = capacityTrend(estimateCapacity(rows));
+    expect(t.map((x) => x.month)).toEqual(['2026-01', '2026-02', '2026-03', '2026-04']);
+  });
+
+  it('liefert die Monate in zeitlicher Reihenfolge mit ihrem Median', () => {
+    const t = capacityTrend(
+      estimateCapacity(
+        reihe(['2026-01', '2026-02', '2026-03', '2026-04'], 2, (i) => 80 - i),
+      ),
+    );
+    expect(t.map((x) => x.month)).toEqual(['2026-01', '2026-02', '2026-03', '2026-04']);
+    expect(t.map((x) => Math.round(x.kwh))).toEqual([80, 79, 78, 77]);
+    expect(t.every((x) => x.samples === 2)).toBe(true);
+  });
+
+  it('nimmt den Median, nicht den Mittelwert', () => {
+    // Drei Werte je Monat, einer davon ein Ausreißer nach unten.
+    const rows: ChargeLogSample[] = [];
+    let odo = 50000;
+    for (const m of ['2026-01', '2026-02', '2026-03', '2026-04']) {
+      for (const [n, kwh] of [80, 80, 50].entries()) {
+        rows.push(...zyklus(m, 5 + n * 5, kwh, odo));
+        odo += 100;
+      }
+    }
+    const t = capacityTrend(estimateCapacity(rows));
+    expect(t[0].kwh).toBeCloseTo(80, 0);
   });
 });

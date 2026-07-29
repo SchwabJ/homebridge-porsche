@@ -607,11 +607,17 @@ function renderPage(
       // liest sich als fehlender Messwert, dabei ist die Kostenrechnung nur
       // nicht eingerichtet. Bei konfiguriertem Preis ohne Energie bleibt „—"
       // richtig — dort fehlt tatsächlich ein Wert.
-      const cost = !hasPrice
-        ? ''
-        : noEnergy
-          ? '—'
-          : `${(s.costEur as number).toFixed(2)} €` +
+      // Auf `costEur` prüfen, nicht auf `hasPrice`: Ein konfigurierter Preis
+      // heißt nicht, dass DIESE Ladung Kosten hat. Für eine Fremdladung ohne
+      // eingetragenen Preis bleiben sie absichtlich leer — vorher lief das in
+      // ein `undefined.toFixed()` und riss die ganze Seite mit (HTTP 500,
+      // sobald einmal auswärts geladen wurde).
+      const cost =
+        !hasPrice || s.costEur === undefined
+          ? noEnergy && hasPrice
+            ? '—'
+            : ''
+          : `${s.costEur.toFixed(2)} €` +
             (s.savedEur ? `<small>−${s.savedEur.toFixed(2)} € ${esc(L.dashBonus)}</small>` : '');
       const flag = s.complete ? '' : ` <span class="tag">${esc(L.dashRunning)}</span>`;
       const drop = s.socDropped ? ` <span class="tag warn">${esc(L.dashSocDropped)}</span>` : '';

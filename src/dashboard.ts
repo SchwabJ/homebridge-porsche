@@ -1552,8 +1552,27 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim)
  font-weight:600;margin:0 0 8px}
 .back{display:inline-flex;align-items:center;gap:6px;color:var(--dim);text-decoration:none;
  font-size:14px;min-height:44px}
+.cog{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;
+ margin:-8px -6px;color:var(--dim);background:none;border:0;padding:0;cursor:pointer}
+.cog:active{opacity:.5}
+.cog.busy svg{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 </style></head><body>
-<h1><span>${esc(o.vehicleName)}</span><em><a class="back" href="/">‹ ${esc(L.stBackToCharging)}</a></em></h1>
+<h1><span>${esc(o.vehicleName)}</span><em>${
+  st.last
+    ? `${esc(L.dashAsOf)} ${esc(
+        new Date(st.last.ts).toLocaleTimeString(L.locale, { hour: '2-digit', minute: '2-digit' }),
+      )}`
+    : ''
+}${
+  o.onRefresh
+    ? `<button class="cog" id="rf" type="button" title="${esc(L.dashRefresh)}" aria-label="${esc(
+        L.dashRefresh,
+      )}"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+        stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"
+       ><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>`
+    : ''
+}<a class="back" href="/">‹ ${esc(L.stBackToCharging)}</a></em></h1>
 ${
   tyre
     ? `<h2>${esc(L.stTyrePressure)} · ${esc(ago(tyre.at))}</h2><div class="wheels">${tyreRows}</div>`
@@ -1601,6 +1620,29 @@ ${
   }
 </div>
 <p style="color:var(--dim);font-size:12.5px;line-height:1.6">${esc(L.stFootnote)}</p>
+<script>
+(function(){
+  // Derselbe Abruf wie im Dashboard: Wer nachsieht, ob das Auto verriegelt
+  // ist, will nicht den Stand von vor einer Viertelstunde.
+  var rf=document.getElementById('rf');
+  if(!rf) return;
+  var back=function(ms){ setTimeout(function(){ rf.disabled=false;
+    rf.title=${JSON.stringify(L.dashRefresh)}; }, ms); };
+  rf.addEventListener('click',function(){
+    rf.disabled=true; rf.classList.add('busy');
+    fetch('/api/refresh',{method:'POST'}).then(function(r){return r.json();}).then(function(j){
+      if(j.ok){ location.reload(); return; }
+      rf.classList.remove('busy');
+      rf.title = j.reason==='cooldown'
+        ? ${JSON.stringify(L.dashWaitSeconds)}.replace('%n', String(Math.ceil((j.retryInMs||0)/1000)))
+        : ${JSON.stringify(L.dashRefreshFailed)};
+      back(j.reason==='cooldown' ? (j.retryInMs||3000) : 3000);
+    }).catch(function(){
+      rf.classList.remove('busy'); rf.title=${JSON.stringify(L.dashRefreshFailed)}; back(3000);
+    });
+  });
+})();
+</script>
 </body></html>`;
 }
 

@@ -1235,3 +1235,53 @@ describe('Zeitraum wählen und blättern', () => {
     expect(html).toMatch(/href="\?g=day&p=home&d=/);
   });
 });
+
+describe('Abruf auf der Statusseite', () => {
+  let dir: string;
+  let nextPort = 19300;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'srf-'));
+    fs.writeFileSync(
+      path.join(dir, `${new Date().toISOString().slice(0, 10)}.jsonl`),
+      JSON.stringify({ ts: new Date().toISOString(), soc: 60, locked: true }) + '\n',
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const seite = async (mitRefresh: boolean): Promise<string> => {
+    const server = startDashboard({
+      port: nextPort++, logDir: dir, capacityKwh: 83.7, pricePerKwh: 0.2,
+      priceCt: 30, bonusCt: 0, externalPriceCt: 0, dayBoundaryHour: 0,
+      vehicleName: 'T', uiPort: 8581, labels: labelsFor('en'),
+      ...(mitRefresh ? { onRefresh: async (): Promise<void> => {} } : {}),
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server.once('listening', r));
+    const a = server.address();
+    const html = await (
+      await fetch(`http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}/status`)
+    ).text();
+    server.close();
+    return html;
+  };
+
+  it('bietet den Abruf-Knopf an', async () => {
+    // Wer nachsieht, ob das Auto verriegelt ist, will den JETZIGEN Stand.
+    expect(await seite(true)).toContain('id="rf"');
+  });
+
+  it('nennt den Zeitpunkt des letzten Messpunkts', async () => {
+    expect(await seite(true)).toMatch(/as of \d\d:\d\d/);
+  });
+
+  it('verbirgt den Knopf ohne angeschlossenen Abruf', async () => {
+    // Ein Knopf, der nichts auslösen kann, ist schlechter als keiner.
+    expect(await seite(false)).not.toContain('id="rf"');
+  });
+});

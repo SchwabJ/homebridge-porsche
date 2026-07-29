@@ -421,6 +421,7 @@ function renderPage(
   o: DashboardOptions,
   host: string,
   place: Place = 'all',
+  picked?: string,
 ): string {
   const L = o.labels;
   const sessions =
@@ -428,7 +429,10 @@ function renderPage(
       ? allSessions
       : allSessions.filter((x) => x.atHome === (place === 'home'));
   const samples = filterByPlace(allSamples, allSessions, place);
-  const recent = [...sessions].reverse();
+  // Die Liste zeigt die Ladungen DES GEWÄHLTEN Zeitraums, nicht alle. Vorher
+  // blieb sie beim Umschalten unverändert stehen — der Umschalter änderte
+  // Kacheln und Balken, aber darunter stand immer dasselbe.
+  let recent: ChargeSession[] = [];
   const running = sessions.find((s) => !s.complete);
   const priceStore = readPrices(o.logDir);
   // Plugin-Konfiguration, überlagert von der Einstellungsseite.
@@ -437,9 +441,16 @@ function renderPage(
   // Zeitreihe aus den Rohdaten — nur so verteilt sich eine Nachtladung korrekt
   // auf beide Tage, statt komplett dem Startzeitpunkt zugeschlagen zu werden.
   const all = aggregate(samples, gran, optionsFor(o));
-  const series = all.slice(-SPAN[gran]);
-  const current = series[series.length - 1];
-  const previous = series[series.length - 2];
+
+  // Welcher Zeitraum ist gewählt? Ohne Angabe der jüngste. Der Schlüssel steht
+  // in der Adresse, damit ein Blättern teilbar und über „zurück" bedienbar ist.
+  const pickedIdx = picked ? all.findIndex((b) => b.key === picked) : -1;
+  const currentIdx = pickedIdx >= 0 ? pickedIdx : all.length - 1;
+  const current = all[currentIdx];
+  const previous = all[currentIdx - 1];
+  // Der Balken zeigt den Verlauf BIS zum gewählten Zeitraum — beim Blättern
+  // wandert das Fenster mit, statt immer am heutigen Ende zu kleben.
+  const series = all.slice(Math.max(0, currentIdx + 1 - SPAN[gran]), currentIdx + 1);
   const eff = efficiency(all);
 
   // Ohne konfigurierten Arbeitspreis werden keine Kosten gezeigt: 0,00 € wäre
@@ -467,8 +478,8 @@ function renderPage(
   }));
   const bars = barChart(barPoints, L);
 
-  const q = (g: Granularity, p: Place): string =>
-    `?g=${g}${p === 'all' ? '' : `&p=${p}`}`;
+  const q = (g: Granularity, p: Place, d?: string): string =>
+    `?g=${g}${p === 'all' ? '' : `&p=${p}`}${d ? `&d=${encodeURIComponent(d)}` : ''}`;
   const tabs = (['day', 'week', 'month', 'year'] as Granularity[])
     .map((g) => `<a href="${q(g, place)}"${g === gran ? ' class="on"' : ''}>${GRAN_LABEL[g]}</a>`)
     .join('');
@@ -482,6 +493,31 @@ function renderPage(
     ['home', L.placeHome],
     ['away', L.placeAway],
   ];
+  // Blättern. Ein Zeitraum ohne Nachbarn braucht keinen Pfeil — ein toter
+  // Knopf ist schlechter als keiner.
+  const older = all[currentIdx - 1];
+  const newer = all[currentIdx + 1];
+  const nav = current
+    ? `<nav class="per">
+        ${
+          older
+            ? `<a href="${q(gran, place, older.key)}" rel="prev" aria-label="${esc(L.navOlder)}">‹</a>`
+            : '<span>‹</span>'
+        }
+        <b>${esc(current.label)}</b>
+        ${
+          newer
+            ? `<a href="${q(gran, place, newer.key)}" rel="next" aria-label="${esc(L.navNewer)}">›</a>`
+            : '<span>›</span>'
+        }
+        ${
+          currentIdx < all.length - 1
+            ? `<a class="now" href="${q(gran, place)}">${esc(L.navNow)}</a>`
+            : ''
+        }
+      </nav>`
+    : '';
+
   const placeTabs =
     homeCount > 0 && awayCount > 0
       ? `<nav class="tabs sub">${places
@@ -511,6 +547,7 @@ function renderPage(
         return current.key >= from && current.key <= to;
       })
     : [];
+  recent = [...inPeriod].reverse();
   const avgPerCharge =
     inPeriod.length > 0
       ? inPeriod.reduce((a, s) => a + (s.energyKwh ?? 0), 0) / inPeriod.length
@@ -861,6 +898,18 @@ button.more:active{opacity:.6}
 .tabs.sub a{min-height:34px;font-size:13.5px;border-radius:9px;background:transparent}
 .tabs.sub a.on{background:var(--card);border-color:var(--line);color:var(--fg);font-weight:600}
 .tabs.sub em{font-style:normal;opacity:.55;margin-left:5px;font-size:12px}
+/* Zeitraum-Navigation: Der Name des Zeitraums trägt die Aussage, die Pfeile
+   treten zurück. Ein Zeitraum ohne Nachbarn zeigt den Pfeil ausgegraut statt
+   ihn wegzulassen — sonst springt die Zeile bei jedem Schritt. */
+.per{display:flex;align-items:center;justify-content:center;gap:4px;margin:-4px 0 14px}
+.per a,.per span{min-width:40px;min-height:40px;display:flex;align-items:center;
+ justify-content:center;font-size:20px;text-decoration:none;color:var(--dim);
+ border-radius:10px}
+.per span{opacity:.25}
+.per a:active{background:var(--card)}
+.per b{min-width:150px;text-align:center;font-size:15px;font-weight:600}
+.per a.now{min-width:auto;padding:0 12px;font-size:13px;font-weight:600;
+ color:var(--accent)}
 .note{background:var(--card);border:1px solid var(--line);border-radius:10px;
  padding:9px 12px;margin:-4px 0 14px;color:var(--dim);font-size:12.5px}
 form.pf{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0 2px;
@@ -1053,7 +1102,7 @@ ${
     : ''
 }
 <nav class="tabs">${tabs}</nav>
-${placeTabs}${
+${placeTabs}${nav}${
   place === 'away' && !awayPriced
     ? `<div class="note">${esc(L.dashNoAwayPrice)}</div>`
     : awayUnpriced
@@ -1726,6 +1775,11 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
         g === 'day' || g === 'week' || g === 'year' ? g : 'month';
       const pRaw = url.searchParams.get('p');
       const place: Place = pRaw === 'home' || pRaw === 'away' ? pRaw : 'all';
+      // Gewählter Zeitraum als Bucket-Schlüssel (`2026-07-28`, `2026-W31`, …).
+      // Der Wert wird gegen die vorhandenen Zeiträume geprüft, taugt also nicht
+      // als Einfallstor.
+      const dRaw = url.searchParams.get('d');
+      const picked = dRaw && /^[0-9W-]{4,10}$/.test(dRaw) ? dRaw : undefined;
 
       // --- Web-App-Beiwerk (Homescreen-Symbol, Manifest) ---
       const iconMatch = /^\/icon-(\d+)\.png$/.exec(url.pathname);
@@ -1936,7 +1990,7 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
       // Host aus dem Request, damit der Einstellungen-Link auch dann stimmt,
       // wenn das Dashboard über Hostname statt IP aufgerufen wurde.
       const host = (req.headers.host ?? '').split(':')[0] || '127.0.0.1';
-      const html = renderPage(sessions, samples, gran, o, host, place);
+      const html = renderPage(sessions, samples, gran, o, host, place, picked);
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       res.end(html);
     } catch (err) {

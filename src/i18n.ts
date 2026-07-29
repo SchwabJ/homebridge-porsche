@@ -185,6 +185,9 @@ export interface Labels {
   stAgoHour: string;
   stFootnote: string;
   stOpenUnsettled: string;
+  navOlder: string;
+  navNewer: string;
+  navNow: string;
   stStableOver: string;
   stChangeOver: string;
   stPerWeek: string;
@@ -390,6 +393,9 @@ export const LABELS_EN: Labels = {
   stAgoHour: '%n h ago',
   stFootnote: 'State values are only recorded when they change — the time above each block is therefore the last KNOWN reading, not the last poll. The interface provides no outside temperature.',
   stOpenUnsettled: 'reported for %n min — often delayed after parking',
+  navOlder: 'Earlier',
+  navNewer: 'Later',
+  navNow: 'today',
   stStableOver: 'stable over %n days',
   stChangeOver: '%v bar in %n days',
   stPerWeek: 'at %n km/week',
@@ -595,6 +601,9 @@ export const LABELS_DE: Labels = {
   stAgoHour: 'vor %n h',
   stFootnote: 'Zustandswerte werden nur mitgeschrieben, wenn sie sich ändern — der Zeitpunkt über jedem Block ist deshalb der letzte BEKANNTE Stand, nicht der letzte Abruf. Eine Außentemperatur liefert die Schnittstelle nicht.',
   stOpenUnsettled: 'seit %n min gemeldet — nach dem Abstellen oft verspätet',
+  navOlder: 'Früher',
+  navNewer: 'Später',
+  navNow: 'heute',
   stStableOver: 'stabil über %n Tage',
   stChangeOver: '%v bar in %n Tagen',
   stPerWeek: 'bei %n km/Woche',

@@ -81,3 +81,84 @@ describe('appendSample', () => {
     expect(appendSample(path.join(blocker, 'sub'), state(), new Date())).toBe(false);
   });
 });
+
+describe('Fahrzeugzustand im Mitschrieb', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cl-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const zustand = (over: Partial<VehicleState> = {}): VehicleState =>
+    ({
+      soc: 60,
+      tirePressureBar: { fl: 2.7, fr: 2.7, rl: 2.9, rr: 2.9 },
+      tireDiffBar: { fl: 0, fr: 0, rl: 0.1, rr: 0.1 },
+      serviceKm: 12000,
+      locked: true,
+      climateOn: false,
+      targetTempC: 21,
+      doors: { fl: false, fr: false, rl: false, rr: false },
+      windows: { fl: false, fr: false, rl: false, rr: false },
+      frunkOpen: false,
+      trunkOpen: false,
+      ...over,
+    }) as VehicleState;
+
+  const zeilen = (): Record<string, unknown>[] =>
+    fs
+      .readFileSync(path.join(dir, fileNameFor(new Date())), 'utf8')
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+
+  it('schreibt Reifendruck als vier Werte in fester Reihenfolge', () => {
+    appendSample(dir, zustand(), new Date());
+    expect(zeilen()[0].tyreBar).toEqual([2.7, 2.7, 2.9, 2.9]);
+  });
+
+  it('schreibt Service, Verriegelung und Klima mit', () => {
+    appendSample(dir, zustand(), new Date());
+    expect(zeilen()[0]).toMatchObject({ serviceKm: 12000, locked: true, climateOn: false });
+  });
+
+  it('fasst offene Türen, Fenster und Klappen zu einem Kennzeichen zusammen', () => {
+    appendSample(dir, zustand(), new Date());
+    expect(zeilen()[0].anyOpen).toBe(false);
+    appendSample(dir, zustand({ trunkOpen: true }), new Date());
+    expect(zeilen()[1].anyOpen).toBe(true);
+  });
+
+  it('wiederholt unveränderte Zustandsfelder NICHT', () => {
+    // Am Kabel läuft der Poll im Minutentakt. Ein Reifendruck, der sechzigmal
+    // pro Stunde identisch dasteht, bläht die Datei ohne jede Aussage auf.
+    appendSample(dir, zustand(), new Date());
+    appendSample(dir, zustand({ soc: 61 }), new Date());
+    const rows = zeilen();
+    expect(rows[0].tyreBar).toBeDefined();
+    expect(rows[1].tyreBar).toBeUndefined();
+    expect(rows[1].soc).toBe(61);
+  });
+
+  it('schreibt sie wieder, sobald sich einer ändert', () => {
+    appendSample(dir, zustand(), new Date());
+    appendSample(dir, zustand(), new Date());
+    appendSample(dir, zustand({ serviceKm: 11800 }), new Date());
+    const rows = zeilen();
+    expect(rows[1].serviceKm).toBeUndefined();
+    expect(rows[2].serviceKm).toBe(11800);
+    // Der Reifendruck gehört zum selben Block und wird mitgeschrieben —
+    // sonst stünde eine Zeile mit halbem Zustand in der Datei.
+    expect(rows[2].tyreBar).toBeDefined();
+  });
+
+  it('lässt die Ladefelder von der Sparsamkeit unberührt', () => {
+    appendSample(dir, zustand(), new Date());
+    appendSample(dir, zustand(), new Date());
+    expect(zeilen()[1].soc).toBe(60);
+  });
+});

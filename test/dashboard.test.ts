@@ -769,3 +769,111 @@ describe('Datenqualität und Ortsfilter', () => {
     server.close();
   });
 });
+
+describe('Statusseite', () => {
+  let dir: string;
+  let nextPort = 18800;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'stat-'));
+    const t = (m: number): string =>
+      new Date(Date.now() - (120 - m) * 60000).toISOString();
+    const rows: ChargeLogSample[] = [
+      {
+        ts: t(0),
+        soc: 60,
+        rangeKm: 250,
+        odometerKm: 50000,
+        plugged: false,
+        tyreBar: [2.6, 2.7, 2.5, 2.5],
+        tyreDiffBar: [0, 0, 0.2, 0.2],
+        serviceKm: 27300,
+        locked: true,
+        climateOn: false,
+        targetTempC: 21,
+        anyOpen: false,
+      },
+      // Spätere Zeile OHNE Zustandsfelder — so schreibt der Mitschrieb sie.
+      { ts: t(60), soc: 58, rangeKm: 240, odometerKm: 50120, plugged: false },
+    ];
+    fs.writeFileSync(
+      path.join(dir, `${new Date().toISOString().slice(0, 10)}.jsonl`),
+      rows.map((r) => JSON.stringify(r)).join('\n') + '\n',
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const page = async (language: 'de' | 'en'): Promise<string> => {
+    const server = startDashboard({
+      port: nextPort++,
+      logDir: dir,
+      capacityKwh: 83.7,
+      pricePerKwh: 0.2,
+      priceCt: 30,
+      bonusCt: 0,
+      externalPriceCt: 0,
+      dayBoundaryHour: 0,
+      vehicleName: 'T',
+      uiPort: 8581,
+      labels: labelsFor(language),
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server.once('listening', r));
+    const a = server.address();
+    const html = await (
+      await fetch(`http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}/status`)
+    ).text();
+    server.close();
+    return html;
+  };
+
+  it('zeigt den Reifendruck aller vier Räder', async () => {
+    const html = await page('de');
+    expect(html).toContain('2.6');
+    expect(html).toContain('2.7');
+    expect(html).toContain('hinten links');
+  });
+
+  it('findet Zustandswerte auch, wenn die LETZTE Zeile sie nicht trägt', async () => {
+    // Kern der Delta-Schreibung: Der jüngste Messpunkt hat keine
+    // Zustandsfelder, die Seite muss rückwärts suchen.
+    const html = await page('de');
+    expect(html).toContain('27.300');
+  });
+
+  it('markiert eine Abweichung über 0,15 bar', async () => {
+    const html = await page('de');
+    expect(html).toContain('wheel warn');
+  });
+
+  it('hebt ein unverriegeltes Fahrzeug hervor', async () => {
+    fs.writeFileSync(
+      path.join(dir, `${new Date().toISOString().slice(0, 10)}.jsonl`),
+      JSON.stringify({ ts: new Date().toISOString(), soc: 60, locked: false }) + '\n',
+    );
+    expect(await page('de')).toContain('card alert');
+  });
+
+  it('ist bei language=en vollständig englisch', async () => {
+    const html = await page('en');
+    expect(html).toContain('front left');
+    expect(html).toContain('Next service');
+    expect(html).not.toContain('vorne links');
+    expect(html).not.toContain('Nächster Service');
+  });
+
+  it('kommt ohne jede Zustandsangabe aus', async () => {
+    fs.writeFileSync(
+      path.join(dir, `${new Date().toISOString().slice(0, 10)}.jsonl`),
+      JSON.stringify({ ts: new Date().toISOString(), soc: 60 }) + '\n',
+    );
+    const html = await page('de');
+    expect(html).toContain('Noch kein Reifendruck erfasst');
+    expect(html).not.toContain('undefined');
+  });
+});

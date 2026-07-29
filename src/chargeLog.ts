@@ -48,6 +48,31 @@ export interface ChargeLogSample {
   atHome?: boolean;
   /** Vom Fahrzeug gemessener Fahrverbrauch in kWh/100 km (Gegenprobe). */
   tripKwh100?: number;
+
+  // --- Fahrzeugzustand ------------------------------------------------------
+  //
+  // Diese Felder haben mit dem Laden nichts zu tun; sie stehen hier, weil der
+  // Mitschrieb der einzige Ort ist, an dem sich ein VERLAUF bildet. Reifendruck
+  // und Service-Reichweite fragt das Plugin ohnehin bei jedem Poll ab — sie
+  // wegzuwerfen hieße, eine Zeitreihe zu verschenken, die sonst niemand hat.
+  //
+  // Geschrieben werden sie nur, wenn sie sich geändert haben (siehe
+  // `appendSample`): Am Kabel läuft der Poll im Minutentakt, und ein
+  // Reifendruck, der sechzigmal pro Stunde identisch in der Datei steht,
+  // bläht sie auf, ohne etwas hinzuzufügen.
+
+  /** Reifendruck in bar: vorne links, vorne rechts, hinten links, hinten rechts. */
+  tyreBar?: [number, number, number, number];
+  /** Abweichung zum Sollwert in bar, gleiche Reihenfolge. */
+  tyreDiffBar?: [number, number, number, number];
+  /** Reichweite bis zum nächsten Hauptservice in km. */
+  serviceKm?: number;
+  locked?: boolean;
+  climateOn?: boolean;
+  /** Solltemperatur der Vorklimatisierung in °C. */
+  targetTempC?: number;
+  /** Ist irgendeine Tür, Klappe oder ein Fenster offen? */
+  anyOpen?: boolean;
 }
 
 /**
@@ -84,6 +109,27 @@ export function buildSample(
   put('minSoc', state.minSocProfile);
   put('atHome', atHome);
   put('tripKwh100', state.tripConsumptionKwhPer100Km);
+
+  const corners = (c?: { fl?: number; fr?: number; rl?: number; rr?: number }):
+    | [number, number, number, number]
+    | undefined =>
+    c && c.fl !== undefined && c.fr !== undefined && c.rl !== undefined && c.rr !== undefined
+      ? [c.fl, c.fr, c.rl, c.rr]
+      : undefined;
+  put('tyreBar', corners(state.tirePressureBar));
+  put('tyreDiffBar', corners(state.tireDiffBar));
+  put('serviceKm', state.serviceKm);
+  put('locked', state.locked);
+  put('climateOn', state.climateOn);
+  put('targetTempC', state.targetTempC);
+  const open = [
+    state.doors?.fl, state.doors?.fr, state.doors?.rl, state.doors?.rr,
+    state.windows?.fl, state.windows?.fr, state.windows?.rl, state.windows?.rr,
+    state.frunkOpen, state.trunkOpen,
+  ];
+  if (open.some((v) => v !== undefined)) {
+    put('anyOpen', open.some((v) => v === true));
+  }
   return sample;
 }
 
@@ -99,6 +145,27 @@ export function fileNameFor(now: Date): string {
  * Wirft NIE. Gibt `true` zurück, wenn geschrieben wurde — nur für Tests und
  * Diagnose; Aufrufer dürfen den Rückgabewert ignorieren.
  */
+/**
+ * Zustandsfelder, die nur bei Änderung geschrieben werden.
+ *
+ * Sie ändern sich in Tagen, nicht in Minuten. Am Kabel läuft der Poll im
+ * Minutentakt — unverändert mitgeschrieben würden sie die Datei vervielfachen,
+ * ohne eine einzige zusätzliche Aussage zu tragen. Beim Lesen wird der letzte
+ * bekannte Wert fortgeschrieben, die Zeitreihe bleibt also vollständig.
+ */
+const STATE_FIELDS = [
+  'tyreBar',
+  'tyreDiffBar',
+  'serviceKm',
+  'locked',
+  'climateOn',
+  'targetTempC',
+  'anyOpen',
+] as const;
+
+/** Zuletzt geschriebene Zustandswerte, je Verzeichnis. */
+const lastState = new Map<string, string>();
+
 export function appendSample(
   dir: string,
   state: VehicleState,
@@ -107,7 +174,16 @@ export function appendSample(
 ): boolean {
   try {
     fs.mkdirSync(dir, { recursive: true });
-    const line = JSON.stringify(buildSample(state, now, atHome)) + '\n';
+    const sample = buildSample(state, now, atHome);
+    const fingerprint = JSON.stringify(STATE_FIELDS.map((f) => sample[f]));
+    if (lastState.get(dir) === fingerprint) {
+      for (const f of STATE_FIELDS) {
+        delete sample[f];
+      }
+    } else {
+      lastState.set(dir, fingerprint);
+    }
+    const line = JSON.stringify(sample) + '\n';
     fs.appendFileSync(path.join(dir, fileNameFor(now)), line, 'utf8');
     return true;
   } catch {

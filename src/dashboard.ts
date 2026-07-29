@@ -1272,6 +1272,162 @@ h1 em{font-style:normal;font-size:12px;color:var(--dim);font-weight:400;
 `;
 
 /**
+ * Letzter bekannter Wert eines Zustandsfelds über den ganzen Mitschrieb.
+ *
+ * Nötig wegen der Delta-Schreibung in {@link ./chargeLog}: Zustandsfelder
+ * stehen nur in der Zeile, in der sie sich geändert haben. Der letzte
+ * Messpunkt trägt sie deshalb meistens NICHT.
+ */
+function lastState<K extends keyof ChargeLogSample>(
+  samples: ChargeLogSample[],
+  key: K,
+): { value: NonNullable<ChargeLogSample[K]>; at: string } | undefined {
+  for (let i = samples.length - 1; i >= 0; i--) {
+    const v = samples[i][key];
+    if (v !== undefined) {
+      return { value: v as NonNullable<ChargeLogSample[K]>, at: samples[i].ts };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Fahrzeugzustand als eigene Seite.
+ *
+ * Bewusst getrennt vom Ladedashboard: Reifendruck und Serviceintervall haben
+ * mit dem Laden nichts zu tun, und eine Seite, die alles zeigt, zeigt nichts
+ * mehr deutlich. Verlinkt ist sie aus der Kopfzeile.
+ *
+ * Der Mehrwert gegenüber der Porsche-App ist der VERLAUF: Sie zeigt den
+ * aktuellen Reifendruck, aber nicht, dass er seit sechs Wochen fällt.
+ */
+function renderStatus(o: DashboardOptions, samples: ChargeLogSample[], host: string): string {
+  const L = o.labels;
+  const st = currentStatus(samples, Date.now());
+  const tyre = lastState(samples, 'tyreBar');
+  const diff = lastState(samples, 'tyreDiffBar');
+  const service = lastState(samples, 'serviceKm');
+  const locked = lastState(samples, 'locked');
+  const climate = lastState(samples, 'climateOn');
+  const temp = lastState(samples, 'targetTempC');
+  const open = lastState(samples, 'anyOpen');
+
+  const ago = (iso: string): string => {
+    const min = (Date.now() - Date.parse(iso)) / 60000;
+    return min < 90
+      ? L.stAgoMin.replace('%n', String(Math.round(min)))
+      : L.stAgoHour.replace('%n', String(Math.round(min / 60)));
+  };
+
+  // Reifen: Der Sollabgleich kommt vom Fahrzeug (differenceBar) — eigene
+  // Sollwerte zu raten wäre bei last- und temperaturabhängigen Vorgaben falsch.
+  const WHEELS = [L.stFrontLeft, L.stFrontRight, L.stRearLeft, L.stRearRight];
+  const tyreRows = tyre
+    ? tyre.value
+        .map((bar, i) => {
+          const d = diff?.value[i];
+          const level = d === undefined ? '' : Math.abs(d) >= 0.3 ? ' bad' : Math.abs(d) >= 0.15 ? ' warn' : ' ok';
+          return `<div class="wheel${level}">
+            <span>${esc(WHEELS[i])}</span>
+            <b>${bar.toFixed(1)}<i>bar</i></b>
+            ${d !== undefined ? `<em>${d > 0 ? '+' : ''}${d.toFixed(1)} ${esc(L.stToTarget)}</em>` : ''}
+          </div>`;
+        })
+        .join('')
+    : '';
+
+  // Kilometerleistung der letzten sieben Tage — die Zahl, die man sonst
+  // nirgends bekommt, ohne selbst Buch zu führen.
+  const weekAgo = Date.now() - 7 * 86400000;
+  const odoNow = lastState(samples, 'odometerKm');
+  const odoThen = samples.find(
+    (x) => x.odometerKm !== undefined && Date.parse(x.ts) >= weekAgo,
+  )?.odometerKm;
+  const weekKm =
+    odoNow && odoThen !== undefined ? Math.max(0, odoNow.value - odoThen) : undefined;
+
+  // `alert` hebt hervor, was man wissen WILL, ohne die Seite zu durchsuchen:
+  // ein offenes Auto. Alles andere bleibt gleich laut, sonst hebt sich nichts
+  // mehr ab.
+  const card = (label: string, value: string, sub = '', alert = false): string =>
+    `<div class="card${alert ? ' alert' : ''}"><span>${esc(label)}</span><b>${value}</b>${
+      sub ? `<span>${sub}</span>` : ''
+    }</div>`;
+
+  return `<!doctype html>
+<html lang="${esc(L.locale)}"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>${esc(o.vehicleName)} — ${esc(L.stTitle)}</title>
+<style>${BASE_CSS}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+.card span{display:block;color:var(--dim);font-size:11px;text-transform:uppercase;
+ letter-spacing:.04em;margin-bottom:4px}
+.card b{font-size:24px;font-weight:600;display:block}
+.card b i{font-style:normal;font-size:13px;color:var(--dim);margin-left:3px}
+.card span+b+span{text-transform:none;letter-spacing:0;font-size:12.5px;margin:4px 0 0}
+.wheels{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+.wheel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.wheel span{display:block;color:var(--dim);font-size:11.5px;margin-bottom:3px}
+.wheel b{font-size:21px;font-weight:600}
+.wheel b i{font-style:normal;font-size:12px;color:var(--dim);margin-left:3px}
+.wheel em{display:block;font-style:normal;font-size:12px;color:var(--dim);margin-top:2px}
+.wheel.ok em{color:#35c77b}
+.wheel.warn{border-color:#c8811a}.wheel.warn em{color:#c8811a}
+.wheel.bad{border-color:#d9534f}.wheel.bad em{color:#d9534f}
+.card.alert{border:1px solid #d9534f}
+.card.alert b{color:#d9534f}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim);
+ font-weight:600;margin:0 0 8px}
+.back{display:inline-flex;align-items:center;gap:6px;color:var(--dim);text-decoration:none;
+ font-size:14px;min-height:44px}
+</style></head><body>
+<h1><span>${esc(o.vehicleName)}</span><em><a class="back" href="/">‹ ${esc(L.stBackToCharging)}</a></em></h1>
+${
+  tyre
+    ? `<h2>${esc(L.stTyrePressure)} · ${esc(ago(tyre.at))}</h2><div class="wheels">${tyreRows}</div>`
+    : `<div class="empty">${esc(L.stNoTyreData)}</div>`
+}
+<h2>${esc(L.stVehicle)}</h2>
+<div class="grid">
+  ${
+    service
+      ? card(L.stNextService, `${service.value.toLocaleString(L.locale)}<i>km</i>`)
+      : ''
+  }
+  ${odoNow ? card(L.stOdometer, `${odoNow.value.toLocaleString(L.locale)}<i>km</i>`) : ''}
+  ${weekKm !== undefined ? card(L.stLast7Days, `${weekKm}<i>km</i>`) : ''}
+  ${st.last?.soc !== undefined ? card(L.stChargeLevel, `${st.last.soc}<i>%</i>`,
+      st.last.rangeKm !== undefined ? `${st.last.rangeKm} ${esc(L.stRangeSuffix)}` : '') : ''}
+</div>
+<h2>${esc(L.stSecurity)}</h2>
+<div class="grid">
+  ${
+    locked
+      ? card(L.stLocked, esc(locked.value ? L.stYes : L.stNo), esc(ago(locked.at)), !locked.value)
+      : ''
+  }
+  ${
+    open
+      ? card(L.stAllClosed, esc(open.value ? L.stNo : L.stYes), esc(ago(open.at)), open.value)
+      : ''
+  }
+  ${
+    climate
+      ? card(
+          L.stClimate,
+          esc(climate.value ? L.stOn : L.stOff),
+          temp ? `${esc(L.stTargetTemp)} ${temp.value} °C` : '',
+        )
+      : ''
+  }
+</div>
+<p style="color:var(--dim);font-size:12.5px;line-height:1.6">${esc(L.stFootnote)}</p>
+</body></html>`;
+}
+
+/**
  * Die Einstellungsseite.
  *
  * Zeigt je Feld, woher der wirksame Wert stammt. Ohne diese Angabe wäre nicht
@@ -1449,6 +1605,16 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
           res.end(buf);
           return;
         }
+      }
+      if (url.pathname === '/status') {
+        const page = renderStatus(
+          o,
+          load().samples,
+          String(req.headers.host ?? '').split(':')[0],
+        );
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end(page);
+        return;
       }
       if (url.pathname === '/settings') {
         const est = estimateCapacity(readSamples(o.logDir));

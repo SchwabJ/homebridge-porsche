@@ -157,6 +157,19 @@ export interface Labels {
   dashPhase: string;
   dashPhases: string;
   dashInDetail: string;
+  /** Überschrift des Fahrtenabschnitts. */
+  dashTripsHeading: string;
+  dashTripEnd: string;
+  dashTripDistance: string;
+  dashTripConsumption: string;
+  /** Deckel-Hinweis der Ladungsliste. `%n` gezeigt, `%t` gesamt. */
+  dashChargesCapped: string;
+  /** Deckel-Hinweis der Fahrtenliste. `%n` gezeigt, `%t` gesamt. */
+  dashTripsCapped: string;
+  /** Wie die Fahrten entstehen. `%n` = Abfrageabstand in Minuten. */
+  dashTripsNote: string;
+  /** Nicht bewertete Strecke. `%r` bewertet, `%k` gesamt. */
+  dashTripsUnrated: string;
   stTitle: string;
   stBackToCharging: string;
   stTyrePressure: string;
@@ -363,6 +376,15 @@ export const LABELS_EN: Labels = {
   dashPhase: 'phase',
   dashPhases: 'phases',
   dashInDetail: 'in detail',
+  dashTripsHeading: 'Trips',
+  dashTripEnd: 'End',
+  dashTripDistance: 'Distance',
+  dashTripConsumption: 'Consumption',
+  dashChargesCapped: 'The most recent %n of %t charges — tiles and chart use all of them.',
+  dashTripsCapped: 'The most recent %n of %t trips. ',
+  dashTripsNote:
+    'Derived from the odometer — polled every %n minutes while unplugged, so short stops merge into a single trip.',
+  dashTripsUnrated: ' Consumption is only reliable for %r of %k km.',
   stTitle: 'Vehicle status',
   stBackToCharging: 'Charging history',
   stTyrePressure: 'Tyre pressure',
@@ -569,6 +591,15 @@ export const LABELS_DE: Labels = {
   dashPhase: 'Phase',
   dashPhases: 'Phasen',
   dashInDetail: 'im Detail',
+  dashTripsHeading: 'Fahrten',
+  dashTripEnd: 'Ende',
+  dashTripDistance: 'Strecke',
+  dashTripConsumption: 'Verbrauch',
+  dashChargesCapped: 'Die jüngsten %n von %t Ladungen — Kacheln und Diagramm rechnen mit allen.',
+  dashTripsCapped: 'Die jüngsten %n von %t Fahrten. ',
+  dashTripsNote:
+    'Aus dem Kilometerstand abgeleitet — ohne Kabel wird alle %n Minuten abgefragt, kurze Pausen verschmelzen deshalb zu einer Fahrt.',
+  dashTripsUnrated: ' Verbrauch nur für %r der %k km belastbar.',
   stTitle: 'Zustand',
   stBackToCharging: 'Ladehistorie',
   stTyrePressure: 'Reifendruck',

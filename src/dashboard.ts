@@ -29,7 +29,7 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import { buildSessions, type ChargeSession } from './sessions';
-import { aggregate, efficiency, keyOf, type Granularity } from './aggregate';
+import { aggregate, efficiency, keyOf, SUB, type Granularity } from './aggregate';
 import type { ChargeLogSample } from './chargeLog';
 import { ICONS } from './icons';
 import type { Labels } from './i18n';
@@ -404,10 +404,17 @@ export function currentStatus(
   return { last, ageMinutes, monitorOk: ageMinutes <= 45 };
 }
 
-/** Wie viele Zeiträume die jeweilige Ansicht zeigt. */
-const SPAN: Record<Granularity, number> = { day: 30, week: 26, month: 24, year: 10 };
+/**
+ * Wie viele Unterteilungen ein Zeitraum höchstens zeigt.
+ *
+ * Nicht mehr die Zahl der Zeiträume in der Reihe: Der gewählte Zeitraum ist der
+ * Rahmen, und darin stehen seine eigenen Abschnitte — 24 Stunden, 7 Tage,
+ * gut 5 Wochen, 12 Monate.
+ */
+const SPAN: Record<Granularity, number> = { hour: 24, day: 24, week: 7, month: 6, year: 12 };
 
 const GRAN_LABEL: Record<Granularity, string> = {
+  hour: 'Hour',
   day: 'Day',
   week: 'Week',
   month: 'Month',
@@ -448,9 +455,19 @@ function renderPage(
   const currentIdx = pickedIdx >= 0 ? pickedIdx : all.length - 1;
   const current = all[currentIdx];
   const previous = all[currentIdx - 1];
-  // Der Balken zeigt den Verlauf BIS zum gewählten Zeitraum — beim Blättern
-  // wandert das Fenster mit, statt immer am heutigen Ende zu kleben.
-  const series = all.slice(Math.max(0, currentIdx + 1 - SPAN[gran]), currentIdx + 1);
+  // Das Diagramm zeigt die UNTERTEILUNG des gewählten Zeitraums, nicht die
+  // Reihe der Zeiträume: Wer „Woche" wählt, will die Tage dieser Woche sehen.
+  //
+  // Vorher stand in der Wochenansicht ein einziger Balken, obwohl an zwei Tagen
+  // geladen worden war — beide lagen in derselben Woche, also im selben Balken.
+  const sub = SUB[gran];
+  const series = current
+    ? aggregate(samples, sub, optionsFor(o)).filter(
+        (b) =>
+          keyOf(new Date(Date.parse(b.from) - cfg.dayBoundaryHour * 3600000), gran) ===
+          current.key,
+      )
+    : [];
   const eff = efficiency(all);
 
   // Ohne konfigurierten Arbeitspreis werden keine Kosten gezeigt: 0,00 € wäre

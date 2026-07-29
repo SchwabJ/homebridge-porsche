@@ -24,11 +24,35 @@
 import type { ChargeLogSample } from './chargeLog';
 import type { Labels } from './i18n';
 
-export type Granularity = 'day' | 'week' | 'month' | 'year';
+export type Granularity = 'hour' | 'day' | 'week' | 'month' | 'year';
+
+/**
+ * Die Unterteilung EINES Zeitraums — was im Balkendiagramm nebeneinander steht.
+ *
+ * Der gewählte Zeitraum ist der Rahmen, nicht der Balken: Wer „Woche" wählt,
+ * will die Tage dieser Woche sehen, nicht die letzten sechsundzwanzig Wochen.
+ * Vorher zeigte die Wochenansicht einen einzigen Balken, obwohl an zwei Tagen
+ * geladen worden war — beide lagen in derselben Woche.
+ */
+export const SUB: Record<Granularity, Granularity> = {
+  hour: 'hour',
+  day: 'hour',
+  week: 'day',
+  month: 'week',
+  year: 'month',
+};
 
 export interface Bucket {
   /** Sortierbarer Schlüssel: `2026-07-27`, `2026-W31`, `2026-07`, `2026`. */
   key: string;
+  /**
+   * Zeitstempel des ersten Messpunkts in diesem Abschnitt (ISO).
+   *
+   * Nötig, um einen Abschnitt seinem übergeordneten Zeitraum zuzuordnen: Aus
+   * dem Schlüssel allein ginge das nicht, weil eine Kalenderwoche über den
+   * Monatswechsel reichen kann.
+   */
+  from: string;
   /** Beschriftung für die Anzeige. */
   label: string;
   /** Geladene Energie in kWh. */
@@ -109,6 +133,8 @@ export function isoWeek(d: Date): { year: number; week: number } {
 /** Bucket-Schlüssel eines Zeitpunkts in lokaler Zeit. */
 export function keyOf(d: Date, g: Granularity): string {
   switch (g) {
+    case 'hour':
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}`;
     case 'day':
       return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
     case 'week': {
@@ -133,6 +159,10 @@ export function keyOf(d: Date, g: Granularity): string {
  */
 export function labelOf(key: string, g: Granularity, L: Labels): string {
   switch (g) {
+    case 'hour': {
+      const [, hh] = key.split('T');
+      return `${hh}:00`;
+    }
     case 'day': {
       const [y, m, d] = key.split('-').map(Number);
       return new Date(y, m - 1, d).toLocaleDateString(L.locale, {
@@ -157,9 +187,47 @@ export function labelOf(key: string, g: Granularity, L: Labels): string {
   }
 }
 
+/**
+ * Beginn eines Abschnitts aus seinem Schlüssel.
+ *
+ * Für aufgefüllte Lücken: Dort gibt es keinen Messpunkt, aus dem sich `from`
+ * ergäbe — die Zuordnung zum übergeordneten Zeitraum braucht ihn trotzdem.
+ */
+function fromKey(key: string, g: Granularity): string {
+  switch (g) {
+    case 'hour': {
+      const [datum, hh] = key.split('T');
+      const [y, m, d] = datum.split('-').map(Number);
+      return new Date(y, m - 1, d, Number(hh)).toISOString();
+    }
+    case 'day': {
+      const [y, m, d] = key.split('-').map(Number);
+      return new Date(y, m - 1, d).toISOString();
+    }
+    case 'week': {
+      const [y, w] = key.split('-W');
+      const jan4 = new Date(Number(y), 0, 4);
+      const monday = new Date(jan4);
+      monday.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7) + (Number(w) - 1) * 7);
+      return monday.toISOString();
+    }
+    case 'month': {
+      const [y, m] = key.split('-').map(Number);
+      return new Date(y, m - 1, 1).toISOString();
+    }
+    case 'year':
+      return new Date(Number(key), 0, 1).toISOString();
+  }
+}
+
 /** Nächster Bucket-Schlüssel — für das Auffüllen von Lücken. */
 function nextKey(key: string, g: Granularity): string {
   switch (g) {
+    case 'hour': {
+      const [datum, hh] = key.split('T');
+      const [y, m, d] = datum.split('-').map(Number);
+      return keyOf(new Date(y, m - 1, d, Number(hh) + 1), 'hour');
+    }
     case 'day': {
       const [y, m, d] = key.split('-').map(Number);
       const date = new Date(y, m - 1, d + 1);
@@ -199,10 +267,13 @@ export function aggregate(
   const buckets = new Map<string, Bucket>();
   const boundary = opts.dayBoundaryHour ?? 0;
 
-  const touch = (key: string): Bucket => {
+  const touch = (key: string, ts?: string): Bucket => {
     let b = buckets.get(key);
+    if (b && !b.from && ts) {
+      b.from = ts;
+    }
     if (!b) {
-      b = { key, label: labelOf(key, g, opts.labels), kwh: 0, cost: 0, costGross: 0, saved: 0, km: 0, rangeAdded: 0, samples: 0, gapMinutes: 0, spanMinutes: 0 };
+      b = { key, from: ts ?? '', label: labelOf(key, g, opts.labels), kwh: 0, cost: 0, costGross: 0, saved: 0, km: 0, rangeAdded: 0, samples: 0, gapMinutes: 0, spanMinutes: 0 };
       buckets.set(key, b);
     }
     return b;
@@ -211,7 +282,7 @@ export function aggregate(
   // Der erste Messpunkt liefert kein Delta, markiert aber einen Zeitraum MIT
   // Daten. Ohne diesen Anker fiele der erste Tag/die erste Woche ganz heraus.
   if (samples.length > 0) {
-    touch(keyOf(shift(new Date(samples[0].ts), boundary), g)).samples++;
+    touch(keyOf(shift(new Date(samples[0].ts), boundary), g), samples[0].ts).samples++;
   }
 
   // Letzter Messpunkt MIT Ladestand bzw. MIT Kilometerstand — nicht einfach
@@ -252,7 +323,7 @@ export function aggregate(
     // zurechnen will, setzt sie auf 4 — dann verschiebt sich der Schnitt,
     // statt dass die Energie geteilt wird.
     const key = keyOf(shift(new Date(cur.ts), boundary), g);
-    const b = touch(key);
+    const b = touch(key, cur.ts);
     b.samples++;
 
     // Datenqualität: Wie lange klafft zwischen zwei Messpunkten eine Lücke?
@@ -313,7 +384,7 @@ export function aggregate(
   let key = keys[0];
   const last = keys[keys.length - 1];
   for (let guard = 0; guard < 4000; guard++) {
-    out.push(touch(key));
+    out.push(touch(key, fromKey(key, g)));
     if (key === last) {
       break;
     }

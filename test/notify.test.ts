@@ -9,6 +9,7 @@ import type { ChargeSession } from '../src/sessions';
 
 const bucket = (over: Partial<Bucket> = {}): Bucket => ({
   key: '2026-07-26',
+  from: '2026-07-26T08:00:00.000Z',
   label: 'So 26.07.',
   kwh: 0,
   cost: 0,
@@ -27,8 +28,8 @@ const EFF: Efficiency = { kwh: 300, km: 1500, cost: 62, costGross: 98, saved: 36
 describe('buildDailyMessage', () => {
   it('reports yesterday, not today', () => {
     const days = [
-      bucket({ key: '2026-07-26', label: 'So 26.07.', kwh: 42.1, cost: 8.7 }),
-      bucket({ key: '2026-07-27', label: 'Mo 27.07.', kwh: 5, cost: 1 }),
+      bucket({ key: '2026-07-26', from: '', label: 'So 26.07.', kwh: 42.1, cost: 8.7 }),
+      bucket({ key: '2026-07-27', from: '', label: 'Mo 27.07.', kwh: 5, cost: 1 }),
     ];
     const m = buildDailyMessage(days, undefined, EFF);
     expect(m.message).toContain('42.1 kWh');
@@ -42,7 +43,7 @@ describe('buildDailyMessage', () => {
 
   it('includes the running month', () => {
     const days = [bucket(), bucket({ key: '2026-07-27' })];
-    const month = bucket({ key: '2026-07', label: 'Juli 2026', kwh: 310, cost: 64.1 });
+    const month = bucket({ key: '2026-07', from: '', label: 'Juli 2026', kwh: 310, cost: 64.1 });
     expect(buildDailyMessage(days, month, EFF).message).toContain('Juli 2026: 310.0 kWh');
   });
 

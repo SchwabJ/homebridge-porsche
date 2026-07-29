@@ -17,7 +17,7 @@ own dashboard on your network.
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg)](https://nodejs.org)
 [![Homebridge](https://img.shields.io/badge/homebridge-%E2%89%A51.6-purple.svg)](https://homebridge.io)
-[![Tests](https://img.shields.io/badge/tests-366%20passing-success.svg)](#-development)
+[![Tests](https://img.shields.io/badge/tests-434%20passing-success.svg)](#-development)
 
 <img src="https://raw.githubusercontent.com/SchwabJ/homebridge-porsche/main/docs/img/dashboard-cards.png" alt="Charging dashboard: state of charge, energy, cost and savings per period, with the charge curve of each session" width="360">
 
@@ -223,6 +223,7 @@ no external assets — and installs to your home screen as a web app.
 | 💶 **Cost and savings** | Only if you configure a price — see below |
 | 🛣️ **Range added & km/min** | Measured from the car's own range estimate, not derived from kWh |
 | 📈 **Charge curve per session** | State of charge over time, with the tariff windows as bands |
+| 🏠 **Home vs. away** | Every charge is tagged and the whole view filters by location |
 | 🔋 **Measured battery capacity** | Estimated from driving data, so you can sanity-check `capacityKwh` |
 | ⚠️ **Data-quality warnings** | Says so when polls were missed, instead of quietly understating |
 
@@ -244,6 +245,29 @@ There are two price fields, both **0 by default**:
 | `pluggedPollMinutes` | `1` | Poll interval while the cable is connected. Allowed below the 10-minute floor because the car is on mains power — short tariff windows need it |
 
 Leaving the price at `0` is a deliberate default: an invented price would be worse than none.
+
+### 🏠 Home and away are separated
+
+Every charge is tagged with where it happened, and the view filters by it — so you can see what your
+own wall socket cost you and what you spent on the road.
+
+The location belongs to the **charge**, not to the individual reading. When you plug in, the cached
+vehicle response often still carries the position from where you came; eleven minutes passed before
+"at home" arrived in one measured case. A single "at home" during the cable time therefore decides
+for the whole charge — the car does not move while charging, so a stale position is the far more
+likely error.
+
+Your home tariff does not apply away from home, so **costs there are never derived from it**. Set
+`externalPricePerKwhCt` as a default, and override it per charge in the dashboard — enter either the
+amount you paid or the price per kWh. If neither is known, the cost stays empty rather than wrong.
+
+### ⚙️ Settings in the dashboard
+
+Prices, capacity and the day boundary can be changed **in the dashboard itself**, without touching
+the Homebridge settings or restarting anything — they are read fresh on every page load. Each field
+shows where its effective value comes from, so a change in Homebridge that appears to do nothing is
+never a mystery. The plugin never writes to Homebridge's `config.json`; it keeps its own file
+alongside the log.
 
 ### 🎯 Accuracy, honestly
 
@@ -284,7 +308,7 @@ notification toggle), or charge-on-arrival via **Car at home**.
 ```bash
 npm install
 npm run build      # tsc → dist/
-npm test           # jest (366 tests)
+npm test           # jest (434 tests)
 ```
 
 The codebase is split by domain: `src/api` (PPA client, commands, measurements, auth),

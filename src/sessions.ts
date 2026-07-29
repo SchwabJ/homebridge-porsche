@@ -77,6 +77,20 @@ export interface ChargeSession {
   /** Höchste vom Fahrzeug gemeldete Laderate in km/min. */
   peakKmPerMin?: number;
   chargingType?: string;
+  /**
+   * Wurde zuhause geladen? `undefined`, solange keine Position vorlag.
+   *
+   * Gehört zur SESSION, nicht zum einzelnen Messpunkt: Beim Anstecken trägt
+   * die zwischengespeicherte Fahrzeugantwort oft noch die Position von
+   * unterwegs — beobachtet wurden elf Minuten, bis „zuhause" ankam. Wer nach
+   * Messpunkten filtert, verliert den Anfang jeder Ladung.
+   *
+   * Ein einziges „zuhause" während der Kabelzeit genügt deshalb: Das Fahrzeug
+   * bewegt sich beim Laden nicht. Ein falsches „zuhause" müsste erst den
+   * Radius um die eingetragene Adresse treffen; ein falsches „auswärts"
+   * entsteht dagegen allein durch eine veraltete Position.
+   */
+  atHome?: boolean;
   /** Kosten zum Effektivpreis, sofern ein Preis übergeben wurde. */
   costEur?: number;
   /** Kosten zum Grundpreis, also ohne Bonus. */
@@ -121,6 +135,9 @@ interface Open {
   /** Letzter Messpunkt ohne Laden — Startanker der nächsten Phase. */
   lastIdle?: ChargeLogSample;
   chargingType?: string;
+  /** Sah diese Session je ein „zuhause" bzw. ein „auswärts"? */
+  sawHome: boolean;
+  sawAway: boolean;
   count: number;
 }
 
@@ -229,6 +246,12 @@ function finish(
   if (open.chargingType) {
     session.chargingType = open.chargingType;
   }
+  // Ein einziges „zuhause" während der Kabelzeit entscheidet — siehe atHome.
+  if (open.sawHome) {
+    session.atHome = true;
+  } else if (open.sawAway) {
+    session.atHome = false;
+  }
   return session;
 }
 
@@ -262,11 +285,18 @@ export function buildSessions(
           chargingSamples: [],
           phase: [],
           phases: [],
+          sawHome: false,
+          sawAway: false,
           count: 0,
         };
       }
       open.last = s;
       open.count++;
+      if (s.atHome === true) {
+        open.sawHome = true;
+      } else if (s.atHome === false) {
+        open.sawAway = true;
+      }
       if (s.soc !== undefined) {
         open.socValues.push(s.soc);
       }

@@ -157,6 +157,39 @@ export interface Labels {
   dashPhases: string;
   dashInDetail: string;
   aggWeek: string;
+  placeAll: string;
+  placeHome: string;
+  placeAway: string;
+  dashNoAwayPrice: string;
+  dashSomeAwayUnpriced: string;
+  pfAmount: string;
+  pfProvider: string;
+  pfSave: string;
+  pfSaved: string;
+  pfFailed: string;
+  capCycle: string;
+  capCycles: string;
+  capFewCycles: string;
+  setTitle: string;
+  setBack: string;
+  setPrice: string;
+  setPriceHint: string;
+  setBonus: string;
+  setBonusHint: string;
+  setExternal: string;
+  setExternalHint: string;
+  setCapacity: string;
+  setCapacityHint: string;
+  setDayBoundary: string;
+  setDayBoundaryHint: string;
+  setAdopt: string;
+  setAdoptHint: string;
+  setAdoptFrom: string;
+  setMeasured: string;
+  setFromDashboard: string;
+  setFromPlugin: string;
+  setFooter: string;
+  setFooterTail: string;
   dashActive: string;
   dashComparedTo: string;
   dashInProgress: string;
@@ -294,7 +327,40 @@ export const LABELS_EN: Labels = {
   dashPhase: 'phase',
   dashPhases: 'phases',
   dashInDetail: 'in detail',
-  aggWeek: 'CW',
+aggWeek: 'CW',
+  placeAll: 'All',
+  placeHome: 'Home',
+  placeAway: 'Away',
+  dashNoAwayPrice: 'No price for charging away yet. Enter one per charge, or set a default in the settings — your home tariff does not apply here.',
+  dashSomeAwayUnpriced: 'Some charges away have no price yet and are missing from the cost total.',
+  pfAmount: 'Amount',
+  pfProvider: 'Provider',
+  pfSave: 'Save',
+  pfSaved: 'saved',
+  pfFailed: 'not saved',
+  capCycle: 'discharge cycle',
+  capCycles: 'discharge cycles',
+  capFewCycles: 'few cycles so far, the value may still move',
+  setTitle: 'Settings',
+  setBack: 'Back',
+  setPrice: 'Energy price',
+  setPriceHint: 'Cents per kWh. 0 hides all cost figures.',
+  setBonus: 'Charging bonus',
+  setBonusHint: 'Cents per kWh deducted from the energy price.',
+  setExternal: 'Price away',
+  setExternalHint: 'Cents per kWh as a default for charges away from home. Can be overridden per charge.',
+  setCapacity: 'Capacity',
+  setCapacityHint: 'Usable kWh. Every energy figure scales linearly with it.',
+  setDayBoundary: 'Day starts at',
+  setDayBoundaryHint: 'Hour at which a new day counts. 4 assigns an overnight charge to the evening it started.',
+  setAdopt: 'Adopt measured value',
+  setAdoptHint: 'Measured from your discharge cycles. Changes every kWh and cost figure retroactively.',
+  setAdoptFrom: 'offered from cycle',
+  setMeasured: 'Measured',
+  setFromDashboard: 'Set here',
+  setFromPlugin: 'From the plugin settings',
+  setFooter: 'An empty field means “not set” — the plugin setting applies again, shown greyed out in the field. Everything else, such as the port and poll intervals, stays in',
+  setFooterTail: '— that only takes effect after a restart, and belongs where you trigger one.',
   dashActive: 'active',
   dashComparedTo: 'vs.',
   dashInProgress: 'in progress',
@@ -432,7 +498,40 @@ export const LABELS_DE: Labels = {
   dashPhase: 'Phase',
   dashPhases: 'Phasen',
   dashInDetail: 'im Detail',
-  aggWeek: 'KW',
+aggWeek: 'KW',
+  placeAll: 'Alle',
+  placeHome: 'Zuhause',
+  placeAway: 'Unterwegs',
+  dashNoAwayPrice: 'Noch kein Preis für unterwegs. Trage ihn je Ladung ein oder hinterlege einen Vorgabepreis in den Einstellungen — der Haustarif gilt hier nicht.',
+  dashSomeAwayUnpriced: 'Einzelne Ladungen unterwegs haben noch keinen Preis und fehlen deshalb in der Kostensumme.',
+  pfAmount: 'Betrag',
+  pfProvider: 'Anbieter',
+  pfSave: 'Sichern',
+  pfSaved: 'gesichert',
+  pfFailed: 'nicht gespeichert',
+  capCycle: 'Ladezyklus',
+  capCycles: 'Ladezyklen',
+  capFewCycles: 'noch wenige Zyklen, Wert kann sich verschieben',
+  setTitle: 'Einstellungen',
+  setBack: 'Zurück',
+  setPrice: 'Arbeitspreis',
+  setPriceHint: 'Cent je kWh. 0 blendet alle Kosten aus.',
+  setBonus: 'Ladebonus',
+  setBonusHint: 'Cent je kWh, die vom Arbeitspreis abgezogen werden.',
+  setExternal: 'Preis unterwegs',
+  setExternalHint: 'Cent je kWh als Vorgabe für Fremdladungen. Je Ladung überschreibbar.',
+  setCapacity: 'Kapazität',
+  setCapacityHint: 'Nutzbare kWh. Jede Energiemenge hängt linear daran.',
+  setDayBoundary: 'Tagesgrenze',
+  setDayBoundaryHint: 'Stunde, ab der ein neuer Tag zählt. 4 schlägt eine Nachtladung dem Vorabend zu.',
+  setAdopt: 'Messwert übernehmen',
+  setAdoptHint: 'Aus deinen Ladezyklen gemessen. Ändert rückwirkend alle kWh- und Kostenzahlen.',
+  setAdoptFrom: 'zur Übernahme ab Zyklus',
+  setMeasured: 'Gemessen',
+  setFromDashboard: 'Hier gesetzt',
+  setFromPlugin: 'Aus den Plugin-Einstellungen',
+  setFooter: 'Leere Felder gelten als „nicht gesetzt" — dann greift wieder die Plugin-Einstellung, deren Wert grau im Feld steht. Alles Übrige, etwa Port und Abfrage-Intervalle, bleibt in',
+  setFooterTail: '— das wirkt erst nach einem Neustart und gehört dorthin, wo man ihn auslöst.',
   dashActive: 'aktiv',
   dashComparedTo: 'ggü.',
   dashInProgress: 'laufend',

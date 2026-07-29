@@ -279,6 +279,13 @@ export interface Labels {
   chartTargetMark: string;
   chartCurveAria: string;
   chartBarsAria: string;
+  /** Aria-Label des Diagramms mit Gegenbalken. */
+  chartBarsBothAria: string;
+  /** Legende und Tooltip des Diagramms. */
+  chartCharged: string;
+  chartUsed: string;
+  /** Offene Strecke im Tooltip. `%n` = km. */
+  chartUnrated: string;
   dashSocDropped: string;
   dashWaitSeconds: string;
   dashRefreshFailed: string;
@@ -519,6 +526,10 @@ export const LABELS_EN: Labels = {
   chartTargetMark: 'target',
   chartCurveAria: 'Charging curve: state of charge over time',
   chartBarsAria: 'Energy charged per period',
+  chartBarsBothAria: 'Energy charged upwards, energy used downwards, per period',
+  chartCharged: 'charged',
+  chartUsed: 'used',
+  chartUnrated: '%n km without a reliable consumption figure',
   dashSocDropped: 'charge dropped',
   dashWaitSeconds: 'Wait %n s',
   dashRefreshFailed: 'Refresh failed',
@@ -759,6 +770,10 @@ export const LABELS_DE: Labels = {
   chartTargetMark: 'Ziel',
   chartCurveAria: 'Ladeverlauf: Ladestand über die Zeit',
   chartBarsAria: 'Geladene Energie je Zeitraum',
+  chartBarsBothAria: 'Geladene Energie nach oben, verbrauchte nach unten, je Zeitraum',
+  chartCharged: 'geladen',
+  chartUsed: 'verbraucht',
+  chartUnrated: '%n km ohne belastbaren Verbrauch',
   dashSocDropped: 'SoC gefallen',
   dashWaitSeconds: 'Noch %n s warten',
   dashRefreshFailed: 'Abruf fehlgeschlagen',

@@ -157,6 +157,33 @@ export interface Labels {
   dashPhase: string;
   dashPhases: string;
   dashInDetail: string;
+  stTitle: string;
+  stBackToCharging: string;
+  stTyrePressure: string;
+  stFrontLeft: string;
+  stFrontRight: string;
+  stRearLeft: string;
+  stRearRight: string;
+  stToTarget: string;
+  stNoTyreData: string;
+  stVehicle: string;
+  stNextService: string;
+  stOdometer: string;
+  stLast7Days: string;
+  stChargeLevel: string;
+  stRangeSuffix: string;
+  stSecurity: string;
+  stLocked: string;
+  stAllClosed: string;
+  stClimate: string;
+  stYes: string;
+  stNo: string;
+  stOn: string;
+  stOff: string;
+  stTargetTemp: string;
+  stAgoMin: string;
+  stAgoHour: string;
+  stFootnote: string;
   aggWeek: string;
   placeAll: string;
   placeHome: string;
@@ -329,7 +356,34 @@ export const LABELS_EN: Labels = {
   dashPhase: 'phase',
   dashPhases: 'phases',
   dashInDetail: 'in detail',
-aggWeek: 'CW',
+  stTitle: 'Vehicle status',
+  stBackToCharging: 'Charging history',
+  stTyrePressure: 'Tyre pressure',
+  stFrontLeft: 'front left',
+  stFrontRight: 'front right',
+  stRearLeft: 'rear left',
+  stRearRight: 'rear right',
+  stToTarget: 'to target',
+  stNoTyreData: 'No tyre pressure recorded yet.',
+  stVehicle: 'Vehicle',
+  stNextService: 'Next service',
+  stOdometer: 'Odometer',
+  stLast7Days: 'Last 7 days',
+  stChargeLevel: 'Charge level',
+  stRangeSuffix: 'km of range',
+  stSecurity: 'Security',
+  stLocked: 'Locked',
+  stAllClosed: 'All closed',
+  stClimate: 'Climate',
+  stYes: 'yes',
+  stNo: 'no',
+  stOn: 'on',
+  stOff: 'off',
+  stTargetTemp: 'Target',
+  stAgoMin: '%n min ago',
+  stAgoHour: '%n h ago',
+  stFootnote: 'State values are only recorded when they change — the time above each block is therefore the last KNOWN reading, not the last poll. The interface provides no outside temperature.',
+  aggWeek: 'CW',
   placeAll: 'All',
   placeHome: 'Home',
   placeAway: 'Away',
@@ -501,7 +555,34 @@ export const LABELS_DE: Labels = {
   dashPhase: 'Phase',
   dashPhases: 'Phasen',
   dashInDetail: 'im Detail',
-aggWeek: 'KW',
+  stTitle: 'Zustand',
+  stBackToCharging: 'Ladehistorie',
+  stTyrePressure: 'Reifendruck',
+  stFrontLeft: 'vorne links',
+  stFrontRight: 'vorne rechts',
+  stRearLeft: 'hinten links',
+  stRearRight: 'hinten rechts',
+  stToTarget: 'zum Soll',
+  stNoTyreData: 'Noch kein Reifendruck erfasst.',
+  stVehicle: 'Fahrzeug',
+  stNextService: 'Nächster Service',
+  stOdometer: 'Kilometerstand',
+  stLast7Days: 'Letzte 7 Tage',
+  stChargeLevel: 'Ladestand',
+  stRangeSuffix: 'km Reichweite',
+  stSecurity: 'Sicherung',
+  stLocked: 'Verriegelt',
+  stAllClosed: 'Alles geschlossen',
+  stClimate: 'Klima',
+  stYes: 'ja',
+  stNo: 'nein',
+  stOn: 'an',
+  stOff: 'aus',
+  stTargetTemp: 'Ziel',
+  stAgoMin: 'vor %n min',
+  stAgoHour: 'vor %n h',
+  stFootnote: 'Zustandswerte werden nur mitgeschrieben, wenn sie sich ändern — der Zeitpunkt über jedem Block ist deshalb der letzte BEKANNTE Stand, nicht der letzte Abruf. Eine Außentemperatur liefert die Schnittstelle nicht.',
+  aggWeek: 'KW',
   placeAll: 'Alle',
   placeHome: 'Zuhause',
   placeAway: 'Unterwegs',

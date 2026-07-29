@@ -17,7 +17,7 @@ own dashboard on your network.
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg)](https://nodejs.org)
 [![Homebridge](https://img.shields.io/badge/homebridge-%E2%89%A51.6-purple.svg)](https://homebridge.io)
-[![Tests](https://img.shields.io/badge/tests-434%20passing-success.svg)](#-development)
+[![Tests](https://img.shields.io/badge/tests-442%20passing-success.svg)](#-development)
 
 <img src="https://raw.githubusercontent.com/SchwabJ/homebridge-porsche/main/docs/img/dashboard-cards.png" alt="Charging dashboard: state of charge, energy, cost and savings per period, with the charge curve of each session" width="360">
 
@@ -281,6 +281,24 @@ alongside the log.
 - Where the data is too thin to say anything useful, the dashboard says so rather than printing a
   confident-looking number.
 
+### 🚗 Vehicle status page
+
+A second page at `/status` covers what has nothing to do with charging: tyre
+pressure per wheel with the deviation from target, distance to the next service,
+odometer, kilometres over the last seven days, and whether the car is locked and
+closed. An unlocked or open vehicle is highlighted — that is the one value you
+want without searching for it.
+
+Tyre pressure and service range are polled anyway; the plugin now keeps them, so
+a **history** builds up. Your car's app shows today's pressure — it does not show
+that a tyre has been losing air for six weeks.
+
+These values are written only when they change. The poll runs every minute while
+plugged in, and a pressure reading repeated sixty times an hour inflates the log
+without adding anything.
+
+There is no outside temperature: the API provides no such measurement.
+
 ### 🔔 Push notifications (optional)
 
 Set `ntfyTopic` to get a daily summary and a message when a charge finishes, via
@@ -310,7 +328,7 @@ notification toggle), or charge-on-arrival via **Car at home**.
 ```bash
 npm install
 npm run build      # tsc → dist/
-npm test           # jest (434 tests)
+npm test           # jest (442 tests)
 ```
 
 The codebase is split by domain: `src/api` (PPA client, commands, measurements, auth),

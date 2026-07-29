@@ -531,7 +531,22 @@ function renderPage(
           current.key,
       )
     : [];
-  const eff = efficiency(all);
+  // Effizienz des GEWÄHLTEN Zeitraums, nicht der ganzen Historie.
+  //
+  // Vorher stand hier `efficiency(all)` — die Summe über alles, beschriftet
+  // mit „im Zeitraum". An einem Tag mit 20 gefahrenen Kilometern zeigte die
+  // Kachel 211: die Gesamtstrecke des Mitschriebs. Mit einem Jahr Daten wären
+  // es fünfstellige Zahlen unter einer Tagesansicht gewesen.
+  //
+  // Aus `current` statt aus `series`: Genau derselbe Bucket, aus dem auch die
+  // kWh- und Kosten-Kacheln rechnen — zwei Wege zur selben Zahl wären zwei
+  // Gelegenheiten, auseinanderzulaufen.
+  const eff = efficiency(current ? [current] : []);
+  // Die Ersparnis ist die eine Zahl, die ausdrücklich „gesamt" meint. Sie kommt
+  // aus den LADUNGEN, nicht aus der Zeitreihe: Ein Bonus hängt an einer
+  // Ladung, nicht an einem Zeitabschnitt.
+  const totalSaved =
+    Math.round(allSessions.reduce((a, x) => a + (x.savedEur ?? 0), 0) * 100) / 100;
 
   // Ohne konfigurierten Arbeitspreis werden keine Kosten gezeigt: 0,00 € wäre
   // eine Behauptung, keine Information.
@@ -1319,7 +1334,7 @@ ${placeTabs}${nav}${
       ? `<div class="card save"><span>${esc(L.dashSaved)}</span>
     <b>${current ? current.saved.toFixed(2) : '0.00'} €</b>
     <span>${cfg.bonusCt.toFixed(2)} ct/kWh ${esc(L.dashBonus)}${
-      current && eff.saved > current.saved + 0.005 ? ` · ${esc(L.dashTotal)} ${eff.saved.toFixed(2)} €` : ''
+      current && totalSaved > current.saved + 0.005 ? ` · ${esc(L.dashTotal)} ${totalSaved.toFixed(2)} €` : ''
     }</span></div>`
       : `<div class="card"><span>${esc(L.dashDriven)}</span><b>${eff.km.toLocaleString(L.locale)} km</b>
          <span></span></div>`

@@ -1320,6 +1320,35 @@ function renderStatus(o: DashboardOptions, samples: ChargeLogSample[], host: str
   const temp = lastState(samples, 'targetTempC');
   const open = lastState(samples, 'anyOpen');
 
+  // Wie lange wird „offen" schon durchgehend gemeldet?
+  //
+  // Nach dem Abstellen meldet das Fahrzeug regelmäßig ein offenes Fenster im
+  // Fond, obwohl es zu ist — beobachtet über etwa eine halbe Stunde, dann
+  // korrigiert es sich von selbst. Vermutlich werden die hinteren
+  // Türsteuergeräte vom Bus getrennt, bevor sie ihren Endzustand gemeldet
+  // haben.
+  //
+  // Ein Alarm, der mehrmals täglich grundlos angeht, wird nach einer Woche
+  // ignoriert — und dann nützt er auch nicht mehr, wenn wirklich ein Fenster
+  // offen steht. Deshalb gilt „offen" erst nach einer Weile als gesichert;
+  // vorher steht es da, aber ohne Alarmfarbe und mit dem Grund dabei.
+  const OPEN_SETTLE_MIN = 45;
+  let openSince: number | undefined;
+  if (open?.value === true) {
+    for (let i = samples.length - 1; i >= 0; i--) {
+      if (samples[i].anyOpen === false) {
+        break;
+      }
+      if (samples[i].anyOpen === true) {
+        openSince = Date.parse(samples[i].ts);
+      }
+    }
+  }
+  const openMinutes =
+    openSince !== undefined ? (Date.now() - openSince) / 60000 : undefined;
+  const openSettled = openMinutes !== undefined && openMinutes >= OPEN_SETTLE_MIN;
+
+
   const ago = (iso: string): string => {
     const min = (Date.now() - Date.parse(iso)) / 60000;
     return min < 90
@@ -1496,7 +1525,14 @@ ${
   }
   ${
     open
-      ? card(L.stAllClosed, esc(open.value ? L.stNo : L.stYes), esc(ago(open.at)), open.value)
+      ? card(
+          L.stAllClosed,
+          esc(open.value ? L.stNo : L.stYes),
+          open.value && !openSettled
+            ? esc(L.stOpenUnsettled.replace('%n', String(Math.round(openMinutes ?? 0))))
+            : esc(ago(open.at)),
+          openSettled,
+        )
       : ''
   }
   ${

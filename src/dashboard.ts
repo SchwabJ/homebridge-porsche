@@ -1688,27 +1688,28 @@ function renderSettings(
   uncertainty?: number,
 ): string {
   const L = o.labels;
-  const { values, source, stored } = effective(o);
+  const { values } = effective(o);
+  // One field, one value.
+  //
+  // Every field used to show its value as a grey placeholder when it came from
+  // the plugin config and in black when it was set here, plus a line explaining
+  // what that meant. A control that needs explaining is built wrong: where a
+  // value comes from is the program's problem, not the driver's.
+  //
+  // Now each field simply holds the EFFECTIVE value. The first save moves
+  // everything here; from then on this page is the only source.
   const field = (
     key: keyof DashboardSettings,
     label: string,
     hint: string,
     step: string,
-  ): string => {
-    const own = stored[key];
-    const from = source[key as keyof typeof source];
-    return `<div class="srow">
+  ): string =>
+    `<div class="srow">
       <label for="f-${key}">${esc(label)}</label>
       <input id="f-${key}" name="${key}" type="text" inputmode="decimal" step="${step}"
-             value="${own !== undefined ? String(own) : ''}"
-             placeholder="${values[key as keyof typeof values]}">
-      <small>${esc(hint)}<br><i>${
-        from === 'dashboard'
-          ? `${L.setFromDashboard}: ${values[key as keyof typeof values]}`
-          : `${L.setFromPlugin}: ${values[key as keyof typeof values]}`
-      }</i></small>
+             value="${values[key as keyof typeof values]}">
+      <small>${esc(hint)}</small>
     </div>`;
-  };
 
   return `<!doctype html>
 <html lang="${esc(L.locale)}"><head>

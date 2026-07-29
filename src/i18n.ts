@@ -223,8 +223,6 @@ export interface Labels {
   setAdoptHint: string;
   setAdoptFrom: string;
   setMeasured: string;
-  setFromDashboard: string;
-  setFromPlugin: string;
   setFooter: string;
   setFooterTail: string;
   dashActive: string;
@@ -431,10 +429,8 @@ export const LABELS_EN: Labels = {
   setAdoptHint: 'Measured from your drives between charges. Changes every kWh and cost figure retroactively.',
   setAdoptFrom: 'Offered for adoption from %n drives on — below that the estimate still moves too much.',
   setMeasured: 'Measured',
-  setFromDashboard: 'Set here',
-  setFromPlugin: 'From the plugin settings',
-  setFooter: 'An empty field means “not set” — the plugin setting applies again, shown greyed out in the field. Everything else, such as the port and poll intervals, stays in',
-  setFooterTail: '— that only takes effect after a restart, and belongs where you trigger one.',
+  setFooter: 'The port and poll intervals live in',
+  setFooterTail: '— they only take effect after a restart.',
   dashActive: 'active',
   dashComparedTo: 'vs.',
   dashInProgress: 'in progress',
@@ -639,10 +635,8 @@ export const LABELS_DE: Labels = {
   setAdoptHint: 'Aus deinen Fahrten zwischen Ladungen gemessen. Ändert rückwirkend alle kWh- und Kostenzahlen.',
   setAdoptFrom: 'Zur Übernahme angeboten ab %n Fahrten — vorher schwankt die Schätzung zu stark.',
   setMeasured: 'Gemessen',
-  setFromDashboard: 'Hier gesetzt',
-  setFromPlugin: 'Aus den Plugin-Einstellungen',
-  setFooter: 'Leere Felder gelten als „nicht gesetzt" — dann greift wieder die Plugin-Einstellung, deren Wert grau im Feld steht. Alles Übrige, etwa Port und Abfrage-Intervalle, bleibt in',
-  setFooterTail: '— das wirkt erst nach einem Neustart und gehört dorthin, wo man ihn auslöst.',
+  setFooter: 'Port und Abfrage-Intervalle stehen in',
+  setFooterTail: '— sie greifen erst nach einem Neustart.',
   dashActive: 'aktiv',
   dashComparedTo: 'ggü.',
   dashInProgress: 'laufend',

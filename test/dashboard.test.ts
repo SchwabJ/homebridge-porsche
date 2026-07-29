@@ -607,10 +607,16 @@ describe('Einstellungsseite', () => {
     stop();
   });
 
-  it('weist aus, dass ein Wert aus den Plugin-Einstellungen stammt', async () => {
+  /** Der Wert, der im Feld steht — ein Feld, ein Wert. */
+  const feld = (html: string, key: string): string | undefined =>
+    html.match(new RegExp(`id="f-${key}"[^>]*value="([^"]*)"`, 's'))?.[1];
+
+  it('zeigt den wirksamen Wert im Feld, ohne Herkunft zu erklären', async () => {
     const { url, stop } = await serve();
     const html = await (await fetch(`${url}/settings`)).text();
-    expect(html).toContain('From the plugin settings');
+    expect(feld(html, 'priceCt')).toBe('30');
+    expect(html).not.toContain('From the plugin settings');
+    expect(html).not.toContain('Set here');
     stop();
   });
 
@@ -619,15 +625,38 @@ describe('Einstellungsseite', () => {
     const { url, stop } = await serve();
     expect((await save(url, { priceCt: '28,45' })).status).toBe(200);
     const html = await (await fetch(`${url}/settings`)).text();
-    expect(html).toContain('Set here: 28.45');
+    expect(feld(html, 'priceCt')).toBe('28.45');
     stop();
   });
 
   it('macht die Übernahme in der Auswertung wirksam', async () => {
+    // Nicht nur im Feld: Die Kapazität hängt vor jeder kWh-Zahl.
+    const at = (h: number): string => {
+      const d = new Date();
+      d.setHours(h, 0, 0, 0);
+      return d.toISOString();
+    };
+    const rows = [
+      { ts: at(8), soc: 30, rangeKm: 120, odometerKm: 50000, plugged: true, charging: true },
+      { ts: at(10), soc: 60, rangeKm: 240, odometerKm: 50000, plugged: true, charging: true },
+      { ts: at(11), soc: 60, rangeKm: 240, odometerKm: 50000, plugged: false },
+    ];
+    fs.writeFileSync(
+      path.join(dir, `${new Date().toISOString().slice(0, 10)}.jsonl`),
+      rows.map((r) => JSON.stringify(r)).join('\n') + '\n',
+    );
     const { url, stop } = await serve();
-    await save(url, { capacityKwh: 70 });
-    const html = await (await fetch(`${url}/settings`)).text();
-    expect(html).toContain('Set here: 70');
+    const kwh = async (): Promise<number> =>
+      (await (await fetch(`${url}/api/series?g=day`)).json()).series.reduce(
+        (a: number, b: { kwh: number }) => a + b.kwh,
+        0,
+      );
+    const vorher = await kwh();
+    await save(url, { capacityKwh: 41.85 }); // die Hälfte von 83.7
+    const nachher = await kwh();
+    expect(vorher).toBeGreaterThan(0);
+    // Rundung je Balken lässt die Hälfte nicht exakt aufgehen.
+    expect(nachher / vorher).toBeCloseTo(0.5, 2);
     stop();
   });
 
@@ -648,7 +677,8 @@ describe('Einstellungsseite', () => {
     const { url, stop } = await serve();
     await save(url, { priceCt: 99999, capacityKwh: 1 });
     const html = await (await fetch(`${url}/settings`)).text();
-    expect(html).toContain('From the plugin settings');
+    expect(feld(html, 'priceCt')).toBe('30');
+    expect(feld(html, 'capacityKwh')).toBe('83.7');
     expect(html).not.toContain('99999');
     stop();
   });
@@ -658,7 +688,7 @@ describe('Einstellungsseite', () => {
     await save(url, { priceCt: 40 });
     await save(url, { priceCt: '' });
     const html = await (await fetch(`${url}/settings`)).text();
-    expect(html).toContain('From the plugin settings: 30');
+    expect(feld(html, 'priceCt')).toBe('30');
     stop();
   });
 });

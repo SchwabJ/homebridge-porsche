@@ -136,7 +136,14 @@ export function receiptCsv(r: Receipt, vehicleName: string, L: Labels): string {
     n === undefined ? '' : german ? n.toFixed(digits).replace('.', ',') : n.toFixed(digits);
   for (const l of r.lines) {
     rows.push([
-      new Date(l.startedAt).toLocaleString(L.locale),
+      // Gleiches Format wie die Druckansicht: mit Jahr, ohne Sekunden.
+      new Date(l.startedAt).toLocaleString(L.locale, {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
       l.atHome === true ? L.dashAtHome : l.atHome === false ? L.dashAway : L.rcUnknownPlace,
       l.startSoc !== undefined && l.endSoc !== undefined ? `${l.startSoc} → ${l.endSoc} %` : '',
       num(l.kwh, 2),

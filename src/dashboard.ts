@@ -1572,7 +1572,13 @@ ${
  */
 const ADOPT_MIN_CYCLES = 10;
 
-function renderSettings(o: DashboardOptions, host: string, measured?: number, cycles = 0): string {
+function renderSettings(
+  o: DashboardOptions,
+  host: string,
+  measured?: number,
+  cycles = 0,
+  uncertainty?: number,
+): string {
   const L = o.labels;
   const { values, source, stored } = effective(o);
   const field = (
@@ -1634,11 +1640,13 @@ function renderSettings(o: DashboardOptions, host: string, measured?: number, cy
   ${field('capacityKwh', L.setCapacity, L.setCapacityHint, '0.1')}
   ${
     measured !== undefined && cycles >= ADOPT_MIN_CYCLES
-      ? `<div class="adopt"><button type="button" id="adopt" data-v="${measured}">${esc(L.setAdopt)}: ${measured.toFixed(
-          1,
-        )} kWh</button><small>${esc(L.setAdoptHint)}</small></div>`
+      ? `<div class="adopt"><button type="button" id="adopt" data-v="${measured}">${esc(L.setAdopt)}: ${measured.toFixed(1)}${
+          uncertainty !== undefined ? ` ± ${uncertainty.toFixed(1)}` : ''
+        } kWh</button><small>${esc(L.setAdoptHint)}</small></div>`
       : measured !== undefined
-        ? `<div class="adopt"><small>${esc(L.setMeasured)}: ${measured.toFixed(1)} kWh — ${cycles} ${esc(
+        ? `<div class="adopt"><small>${esc(L.setMeasured)}: ${measured.toFixed(1)}${
+            uncertainty !== undefined ? ` ± ${uncertainty.toFixed(1)}` : ''
+          } kWh — ${cycles} ${esc(
             cycles === 1 ? L.capDrive : L.capDrives,
           )}. ${esc(L.setAdoptFrom).replace('%n', String(ADOPT_MIN_CYCLES))}</small></div>`
         : ''
@@ -1751,6 +1759,7 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
           String(req.headers.host ?? '').split(':')[0],
           est.capacityKwh,
           est.samples,
+          est.uncertaintyKwh,
         );
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         res.end(page);

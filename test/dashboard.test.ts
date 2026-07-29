@@ -1080,3 +1080,62 @@ describe('Verspätete Öffnungsmeldung', () => {
     expect(html).not.toContain('often delayed');
   });
 });
+
+describe('Fremdladung ohne Preis', () => {
+  let dir: string;
+  let nextPort = 19150;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nop-'));
+    const t = (m: number): string =>
+      new Date(Date.UTC(2026, 6, 26, 6, 0, 0) + m * 60000).toISOString();
+    const rows: ChargeLogSample[] = [
+      { ts: t(0), soc: 40, odometerKm: 52000, plugged: true, charging: true, atHome: true },
+      { ts: t(60), soc: 70, odometerKm: 52000, plugged: true, charging: true, atHome: true },
+      { ts: t(70), soc: 70, odometerKm: 52000, plugged: false },
+      { ts: t(300), soc: 30, odometerKm: 52180, plugged: true, charging: true, atHome: false },
+      { ts: t(330), soc: 80, odometerKm: 52180, plugged: true, charging: true, atHome: false },
+      { ts: t(340), soc: 80, odometerKm: 52180, plugged: false, atHome: false },
+    ];
+    fs.writeFileSync(
+      path.join(dir, '2026-07-26.jsonl'),
+      rows.map((r) => JSON.stringify(r)).join('\n') + '\n',
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('reißt die Seite NICHT mit, wenn eine Ladung keine Kosten hat', async () => {
+    // Ein konfigurierter Haustarif heißt nicht, dass jede Ladung Kosten hat.
+    // Für eine Fremdladung ohne eingetragenen Preis bleiben sie leer — vorher
+    // lief das in ein undefined.toFixed() und lieferte HTTP 500, sobald einmal
+    // auswärts geladen wurde.
+    const server = startDashboard({
+      port: nextPort++,
+      logDir: dir,
+      capacityKwh: 83.7,
+      pricePerKwh: 0.2,
+      priceCt: 30,
+      bonusCt: 0,
+      externalPriceCt: 0,
+      dayBoundaryHour: 0,
+      vehicleName: 'T',
+      uiPort: 8581,
+      labels: labelsFor('en'),
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server.once('listening', r));
+    const a = server.address();
+    const base = `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`;
+    for (const q of ['', '&p=home', '&p=away']) {
+      const res = await fetch(`${base}/?g=month${q}`);
+      expect(res.status).toBe(200);
+      expect(await res.text()).not.toContain('undefined');
+    }
+    server.close();
+  });
+});

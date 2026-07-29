@@ -218,3 +218,49 @@ describe('summarizeTrips', () => {
     expect(s.kwhPer100km).toBeUndefined();
   });
 });
+
+describe('Reichweiten-Ehrlichkeit', () => {
+  /** Fahrt über `km` mit `lost` km Verlust in der Restreichweitenanzeige. */
+  const fahrt = (min: number, km: number, lost: number, von: number, range: number): ChargeLogSample[] => [
+    at(min, { odometerKm: von, rangeKm: range }),
+    at(min + 20, { odometerKm: von + km, rangeKm: range - lost }),
+    at(min + 40, { odometerKm: von + km, rangeKm: range - lost }),
+  ];
+
+  it('meldet 1,0, wenn die Prognose zutrifft', () => {
+    const s = summarizeTrips(buildTrips(fahrt(0, 120, 120, 1000, 400)));
+    expect(s.rangeFactor).toBeCloseTo(1, 2);
+  });
+
+  it('meldet mehr als 1, wenn das Auto optimistisch war', () => {
+    // 100 km gefahren, 130 km Anzeige verloren.
+    const s = summarizeTrips(buildTrips(fahrt(0, 100, 130, 1000, 400)));
+    expect(s.rangeFactor).toBeCloseTo(1.3, 2);
+  });
+
+  it('meldet weniger als 1, wenn man weiter kam als angezeigt', () => {
+    const s = summarizeTrips(buildTrips(fahrt(0, 100, 90, 1000, 400)));
+    expect(s.rangeFactor).toBeCloseTo(0.9, 2);
+  });
+
+  it('schweigt unter hundert Kilometern', () => {
+    // Die Anzeige springt beim Heizen auch ohne Fahrt — über kurze Strecken
+    // bestimmt dieser Sprung das Ergebnis.
+    const s = summarizeTrips(buildTrips(fahrt(0, 40, 60, 1000, 400)));
+    expect(s.rangeFactor).toBeUndefined();
+    expect(s.rangeKm).toBe(40);
+  });
+
+  it('zählt nur Fahrten mit bekannter Reichweite in den Bezug', () => {
+    const trips = buildTrips([
+      ...fahrt(0, 80, 80, 1000, 400),
+      at(100, { odometerKm: 1080 }),
+      at(120, { odometerKm: 1140 }), // 60 km ohne rangeKm
+      at(140, { odometerKm: 1140 }),
+    ]);
+    const s = summarizeTrips(trips);
+    expect(s.km).toBe(140);
+    expect(s.rangeKm).toBe(80);
+    expect(s.rangeFactor).toBeUndefined();
+  });
+});

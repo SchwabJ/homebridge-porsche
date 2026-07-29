@@ -99,6 +99,18 @@ export interface ChargeSession {
   savedEur?: number;
   /** Angewandter Arbeitspreis — mitgespeichert, damit die Zeile prüfbar bleibt. */
   pricePerKwh?: number;
+  /** Ziel-Ladestand dieser Ladung, letzter bekannter Wert während der Kabelzeit. */
+  targetSoc?: number;
+  /**
+   * Die Ladung endete am Kabel, ohne ihr Ziel zu erreichen.
+   *
+   * Nicht dasselbe wie „unter dem Ziel ausgesteckt": Wer morgens los muss,
+   * zieht den Stecker bei 60 % statt 80 %, und das ist kein Fehler. Ein
+   * ABBRUCH liegt vor, wenn das Fahrzeug noch am Kabel stand und trotzdem
+   * längst aufgehört hatte zu laden — dann hat die Wallbox oder das Fahrzeug
+   * die Ladung beendet, und man merkt es erst am nächsten Morgen.
+   */
+  aborted?: boolean;
   /** false, wenn das Ausstecken nie beobachtet wurde (Session läuft noch / Daten enden). */
   complete: boolean;
   /** Anzahl der zugrunde liegenden Messpunkte. */
@@ -119,6 +131,31 @@ export interface BuildOptions {
 const minutesBetween = (a: string, b: string): number =>
   (new Date(b).getTime() - new Date(a).getTime()) / 60000;
 
+/**
+ * Wie weit der Ladestand unter dem Ziel liegen darf, ohne als Abbruch zu gelten.
+ *
+ * Das Fahrzeug hört regelmäßig ein bis zwei Punkte vor dem Ziel auf — der
+ * angezeigte Ladestand ist gerundet, und die Ladeschlusskennlinie ist flach.
+ * „78 statt 80" bleibt deshalb still; erst ab fünf Punkten Abstand meldet sich
+ * die Auswertung.
+ */
+const TARGET_TOLERANCE = 5;
+
+/**
+ * Wie lange nach der letzten Ladeaktivität noch am Kabel gestanden worden sein
+ * muss, damit es als Abbruch zählt.
+ *
+ * Bei Tarifsteuerung schaltet der Strom in Viertelstundenscheiben — Pausen von
+ * einer halben Stunde sind dort normaler Betrieb, kein Fehler. Erst wenn eine
+ * Stunde lang nichts mehr passiert ist und das Ziel trotzdem offen bleibt, hat
+ * die Ladung wirklich aufgehört.
+ *
+ * Lieber ein verpasster Abbruch als ein Fehlalarm: Eine Warnung, die
+ * mehrmals im Monat grundlos kommt, wird ignoriert — und nützt dann auch
+ * nichts mehr, wenn die Wallbox wirklich einmal aussteigt.
+ */
+const ABORT_IDLE_MIN = 60;
+
 /** Sammelzustand einer noch offenen Session. */
 interface Open {
   first: ChargeLogSample;
@@ -135,6 +172,13 @@ interface Open {
   /** Letzter Messpunkt ohne Laden — Startanker der nächsten Phase. */
   lastIdle?: ChargeLogSample;
   chargingType?: string;
+  /**
+   * Zuletzt gemeldeter Ziel-Ladestand.
+   *
+   * Der LETZTE, nicht der erste: Wer während der Ladung das Ziel hochsetzt,
+   * hat danach ein anderes — und daran misst sich, ob sie es erreicht hat.
+   */
+  targetSoc?: number;
   /** Sah diese Session je ein „zuhause" bzw. ein „auswärts"? */
   sawHome: boolean;
   sawAway: boolean;
@@ -213,6 +257,25 @@ function finish(
   }
   if (endSoc !== undefined) {
     session.endSoc = endSoc;
+  }
+  if (open.targetSoc !== undefined) {
+    session.targetSoc = open.targetSoc;
+  }
+  // Abbruch erkennen — siehe {@link ChargeSession.aborted}.
+  //
+  // Nur bei abgeschlossenen Ladungen: Eine laufende hat ihr Ziel schlicht noch
+  // nicht erreicht. Und nur, wenn überhaupt geladen wurde — wer ansteckt und
+  // sofort wieder auszieht, hat nichts abgebrochen.
+  const lastCharge = open.chargingSamples[open.chargingSamples.length - 1];
+  if (
+    complete &&
+    lastCharge !== undefined &&
+    open.targetSoc !== undefined &&
+    endSoc !== undefined &&
+    endSoc <= open.targetSoc - TARGET_TOLERANCE &&
+    minutesBetween(lastCharge.ts, open.last.ts) >= ABORT_IDLE_MIN
+  ) {
+    session.aborted = true;
   }
   if (energyKwh !== undefined) {
     session.energyKwh = energyKwh;
@@ -296,6 +359,9 @@ export function buildSessions(
         open.sawHome = true;
       } else if (s.atHome === false) {
         open.sawAway = true;
+      }
+      if (s.targetSoc !== undefined) {
+        open.targetSoc = s.targetSoc;
       }
       if (s.soc !== undefined) {
         open.socValues.push(s.soc);

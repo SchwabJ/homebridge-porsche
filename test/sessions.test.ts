@@ -299,3 +299,90 @@ describe('Ort der Ladung', () => {
     expect(s.map((x) => x.atHome)).toEqual([true, false]);
   });
 });
+
+describe('Ladeabbruch erkennen', () => {
+  /**
+   * Ladung mit Ziel 80 %, die bei `endSoc` aufhört und danach `idleMin`
+   * Minuten stromlos am Kabel steht, bevor ausgesteckt wird.
+   */
+  const ladung = (endSoc: number, idleMin: number): ChargeLogSample[] => {
+    const rows: ChargeLogSample[] = [
+      at(0, { soc: 40, plugged: true, charging: false, targetSoc: 80, atHome: true }),
+    ];
+    // Bis Minute 100 wird geladen — danach beginnt die Stillstandszeit, an
+    // der sich der Abbruch entscheidet.
+    for (let m = 10; m <= 100; m += 10) {
+      const soc = Math.round(40 + ((endSoc - 40) * m) / 100);
+      rows.push(at(m, { soc, plugged: true, charging: true, targetSoc: 80, atHome: true }));
+    }
+    for (let m = 110; m <= 100 + idleMin; m += 10) {
+      rows.push(
+        at(m, { soc: endSoc, plugged: true, charging: false, targetSoc: 80, atHome: true }),
+      );
+    }
+    rows.push(at(110 + idleMin, { soc: endSoc, plugged: false, targetSoc: 80 }));
+    return rows;
+  };
+
+  it('meldet einen Abbruch, wenn das Ziel offen blieb und der Strom lange aus war', () => {
+    const [s] = buildSessions(ladung(60, 120));
+    expect(s.aborted).toBe(true);
+    expect(s.targetSoc).toBe(80);
+    expect(s.endSoc).toBe(60);
+  });
+
+  it('schweigt, wenn nach dem Ladeende sofort ausgesteckt wurde', () => {
+    // Wer morgens los muss, zieht den Stecker — das ist kein Abbruch.
+    const [s] = buildSessions(ladung(60, 0));
+    expect(s.aborted).toBeUndefined();
+  });
+
+  it('schweigt bei einer normalen Ladepause der Tarifsteuerung', () => {
+    // Eine halbe Stunde Pause ist bei Viertelstunden-Slots Alltag.
+    const [s] = buildSessions(ladung(60, 30));
+    expect(s.aborted).toBeUndefined();
+  });
+
+  it('schweigt, wenn das Ziel praktisch erreicht wurde', () => {
+    // Das Fahrzeug hört regelmäßig ein bis zwei Punkte vorher auf.
+    const [s] = buildSessions(ladung(78, 300));
+    expect(s.aborted).toBeUndefined();
+  });
+
+  it('schweigt ohne gesetztes Ziel', () => {
+    const rows = ladung(60, 300).map(({ targetSoc: _weg, ...rest }) => rest);
+    const [s] = buildSessions(rows);
+    expect(s.aborted).toBeUndefined();
+  });
+
+  it('schweigt, solange die Ladung noch läuft', () => {
+    const rows = ladung(60, 300);
+    rows.pop(); // kein Ausstecken beobachtet
+    const [s] = buildSessions(rows);
+    expect(s.complete).toBe(false);
+    expect(s.aborted).toBeUndefined();
+  });
+
+  it('misst am ZULETZT gesetzten Ziel, nicht am ersten', () => {
+    // Wer während der Ladung von 60 auf 100 hochsetzt, will die 100.
+    const [s] = buildSessions([
+      at(0, { soc: 40, plugged: true, charging: true, targetSoc: 60, atHome: true }),
+      at(30, { soc: 55, plugged: true, charging: true, targetSoc: 60, atHome: true }),
+      at(60, { soc: 60, plugged: true, charging: false, targetSoc: 100, atHome: true }),
+      at(200, { soc: 60, plugged: true, charging: false, targetSoc: 100, atHome: true }),
+      at(210, { soc: 60, plugged: false, targetSoc: 100 }),
+    ]);
+    expect(s.targetSoc).toBe(100);
+    expect(s.aborted).toBe(true);
+  });
+
+  it('schweigt, wenn überhaupt nie geladen wurde', () => {
+    // Angesteckt, nichts passiert — daran ist nichts abgebrochen.
+    const [s] = buildSessions([
+      at(0, { soc: 60, plugged: true, charging: false, targetSoc: 80, atHome: true }),
+      at(200, { soc: 60, plugged: true, charging: false, targetSoc: 80, atHome: true }),
+      at(210, { soc: 60, plugged: false, targetSoc: 80 }),
+    ]);
+    expect(s.aborted).toBeUndefined();
+  });
+});

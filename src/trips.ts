@@ -67,6 +67,16 @@ const MAX_REL_ERROR = 0.15;
 /** Rundungsschritt von `tripKwh100` laut Fahrzeug, in kWh/100 km. */
 const KWH100_STEP = 0.1;
 
+/**
+ * Strecke, ab der ein Reichweiten-Faktor ausgewiesen wird, in km.
+ *
+ * Die Restreichweitenanzeige ist eine Prognose und springt auch ohne Fahrt —
+ * beim Einschalten der Heizung fällt sie um zweistellige Kilometer. Über
+ * hundert Kilometer mitteln sich solche Sprünge heraus, über zehn bestimmen
+ * sie das Ergebnis.
+ */
+const MIN_KM_FOR_RANGE_FACTOR = 100;
+
 export interface Trip {
   /** Letzter Messpunkt VOR der Bewegung — dort stand das Fahrzeug noch. */
   startedAt: string;
@@ -94,6 +104,14 @@ export interface Trip {
   /** Ladestand am Anfang und am Ende, wenn bekannt. */
   startSoc?: number;
   endSoc?: number;
+  /**
+   * Wie viel Restreichweite die Anzeige über diese Fahrt verloren hat, in km.
+   *
+   * Trifft die Prognose des Fahrzeugs zu, entspricht das genau der gefahrenen
+   * Strecke. Ist sie größer, war das Auto optimistisch — jeder gefahrene
+   * Kilometer kostete mehr als einen Kilometer Anzeige.
+   */
+  rangeLostKm?: number;
   /** Kilometerstand am Ende der Fahrt. */
   odometerKm?: number;
   /** Anzahl der Messpunkte, aus denen die Fahrt gebildet wurde. */
@@ -116,6 +134,7 @@ interface Point {
   ts: string;
   odometerKm: number;
   soc?: number;
+  rangeKm?: number;
   kwh100?: number;
   plugged?: boolean;
   charging?: boolean;
@@ -136,6 +155,7 @@ export function buildTrips(samples: ChargeLogSample[], opts: TripOptions = {}): 
       ts: s.ts,
       odometerKm: s.odometerKm as number,
       soc: s.soc,
+      rangeKm: s.rangeKm,
       kwh100: s.tripKwh100,
       plugged: s.plugged,
       charging: s.charging,
@@ -176,6 +196,9 @@ export function buildTrips(samples: ChargeLogSample[], opts: TripOptions = {}): 
       odometerKm: last.odometerKm,
       samples: open.length,
     };
+    if (first.rangeKm !== undefined && last.rangeKm !== undefined) {
+      trip.rangeLostKm = first.rangeKm - last.rangeKm;
+    }
 
     // Verbrauch aus der Angabe des Fahrzeugs — siehe Kopfkommentar.
     if (cycleStartKm !== undefined && last.kwh100 !== undefined && last.kwh100 > 0) {
@@ -254,6 +277,20 @@ export interface TripSummary {
   kwhPer100km?: number;
   /** Strecke, für die ein Verbrauch bekannt ist — der Bezug der Zeile darüber. */
   ratedKm: number;
+  /**
+   * Wie viel Restreichweite je gefahrenem Kilometer verloren ging.
+   *
+   * 1,0 heißt: Die Prognose des Fahrzeugs trifft zu. 1,2 heißt: Jeder
+   * gefahrene Kilometer kostet 1,2 km Anzeige — das Auto verspricht 20 % mehr,
+   * als es hält. Unter 1,0 ist es zu vorsichtig.
+   *
+   * `undefined`, solange zu wenig Strecke vorliegt: Die Reichweitenanzeige
+   * springt beim Heizen auch ohne Fahrt, und über wenige Kilometer bestimmt
+   * dieser Sprung das Ergebnis.
+   */
+  rangeFactor?: number;
+  /** Strecke, auf der dieser Faktor beruht. */
+  rangeKm: number;
 }
 
 /**
@@ -264,7 +301,15 @@ export interface TripSummary {
  * Schnitt — deshalb steht {@link TripSummary.ratedKm} daneben.
  */
 export function summarizeTrips(trips: Trip[]): TripSummary {
-  const out: TripSummary = { trips: trips.length, km: 0, energyKwh: 0, costEur: 0, ratedKm: 0 };
+  const out: TripSummary = {
+    trips: trips.length,
+    km: 0,
+    energyKwh: 0,
+    costEur: 0,
+    ratedKm: 0,
+    rangeKm: 0,
+  };
+  let rangeLost = 0;
   for (const t of trips) {
     out.km += t.km;
     if (t.energyKwh !== undefined) {
@@ -272,12 +317,20 @@ export function summarizeTrips(trips: Trip[]): TripSummary {
       out.ratedKm += t.km;
       out.costEur += t.costEur ?? 0;
     }
+    if (t.rangeLostKm !== undefined) {
+      rangeLost += t.rangeLostKm;
+      out.rangeKm += t.km;
+    }
   }
   out.km = Math.round(out.km);
   out.energyKwh = Math.round(out.energyKwh * 10) / 10;
   out.costEur = Math.round(out.costEur * 100) / 100;
   if (out.ratedKm > 0) {
     out.kwhPer100km = Math.round((out.energyKwh / out.ratedKm) * 1000) / 10;
+  }
+  out.rangeKm = Math.round(out.rangeKm);
+  if (out.rangeKm >= MIN_KM_FOR_RANGE_FACTOR) {
+    out.rangeFactor = Math.round((rangeLost / out.rangeKm) * 100) / 100;
   }
   return out;
 }

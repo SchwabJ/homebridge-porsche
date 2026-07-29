@@ -1498,3 +1498,284 @@ describe('Deckel der Listen', () => {
     expect(html).toMatch(/<span>Charges<\/span><b>50<\/b>/);
   });
 });
+
+describe('Abgebrochene Ladung in der Oberfläche', () => {
+  let dir: string;
+  let server: ReturnType<typeof startDashboard>;
+  let url: string;
+
+  const t = (m: number): string =>
+    new Date(Date.now() - (400 - m) * 60000).toISOString();
+
+  /** Ladung mit Ziel 80 %, die bei 60 % aufhört und dann `idleMin` steht. */
+  const rows = (idleMin: number): ChargeLogSample[] => {
+    const out: ChargeLogSample[] = [];
+    for (let m = 0; m <= 100; m += 10) {
+      out.push({
+        ts: t(m),
+        soc: Math.round(40 + (20 * m) / 100),
+        odometerKm: 50000,
+        plugged: true,
+        charging: true,
+        targetSoc: 80,
+        atHome: true,
+      });
+    }
+    for (let m = 110; m <= 100 + idleMin; m += 10) {
+      out.push({
+        ts: t(m),
+        soc: 60,
+        odometerKm: 50000,
+        plugged: true,
+        charging: false,
+        targetSoc: 80,
+        atHome: true,
+      });
+    }
+    out.push({ ts: t(110 + idleMin), soc: 60, odometerKm: 50000, plugged: false, targetSoc: 80 });
+    return out;
+  };
+
+  const serve = async (idleMin: number): Promise<void> => {
+    const all = rows(idleMin);
+    const byDay: Record<string, ChargeLogSample[]> = {};
+    for (const r of all) {
+      (byDay[r.ts.slice(0, 10)] ??= []).push(r);
+    }
+    for (const [d, rs] of Object.entries(byDay)) {
+      fs.writeFileSync(
+        path.join(dir, `${d}.jsonl`),
+        rs.map((r) => JSON.stringify(r)).join('\n') + '\n',
+      );
+    }
+    server = startDashboard({
+      port: 19100 + idleMin,
+      logDir: dir,
+      capacityKwh: 83.7,
+      pricePerKwh: 0.2,
+      priceCt: 30,
+      bonusCt: 0,
+      externalPriceCt: 0,
+      dayBoundaryHour: 0,
+      vehicleName: 'T',
+      uiPort: 8581,
+      labels: labelsFor('en'),
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server?.once('listening', r));
+    const a = server.address();
+    url = `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`;
+  };
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'abort-'));
+  });
+
+  afterEach(() => {
+    server?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('markiert die Ladung in der Liste', async () => {
+    await serve(120);
+    const html = await (await fetch(`${url}/?g=day`)).text();
+    expect(html).toContain('at 60 % instead of 80 %');
+  });
+
+  it('hebt sie auf der Statusseite hervor', async () => {
+    await serve(120);
+    const html = await (await fetch(`${url}/status`)).text();
+    expect(html).toContain('Charge aborted');
+    expect(html).toContain('card alert');
+  });
+
+  it('schweigt auf beiden Seiten, wenn es kein Abbruch war', async () => {
+    await serve(20);
+    const liste = await (await fetch(`${url}/?g=day`)).text();
+    const status = await (await fetch(`${url}/status`)).text();
+    expect(liste).not.toContain('instead of 80 %');
+    expect(status).not.toContain('Charge aborted');
+  });
+});
+
+describe('Belegroute', () => {
+  let dir: string;
+  let server: ReturnType<typeof startDashboard>;
+  let url: string;
+
+  beforeEach(async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beleg-'));
+    // Je eine abgeschlossene Ladung im Juni und im Juli.
+    for (const [tag, soc] of [
+      ['2026-06-15', 60],
+      ['2026-07-15', 70],
+    ] as [string, number][]) {
+      const rows: ChargeLogSample[] = [
+        { ts: `${tag}T20:00:00.000Z`, soc: 40, plugged: true, charging: true, atHome: true },
+        { ts: `${tag}T22:00:00.000Z`, soc, plugged: true, charging: true, atHome: true },
+        { ts: `${tag}T22:10:00.000Z`, soc, plugged: false },
+      ];
+      fs.writeFileSync(
+        path.join(dir, `${tag}.jsonl`),
+        rows.map((r) => JSON.stringify(r)).join('\n') + '\n',
+      );
+    }
+    server = startDashboard({
+      port: 19300,
+      logDir: dir,
+      capacityKwh: 100,
+      pricePerKwh: 0.2,
+      priceCt: 30,
+      bonusCt: 10,
+      externalPriceCt: 0,
+      dayBoundaryHour: 0,
+      vehicleName: 'T',
+      uiPort: 8581,
+      labels: labelsFor('en'),
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server?.once('listening', r));
+    const a = server.address();
+    url = `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`;
+  });
+
+  afterEach(() => {
+    server?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('zeigt ohne Angabe den jüngsten Monat mit Ladungen', async () => {
+    const html = await (await fetch(`${url}/beleg`)).text();
+    expect(html).toContain('July 2026');
+    // 30 Punkte × 100 kWh / 100 = 30.00 kWh
+    expect(html).toContain('30.00');
+  });
+
+  it('folgt dem gewählten Monat', async () => {
+    const html = await (await fetch(`${url}/beleg?m=2026-06`)).text();
+    expect(html).toContain('20.00'); // 20 Punkte im Juni
+    expect(html).not.toContain('>30.00<');
+  });
+
+  it('nennt offen, dass die Energie gerechnet und nicht gemessen ist', async () => {
+    // Ein Beleg, der eine Herkunft verschweigt, die er nicht hat, wäre wertlos.
+    const html = await (await fetch(`${url}/beleg`)).text();
+    expect(html).toContain('not metered at the socket');
+    expect(html).toContain('Charging losses');
+  });
+
+  it('liefert das CSV als Download mit BOM', async () => {
+    const res = await fetch(`${url}/beleg.csv?m=2026-07`);
+    expect(res.headers.get('content-type')).toContain('text/csv');
+    expect(res.headers.get('content-disposition')).toContain('charging-receipt-2026-07.csv');
+    // Roh prüfen: `text()` verwirft den BOM beim Dekodieren, aber genau er
+    // entscheidet, ob Excel die Umlaute richtig zeigt.
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    expect([bytes[0], bytes[1], bytes[2]]).toEqual([0xef, 0xbb, 0xbf]);
+    expect(new TextDecoder().decode(bytes)).toContain('Total at home');
+  });
+
+  it('weist einen unsinnigen Monat ab, statt ihn zu übernehmen', async () => {
+    const html = await (await fetch(`${url}/beleg?m=kaputt`)).text();
+    expect(html).toContain('July 2026');
+  });
+
+  it('verlinkt den Beleg von der Ladehistorie', async () => {
+    const html = await (await fetch(`${url}/?g=month`)).text();
+    expect(html).toContain('href="/beleg"');
+  });
+});
+
+describe('Kapazitätsverlauf auf der Seite', () => {
+  let dir: string;
+  let server: ReturnType<typeof startDashboard>;
+  let url: string;
+
+  /** Ein verwertbarer Entladezyklus mit vorgegebener Kapazität. */
+  const zyklus = (
+    month: string,
+    day: number,
+    kwh: number,
+    odo: number,
+  ): ChargeLogSample[] => {
+    const kwh100 = Math.round(((kwh * 30) / 100 / 100) * 100 * 10) / 10;
+    const iso = (h: number): string =>
+      `${month}-${String(day).padStart(2, '0')}T${String(h).padStart(2, '0')}:00:00.000Z`;
+    return [
+      { ts: iso(6), soc: 80, odometerKm: odo, plugged: true, charging: true, atHome: true },
+      { ts: iso(7), soc: 80, odometerKm: odo, plugged: false },
+      { ts: iso(9), soc: 50, odometerKm: odo + 100, plugged: false, tripKwh100: kwh100 },
+      { ts: iso(10), soc: 50, odometerKm: odo + 100, plugged: true, charging: true, atHome: true },
+    ];
+  };
+
+  const serve = async (monate: string[], port: number): Promise<void> => {
+    let odo = 50000;
+    const rows: ChargeLogSample[] = [];
+    monate.forEach((m, i) => {
+      for (let n = 0; n < 2; n++) {
+        rows.push(...zyklus(m, 5 + n * 10, 84 - i, odo));
+        odo += 100;
+      }
+    });
+    const byDay: Record<string, ChargeLogSample[]> = {};
+    for (const r of rows) {
+      (byDay[r.ts.slice(0, 10)] ??= []).push(r);
+    }
+    for (const [d, rs] of Object.entries(byDay)) {
+      fs.writeFileSync(
+        path.join(dir, `${d}.jsonl`),
+        rs.map((r) => JSON.stringify(r)).join('\n') + '\n',
+      );
+    }
+    server = startDashboard({
+      port,
+      logDir: dir,
+      capacityKwh: 84,
+      pricePerKwh: 0.2,
+      priceCt: 30,
+      bonusCt: 0,
+      externalPriceCt: 0,
+      dayBoundaryHour: 0,
+      vehicleName: 'T',
+      uiPort: 8581,
+      labels: labelsFor('en'),
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server?.once('listening', r));
+    const a = server.address();
+    url = `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`;
+  };
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trend-'));
+  });
+
+  afterEach(() => {
+    server?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('zeichnet den Verlauf ab vier Monaten', async () => {
+    await serve(['2026-01', '2026-02', '2026-03', '2026-04'], 19400);
+    const html = await (await fetch(`${url}/?g=year`)).text();
+    expect(html).toContain('class="captrend"');
+    expect(html).toContain('over 4 months');
+    // 84,0 → 81,0 kWh: Anfang und Ende stehen als Zahl daneben, damit die
+    // Linie nicht die einzige Aussage ist.
+    expect(html).toMatch(/84\.0 → 81\.0 kWh/);
+  });
+
+  it('schweigt bei drei Monaten, statt eine Gerade durch Zufälle zu legen', async () => {
+    await serve(['2026-01', '2026-02', '2026-03'], 19401);
+    const html = await (await fetch(`${url}/?g=year`)).text();
+    // Der Klassenname steht immer im CSS — geprüft wird das Element.
+    expect(html).not.toContain('class="captrend"');
+  });
+});

@@ -74,6 +74,16 @@ const MIN_SOC_DROP = 15;
  */
 const SYSTEMATIC_FLOOR = 0.03;
 
+/**
+ * Längster Messabstand, der noch als beobachtete Standzeit zählt, in Minuten.
+ *
+ * Fällt das Plugin aus oder schläft das Fahrzeug tief, klafft im Mitschrieb
+ * eine Lücke von Stunden. Die als „gemessene Standzeit" zu zählen verdünnte
+ * den Standverbrauch beliebig — man wüsste ja gar nicht, was in der Lücke
+ * geschah. Zwei Stunden decken den normalen Abfragetakt mit Reserve ab.
+ */
+const IDLE_MAX_GAP_MIN = 120;
+
 /** Verwerfen, was außerhalb dieses Bereichs liegt — dort steckt ein Datenfehler. */
 const PLAUSIBLE_MIN_KWH = 40;
 const PLAUSIBLE_MAX_KWH = 120;
@@ -104,8 +114,29 @@ export interface CapacityEstimate {
   spreadKwh?: number;
   /** Zurückgelegte Strecke aller verwerteten Abschnitte. */
   km: number;
+  /**
+   * Ladestand, der im STAND verloren ging — in Prozentpunkten, über alle
+   * Zyklen summiert.
+   *
+   * Fällt in der Kapazitätsrechnung ohnehin an (er muss dort herausgerechnet
+   * werden, siehe {@link estimateCapacity}); ihn wegzuwerfen hieße, die
+   * Antwort auf „was zieht mein Standklima" zu verschenken. Gezählt wird über
+   * ALLE Zyklen, auch die für die Kapazität verworfenen — für diese Frage
+   * taugt jeder.
+   */
+  idleSocDrop: number;
+  /** Zeit, über die dieser Verlust entstand, in Minuten. */
+  idleMinutes: number;
   /** Einzelschätzungen, aufsteigend — für Diagnose und Diagramme. */
   values: number[];
+  /**
+   * Dieselben Einzelschätzungen in ZEITLICHER Reihenfolge, mit ihrem Zeitpunkt.
+   *
+   * `values` ist für den Median sortiert und hat damit jeden Zeitbezug
+   * verloren. Für die Frage „wird die Batterie schlechter?" ist genau der
+   * Zeitbezug das Entscheidende.
+   */
+  points: { at: string; kwh: number }[];
 }
 
 const median = (sorted: number[]): number => {
@@ -131,9 +162,12 @@ const median = (sorted: number[]): number => {
  */
 export function estimateCapacity(samples: ChargeLogSample[]): CapacityEstimate {
   const values: number[] = [];
+  const points: { at: string; kwh: number }[] = [];
   const uncertainties: number[] = [];
   let km = 0;
   let cyclesSeen = 0;
+  let idleSocDrop = 0;
+  let idleMinutes = 0;
 
   /** Messpunkte des laufenden Zyklus, oder undefined außerhalb. */
   let cycle: ChargeLogSample[] | undefined;
@@ -148,6 +182,32 @@ export function estimateCapacity(samples: ChargeLogSample[]): CapacityEstimate {
       return;
     }
     cyclesSeen++;
+
+    // Standanteil zuerst, VOR allen Abbruchbedingungen: Für die Frage „was
+    // zieht das Auto im Stehen" ist auch ein Zyklus brauchbar, der für die
+    // Kapazitätsschätzung zu kurz ist.
+    //
+    // Nur zwischen Messpunkten OHNE Streckenzuwachs — nur dort ist der
+    // Verlust sicher nicht gefahren worden. Messpunkte am Kabel kommen hier
+    // gar nicht erst an: Ein Zyklus ist per Definition die Zeit ohne Stecker,
+    // und was am Kabel verbraucht wird, lädt sofort nach.
+    for (let i = 1; i < usable.length; i++) {
+      const a = usable[i - 1];
+      const b = usable[i];
+      if ((b.odometerKm as number) !== (a.odometerKm as number)) {
+        continue;
+      }
+      const minutes = (Date.parse(b.ts) - Date.parse(a.ts)) / 60000;
+      if (minutes <= 0 || minutes > IDLE_MAX_GAP_MIN) {
+        continue;
+      }
+      idleMinutes += minutes;
+      const d = (a.soc as number) - (b.soc as number);
+      if (d > 0) {
+        idleSocDrop += d;
+      }
+    }
+
     const first = usable[0];
     const last = usable[usable.length - 1];
     // Verbrauch vom ENDE des Zyklus: Dort steht der Durchschnitt über genau
@@ -195,6 +255,7 @@ export function estimateCapacity(samples: ChargeLogSample[]): CapacityEstimate {
       return;
     }
     values.push(capacity);
+    points.push({ at: last.ts, kwh: Math.round(capacity * 10) / 10 });
     // Was allein die ganzzahlige Meldung des Ladestands offen lässt.
     uncertainties.push(
       (usedKwh / ((drivingDrop - 0.5) / 100) - usedKwh / ((drivingDrop + 0.5) / 100)) / 2,
@@ -218,6 +279,9 @@ export function estimateCapacity(samples: ChargeLogSample[]): CapacityEstimate {
     samples: values.length,
     cyclesSeen,
     km,
+    idleSocDrop: Math.round(idleSocDrop * 10) / 10,
+    idleMinutes: Math.round(idleMinutes),
+    points,
     values: [...values].sort((a, b) => a - b),
   };
   if (values.length === 0) {
@@ -258,4 +322,95 @@ export function stateOfHealth(
     return undefined;
   }
   return Math.round((estimated / factoryKwh) * 1000) / 10;
+}
+
+/**
+ * Mindest-Standzeit, bevor ein Standverbrauch ausgewiesen wird, in Stunden.
+ *
+ * Der Ladestand kommt ganzzahlig: Über zwei Stunden gemessen entscheidet die
+ * Rundung allein, ob 0 oder 1 Prozentpunkt herauskommt — hochgerechnet auf
+ * einen Tag wären das 0 oder 10 kWh. Erst über einen ganzen Tag gesammelter
+ * Standzeit trägt die Zahl.
+ */
+const IDLE_MIN_HOURS = 24;
+
+/**
+ * Standverbrauch in kWh je Tag — was das Auto verliert, ohne zu fahren.
+ *
+ * Vorklimatisieren, eingeschaltete Zündung, Wachbleiben der Steuergeräte: All
+ * das senkt den Ladestand, ohne einen Kilometer zu erzeugen. In der
+ * Kapazitätsschätzung ist es eine Störgröße, die herausgerechnet wird — für
+ * sich genommen ist es die Antwort auf eine ganz eigene Frage.
+ *
+ * Gibt `undefined` zurück, solange zu wenig Standzeit beobachtet wurde.
+ */
+export function idleKwhPerDay(
+  est: CapacityEstimate,
+  capacityKwh: number,
+): number | undefined {
+  if (est.idleMinutes < IDLE_MIN_HOURS * 60 || capacityKwh <= 0) {
+    return undefined;
+  }
+  const kwh = (est.idleSocDrop * capacityKwh) / 100;
+  const days = est.idleMinutes / 1440;
+  return Math.round((kwh / days) * 100) / 100;
+}
+
+/**
+ * Wie viele Monate mit je einer verwertbaren Schätzung nötig sind, bevor ein
+ * Verlauf gezeigt wird.
+ *
+ * Ein Punkt ist kein Verlauf, zwei sind eine Gerade durch zwei Zufälle. Die
+ * Streuung einzelner Zyklen liegt bei mehreren Prozent — erst über mehrere
+ * Monate hebt sich eine echte Alterung davon ab.
+ */
+const TREND_MIN_MONTHS = 4;
+
+/** Wie viele Einzelschätzungen ein Monatswert mindestens braucht. */
+const TREND_MIN_PER_MONTH = 2;
+
+export interface CapacityMonth {
+  /** Monat als `YYYY-MM`. */
+  month: string;
+  /** Median der Schätzungen dieses Monats, in kWh. */
+  kwh: number;
+  /** Wie viele Einzelschätzungen dahinterstehen. */
+  samples: number;
+}
+
+/**
+ * Der Kapazitätsverlauf als Monatswerte — leer, solange er nichts hergibt.
+ *
+ * Der MEDIAN je Monat, nicht der Mittelwert: Eine einzelne Fahrt mit viel
+ * Standklima oder bei Frost zieht einen Mittelwert mit sich, den Median nicht.
+ *
+ * Monate mit zu wenigen Schätzungen fallen ganz heraus, statt als unsicherer
+ * Punkt in der Kurve zu landen — eine Linie, die zwischen zwei belastbaren
+ * Werten über einen Zufallswert läuft, behauptet einen Verlauf, den es nicht
+ * gibt.
+ */
+export function capacityTrend(est: CapacityEstimate): CapacityMonth[] {
+  const byMonth = new Map<string, number[]>();
+  for (const p of est.points) {
+    const m = p.at.slice(0, 7);
+    const list = byMonth.get(m);
+    if (list) {
+      list.push(p.kwh);
+    } else {
+      byMonth.set(m, [p.kwh]);
+    }
+  }
+  const months: CapacityMonth[] = [];
+  for (const [month, list] of [...byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    if (list.length < TREND_MIN_PER_MONTH) {
+      continue;
+    }
+    const sorted = [...list].sort((a, b) => a - b);
+    months.push({
+      month,
+      kwh: Math.round(median(sorted) * 10) / 10,
+      samples: list.length,
+    });
+  }
+  return months.length >= TREND_MIN_MONTHS ? months : [];
 }

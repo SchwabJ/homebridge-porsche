@@ -81,8 +81,17 @@ const PLAUSIBLE_MAX_KWH = 120;
 export interface CapacityEstimate {
   /** Geschätzte nutzbare Kapazität in kWh (Median). */
   capacityKwh?: number;
-  /** Anzahl verwerteter Entladezyklen. */
+  /** Anzahl VERWERTETER Fahrstrecken zwischen zwei Ladungen. */
   samples: number;
+  /**
+   * Wie viele Fahrstrecken es überhaupt gab — verwertete wie verworfene.
+   *
+   * Für Diagnose, nicht für die Anzeige: Eine Strecke fällt praktisch nur
+   * heraus, solange das Fahrzeug noch keinen Verbrauchswert geliefert hat —
+   * ein Anfangszustand, der sich nicht wiederholt. „1 von 2" in der
+   * Oberfläche wirft dann eine Frage auf, die es dauerhaft nicht gibt.
+   */
+  cyclesSeen: number;
   /**
    * Ausgewiesene Unsicherheit der Schätzung in kWh.
    *
@@ -124,6 +133,7 @@ export function estimateCapacity(samples: ChargeLogSample[]): CapacityEstimate {
   const values: number[] = [];
   const uncertainties: number[] = [];
   let km = 0;
+  let cyclesSeen = 0;
 
   /** Messpunkte des laufenden Zyklus, oder undefined außerhalb. */
   let cycle: ChargeLogSample[] | undefined;
@@ -137,6 +147,7 @@ export function estimateCapacity(samples: ChargeLogSample[]): CapacityEstimate {
     if (usable.length < 2) {
       return;
     }
+    cyclesSeen++;
     const first = usable[0];
     const last = usable[usable.length - 1];
     // Verbrauch vom ENDE des Zyklus: Dort steht der Durchschnitt über genau
@@ -205,6 +216,7 @@ export function estimateCapacity(samples: ChargeLogSample[]): CapacityEstimate {
 
   const est: CapacityEstimate = {
     samples: values.length,
+    cyclesSeen,
     km,
     values: [...values].sort((a, b) => a - b),
   };

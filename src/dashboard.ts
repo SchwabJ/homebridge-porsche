@@ -1008,7 +1008,7 @@ ${
     ? `<div class="cap">
         <div class="caphead">
           <span>${esc(L.dashMeasuredCapacity)}</span>
-          <em>${cap.samples} ${esc(cap.samples === 1 ? L.capCycle : L.capCycles)} · ${cap.km} km</em>
+          <em>${cap.samples} ${esc(cap.samples === 1 ? L.capDrive : L.capDrives)} · ${cap.km} km</em>
         </div>
         <div class="capmain">
           <b>${cap.capacityKwh.toFixed(1)}<i>kWh</i></b>
@@ -1355,7 +1355,7 @@ function renderSettings(o: DashboardOptions, host: string, measured?: number, cy
         )} kWh</button><small>${esc(L.setAdoptHint)}</small></div>`
       : measured !== undefined
         ? `<div class="adopt"><small>${esc(L.setMeasured)}: ${measured.toFixed(1)} kWh — ${cycles} ${esc(
-            cycles === 1 ? L.capCycle : L.capCycles,
+            cycles === 1 ? L.capDrive : L.capDrives,
           )}. ${esc(L.setAdoptFrom).replace('%n', String(ADOPT_MIN_CYCLES))}</small></div>`
         : ''
   }

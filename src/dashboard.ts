@@ -990,6 +990,43 @@ ${CHART_CSS}${BARS_CSS}
     }</span>
   </div>
 </div>
+<!-- Über den Filtern: Die gemessene Kapazität ändert sich weder mit dem
+     Zeitraum noch mit dem Ort. Darunter gelesen wirkte sie gefiltert. -->
+${
+  cap.capacityKwh !== undefined
+    ? `<div class="cap">
+        <div class="caphead">
+          <span>${esc(L.dashMeasuredCapacity)}</span>
+          <em>${cap.samples} ${esc(cap.samples === 1 ? L.capCycle : L.capCycles)} · ${cap.km} km</em>
+        </div>
+        <div class="capmain">
+          <b>${cap.capacityKwh.toFixed(1)}<i>kWh</i></b>
+          ${
+            cap.uncertaintyKwh !== undefined
+              ? `<i class="capunc">± ${cap.uncertaintyKwh.toFixed(1)}</i>`
+              : ''
+          }
+          ${soh !== undefined ? `<span class="soh">${soh.toFixed(0)} % ${esc(L.dashHealth)}</span>` : ''}
+        </div>
+        <div class="capbar">
+          <i style="width:${Math.max(0, Math.min(100, soh ?? 0))}%"></i>
+          ${
+            cap.spreadKwh !== undefined
+              ? `<u style="left:${Math.max(0, Math.min(96, (soh ?? 0) - 2))}%;width:${Math.min(
+                  20,
+                  (cap.spreadKwh / cfg.capacityKwh) * 100,
+                )}%"></u>`
+              : ''
+          }
+        </div>
+        <div class="capfoot">${esc(L.dashConfigured)} ${cfg.capacityKwh} kWh${
+          capDelta !== undefined
+            ? ` · ${esc(L.dashMeasurement)} ${capDelta > 0 ? '+' : ''}${capDelta.toFixed(1)} %`
+            : ''
+        }${cap.spreadKwh !== undefined ? ` · ${esc(L.dashSpread)} ±${(cap.spreadKwh / 2).toFixed(1)} kWh` : ''}</div>
+      </div>`
+    : ''
+}
 <nav class="tabs">${tabs}</nav>
 ${placeTabs}${
   place === 'away' && !awayPriced
@@ -1009,9 +1046,15 @@ ${placeTabs}${
         ? `${esc(L.dashInsteadOf)} <s>${current.costGross.toFixed(2)} €</s>`
         : `${(o.pricePerKwh * 100).toFixed(2)} ct/kWh`
     }${eff.centPerKm !== undefined ? ` · ${eff.centPerKm.toFixed(1)} ct/km` : ''}</span></div>`
-      : `<div class="card"><span>${esc(L.dashChargeTime)}</span><b>${
-          current ? Math.round(current.spanMinutes / 60) : 0
-        } h</b><span>${esc(L.dashRecorded)}</span></div>`
+      : // Ohne Preis steht hier die tatsächliche LADEZEIT der Ladungen im
+        // Zeitraum. Vorher zeigte diese Kachel `spanMinutes` — die erfasste
+        // Messspanne, also wie lange überhaupt Daten vorliegen. Unter der
+        // Überschrift „Ladezeit" war das schlicht falsch.
+        `<div class="card"><span>${esc(L.dashChargeTime)}</span><b>${esc(
+          fmtDur(inPeriod.reduce((a, x) => a + x.chargingMin, 0)),
+        )}</b><span>${inPeriod.length} ${esc(
+          inPeriod.length === 1 ? L.dashChargeOne : L.dashCharges.toLowerCase(),
+        )}</span></div>`
   }
   ${
     hasBonus
@@ -1054,41 +1097,6 @@ ${
     : ''
 }
 ${series.length ? `<div class="chart">${bars}</div>` : ''}
-${
-  cap.capacityKwh !== undefined
-    ? `<div class="cap">
-        <div class="caphead">
-          <span>${esc(L.dashMeasuredCapacity)}</span>
-          <em>${cap.samples} ${esc(cap.samples === 1 ? L.capCycle : L.capCycles)} · ${cap.km} km</em>
-        </div>
-        <div class="capmain">
-          <b>${cap.capacityKwh.toFixed(1)}<i>kWh</i></b>
-          ${
-            cap.uncertaintyKwh !== undefined
-              ? `<i class="capunc">± ${cap.uncertaintyKwh.toFixed(1)}</i>`
-              : ''
-          }
-          ${soh !== undefined ? `<span class="soh">${soh.toFixed(0)} % ${esc(L.dashHealth)}</span>` : ''}
-        </div>
-        <div class="capbar">
-          <i style="width:${Math.max(0, Math.min(100, soh ?? 0))}%"></i>
-          ${
-            cap.spreadKwh !== undefined
-              ? `<u style="left:${Math.max(0, Math.min(96, (soh ?? 0) - 2))}%;width:${Math.min(
-                  20,
-                  (cap.spreadKwh / cfg.capacityKwh) * 100,
-                )}%"></u>`
-              : ''
-          }
-        </div>
-        <div class="capfoot">${esc(L.dashConfigured)} ${cfg.capacityKwh} kWh${
-          capDelta !== undefined
-            ? ` · ${esc(L.dashMeasurement)} ${capDelta > 0 ? '+' : ''}${capDelta.toFixed(1)} %`
-            : ''
-        }${cap.spreadKwh !== undefined ? ` · ${esc(L.dashSpread)} ±${(cap.spreadKwh / 2).toFixed(1)} kWh` : ''}</div>
-      </div>`
-    : ''
-}
 ${
   recent.length
     ? `<div class="tablewrap"><table><thead><tr><th>${esc(L.dashStart)}</th><th>${esc(L.dashDuration)}</th><th>${esc(L.dashChargeState)}</th>
@@ -1335,7 +1343,9 @@ function renderSettings(o: DashboardOptions, host: string, measured?: number, cy
           1,
         )} kWh</button><small>${esc(L.setAdoptHint)}</small></div>`
       : measured !== undefined
-        ? `<div class="adopt"><small>${esc(L.setMeasured)}: ${measured.toFixed(1)} kWh (${cycles}) — ${esc(L.setAdoptFrom)} ${ADOPT_MIN_CYCLES}</small></div>`
+        ? `<div class="adopt"><small>${esc(L.setMeasured)}: ${measured.toFixed(1)} kWh — ${cycles} ${esc(
+            cycles === 1 ? L.capCycle : L.capCycles,
+          )}. ${esc(L.setAdoptFrom).replace('%n', String(ADOPT_MIN_CYCLES))}</small></div>`
         : ''
   }
   ${field('dayBoundaryHour', L.setDayBoundary, L.setDayBoundaryHint, '1')}

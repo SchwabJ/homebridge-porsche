@@ -135,6 +135,7 @@ export interface Labels {
   dashChargeTime: string;
   dashRecorded: string;
   dashCharges: string;
+  dashChargeOne: string;
   dashNone: string;
   dashAvgPerCharge: string;
   dashRunning: string;
@@ -306,6 +307,7 @@ export const LABELS_EN: Labels = {
   dashChargeTime: 'Plugged in',
   dashRecorded: 'recorded',
   dashCharges: 'Charges',
+  dashChargeOne: 'charge',
   dashNone: 'none',
   dashAvgPerCharge: 'avg per charge',
   dashRunning: 'Running now',
@@ -355,7 +357,7 @@ aggWeek: 'CW',
   setDayBoundaryHint: 'Hour at which a new day counts. 4 assigns an overnight charge to the evening it started.',
   setAdopt: 'Adopt measured value',
   setAdoptHint: 'Measured from your discharge cycles. Changes every kWh and cost figure retroactively.',
-  setAdoptFrom: 'offered from cycle',
+  setAdoptFrom: 'Offered for adoption from %n cycles on — below that the estimate still moves too much.',
   setMeasured: 'Measured',
   setFromDashboard: 'Set here',
   setFromPlugin: 'From the plugin settings',
@@ -477,6 +479,7 @@ export const LABELS_DE: Labels = {
   dashChargeTime: 'Ladezeit',
   dashRecorded: 'erfasst',
   dashCharges: 'Ladungen',
+  dashChargeOne: 'Ladung',
   dashNone: 'keine',
   dashAvgPerCharge: 'Ø je Ladung',
   dashRunning: 'Läuft gerade',
@@ -526,7 +529,7 @@ aggWeek: 'KW',
   setDayBoundaryHint: 'Stunde, ab der ein neuer Tag zählt. 4 schlägt eine Nachtladung dem Vorabend zu.',
   setAdopt: 'Messwert übernehmen',
   setAdoptHint: 'Aus deinen Ladezyklen gemessen. Ändert rückwirkend alle kWh- und Kostenzahlen.',
-  setAdoptFrom: 'zur Übernahme ab Zyklus',
+  setAdoptFrom: 'Zur Übernahme angeboten ab %n Zyklen — vorher schwankt die Schätzung zu stark.',
   setMeasured: 'Gemessen',
   setFromDashboard: 'Hier gesetzt',
   setFromPlugin: 'Aus den Plugin-Einstellungen',

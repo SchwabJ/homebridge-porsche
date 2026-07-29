@@ -34,6 +34,7 @@ import type { ChargeLogSample } from './chargeLog';
 import { ICONS } from './icons';
 import type { Labels } from './i18n';
 import { estimateCapacity, stateOfHealth } from './capacity';
+import { buildTrips, summarizeTrips } from './trips';
 import { readPrices, writePrice, costFrom, sanitize, type PriceStore } from './prices';
 import {
   readSettings,
@@ -89,6 +90,20 @@ export interface DashboardOptions {
  * bis zur Captcha-Sperre, die ein neues Login erzwingen würde.
  */
 const REFRESH_COOLDOWN_MS = 60000;
+
+/**
+ * Wie viele Ladungen bzw. Fahrten eine Liste höchstens zeigt.
+ *
+ * Ohne Deckel wächst die Ausgabe mit dem Mitschrieb: Ein Jahr ergibt 365
+ * Ladungen, jede mit eigener Ladekurve — nachgemessen 1,4 MB HTML und 3,6
+ * Sekunden auf einem schnellen Rechner, auf einem Raspberry Pi ein Vielfaches
+ * davon. Die DATEN sind dabei nie das Problem (ein Jahr einlesen kostet 81 ms),
+ * nur ihre Darstellung.
+ *
+ * Wird gedeckelt, sagt die Liste es ausdrücklich — ein stiller Schnitt sähe
+ * aus wie Vollständigkeit.
+ */
+const LIST_LIMIT = 40;
 
 /**
  * Signatur des Verzeichnisses: Dateinamen, Größen und Änderungszeiten.
@@ -421,6 +436,53 @@ const GRAN_LABEL: Record<Granularity, string> = {
   year: 'Year',
 };
 
+/**
+ * Typischer Abstand zwischen zwei Messpunkten OHNE Kabel, in Minuten.
+ *
+ * Der Median, nicht der Mittelwert: Ein Plugin-Neustart oder ein Netzausfall
+ * reißt eine Lücke von Stunden, und die zöge jeden Durchschnitt mit sich. Der
+ * Wert beschreibt, wie fein die Fahrterkennung überhaupt auflösen kann.
+ */
+/**
+ * Erster Index, dessen Wert nicht kleiner als `x` ist — klassische Binärsuche.
+ *
+ * Setzt eine aufsteigend sortierte Reihe voraus; `readSamples` liefert genau
+ * das.
+ */
+function lowerBound(sorted: number[], x: number): number {
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (sorted[mid] < x) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
+}
+
+function pollIntervalMinutes(samples: ChargeLogSample[]): number {
+  const gaps: number[] = [];
+  let prev: ChargeLogSample | undefined;
+  for (const s of samples) {
+    if (s.plugged === true) {
+      prev = undefined;
+      continue;
+    }
+    if (prev) {
+      gaps.push((Date.parse(s.ts) - Date.parse(prev.ts)) / 60000);
+    }
+    prev = s;
+  }
+  if (gaps.length === 0) {
+    return 0;
+  }
+  gaps.sort((a, b) => a - b);
+  return Math.max(1, Math.round(gaps[Math.floor(gaps.length / 2)]));
+}
+
 function renderPage(
   allSessions: ChargeSession[],
   allSamples: ChargeLogSample[],
@@ -564,7 +626,10 @@ function renderPage(
         return current.key >= from && current.key <= to;
       })
     : [];
-  recent = [...inPeriod].reverse();
+  // Gedeckelt: Jede gezeigte Ladung bringt ihre Ladekurve als eigenes SVG mit.
+  // Ungedeckelt wog die Jahresansicht 1,4 MB — die Kacheln und das Diagramm
+  // darüber rechnen weiterhin mit ALLEN Ladungen des Zeitraums.
+  recent = [...inPeriod].reverse().slice(0, LIST_LIMIT);
   const avgPerCharge =
     inPeriod.length > 0
       ? inPeriod.reduce((a, s) => a + (s.energyKwh ?? 0), 0) / inPeriod.length
@@ -648,6 +713,57 @@ function renderPage(
   const fmtClock = (iso: string): string =>
     new Date(iso).toLocaleTimeString(L.locale, { hour: '2-digit', minute: '2-digit' });
 
+  // Zeitstempel EINMAL in Zahlen umrechnen — die Ladekurven schneiden sich
+  // ihre Messpunkte danach per Binärsuche heraus.
+  const sampleTimes = samples.map((x) => Date.parse(x.ts));
+
+  // --- Fahrten --------------------------------------------------------------
+  //
+  // Aus ALLEN Messpunkten, nicht aus den ortsgefilterten: Wo geladen wurde,
+  // sagt nichts darüber, wo gefahren wurde. Eine Fahrt zählt zu dem Zeitraum,
+  // in dem sie ENDETE — sie ist ein Ereignis mit einem Ziel.
+  //
+  // Derselbe Effektivpreis wie bei den Ladungen — Grundpreis minus Bonus.
+  const allTrips = buildTrips(allSamples, { pricePerKwh: optionsFor(o).pricePerKwh });
+  const tripsInPeriod = current
+    ? allTrips.filter(
+        (t) =>
+          keyOf(new Date(Date.parse(t.endedAt) - cfg.dayBoundaryHour * 3600000), gran) ===
+          current.key,
+      )
+    : [];
+  const tripSum = summarizeTrips(tripsInPeriod);
+  // Wie fein ist die Auflösung überhaupt? Der typische Messabstand OHNE Kabel
+  // — am Kabel läuft der Poll deutlich dichter und verzerrte den Wert.
+  const tripPollMin = pollIntervalMinutes(allSamples);
+  const shownTrips = [...tripsInPeriod].reverse().slice(0, LIST_LIMIT);
+  const tripRows = shownTrips
+    .map((t) => {
+      const soc =
+        t.startSoc !== undefined && t.endSoc !== undefined ? `${t.startSoc} → ${t.endSoc} %` : '—';
+      // Ohne belastbaren Verbrauch bleibt die Zelle leer statt „0,0" — die
+      // Strecke ist gefahren worden, nur ihr Preis ist nicht sagbar.
+      //
+      // Die Einheit steht AN der Zahl, nicht nur im Spaltenkopf: Am Telefon
+      // bricht die Tabelle zu Karten auf, und der Kopf verschwindet dabei —
+      // „22.5 2.02 kWh" wären dort zwei zusammenhanglose Zahlen.
+      const use =
+        t.kwhPer100km !== undefined
+          ? `${t.kwhPer100km.toFixed(1)} kWh/100 km<small>${(t.energyKwh as number).toFixed(
+              2,
+            )} kWh</small>`
+          : '—';
+      const cost = t.costEur !== undefined ? `${t.costEur.toFixed(2)} €` : '';
+      return `<tr class="trip">
+        <td>${esc(fmtDate(t.endedAt, L.locale))}</td>
+        <td>${t.km.toLocaleString(L.locale)} km</td>
+        <td>${esc(soc)}</td>
+        <td class="num">${use}</td>
+        <td class="num">${cost}</td>
+      </tr>`;
+    })
+    .join('');
+
   const rows = recent
     .map((s) => {
       const soc =
@@ -718,10 +834,10 @@ function renderPage(
       // Ladeverlauf der Session — nur die Messpunkte dieser Session.
       const from = Date.parse(s.startedAt);
       const to = s.endedAt ? Date.parse(s.endedAt) : Number.MAX_SAFE_INTEGER;
-      const own = samples.filter((x) => {
-        const t = Date.parse(x.ts);
-        return t >= from && t <= to;
-      });
+      // Über Binärsuche statt `filter`: Die Reihe ist zeitlich sortiert, und
+      // ein Vollscan JE LADUNG kostete bei einem Jahr Mitschrieb vierzig mal
+      // 151.000 `Date.parse` — gemessen der teuerste Posten der ganzen Seite.
+      const own = samples.slice(lowerBound(sampleTimes, from), lowerBound(sampleTimes, to + 1));
       const curve = chargeCurve(own, s.phases, {
         targetSoc: lastValue(own, (x) => x.targetSoc),
         minSoc: lastValue(own, (x) => x.minSoc),
@@ -929,6 +1045,15 @@ button.more:active{opacity:.6}
  color:var(--accent)}
 .note{background:var(--card);border:1px solid var(--line);border-radius:10px;
  padding:9px 12px;margin:-4px 0 14px;color:var(--dim);font-size:12.5px}
+/* Abschnittsüberschrift mit Kennzahl rechts — die Zusammenfassung gehört an
+   die Überschrift, nicht in eine eigene Zeile darunter. */
+h2{font-size:14px;font-weight:600;margin:22px 0 10px;display:flex;
+ justify-content:space-between;align-items:baseline;gap:10px}
+h2 em{font-style:normal;font-size:12px;color:var(--dim);font-weight:400;
+ text-align:right}
+/* Nachsatz unter einer Tabelle: ohne Rahmen, damit er nicht wie eine weitere
+   Zeile aussieht. */
+p.note{background:none;border:0;padding:2px 2px 0;margin:8px 0 4px;line-height:1.5}
 form.pf{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0 2px;
  padding:9px 10px;background:var(--bg);border:1px solid var(--line);border-radius:10px}
 form.pf label{display:flex;align-items:center;gap:5px;color:var(--dim);font-size:12px}
@@ -1039,6 +1164,20 @@ ${CHART_CSS}${BARS_CSS}
   /* Muss NACH den Layout-Regeln stehen: sonst zeigt jede zugeklappte
      Ladung ihre Kurve und ihre Phasen. */
   tr.phase.hidden{display:none}
+
+  /* Fahrten wie Ladungen als Karte — die Strecke ist hier die Hauptzahl. */
+  tr.trip{display:grid;grid-template-columns:minmax(0,1fr) auto;
+   gap:2px 12px;background:var(--card);border:1px solid var(--line);
+   border-radius:12px;padding:12px 14px;margin-bottom:8px;align-items:baseline}
+  tr.trip>td{display:block;border:0!important;padding:0}
+  tr.trip>td:nth-child(1){grid-column:1;grid-row:1;font-weight:600;font-size:15px}
+  tr.trip>td:nth-child(2){grid-column:2;grid-row:1;text-align:right;
+   font-weight:600;font-size:16px;white-space:nowrap}
+  tr.trip>td:nth-child(3){grid-column:1;grid-row:2;font-size:12.5px;color:var(--dim)}
+  tr.trip>td:nth-child(4){grid-column:2;grid-row:2;text-align:right;
+   font-size:12.5px;color:var(--dim);white-space:nowrap}
+  tr.trip>td:nth-child(5){grid-column:1/-1;grid-row:3;font-size:12.5px;color:var(--dim)}
+  tr.trip td small{display:inline;margin-left:6px;font-size:11.5px}
 }
 </style></head><body>
 <h1><span>${esc(o.vehicleName)}</span><em>${
@@ -1193,8 +1332,54 @@ ${
     ? `<div class="tablewrap"><table><thead><tr><th>${esc(L.dashStart)}</th><th>${esc(L.dashDuration)}</th><th>${esc(L.dashChargeState)}</th>
        <th class="num">${esc(L.dashEnergy)}</th><th class="num">${
          hasPrice ? esc(L.dashCost) : ''
-       }</th></tr></thead><tbody>${rows}</tbody></table></div>`
+       }</th></tr></thead><tbody>${rows}</tbody></table></div>${
+         inPeriod.length > LIST_LIMIT
+           ? `<p class="note">${esc(
+               L.dashChargesCapped.replace('%n', String(LIST_LIMIT)).replace(
+                 '%t',
+                 String(inPeriod.length),
+               ),
+             )}</p>`
+           : ''
+       }`
     : `<div class="empty">${esc(L.dashNoCharges)}<br>${esc(L.dashNoChargesHint)}</div>`
+}
+${
+  tripsInPeriod.length
+    ? `<h2>${esc(L.dashTripsHeading)}<em>${tripSum.km.toLocaleString(L.locale)} km${
+        tripSum.kwhPer100km !== undefined
+          ? ` · ${tripSum.kwhPer100km.toFixed(1)} kWh/100 km${
+              tripSum.costEur > 0 ? ` · ${tripSum.costEur.toFixed(2)} €` : ''
+            }`
+          : ''
+      }</em></h2>
+      <div class="tablewrap"><table><thead><tr><th>${esc(L.dashTripEnd)}</th><th>${esc(
+        L.dashTripDistance,
+      )}</th><th>${esc(L.dashChargeState)}</th>
+       <th class="num">${esc(L.dashTripConsumption)}</th><th class="num">${
+         hasPrice ? esc(L.dashCost) : ''
+       }</th></tr></thead>
+       <tbody>${tripRows}</tbody></table></div>
+      <p class="note">${
+        tripsInPeriod.length > LIST_LIMIT
+          ? esc(
+              L.dashTripsCapped.replace('%n', String(LIST_LIMIT)).replace(
+                '%t',
+                String(tripsInPeriod.length),
+              ),
+            )
+          : ''
+      }${esc(L.dashTripsNote.replace('%n', String(tripPollMin)))}${
+        tripSum.ratedKm < tripSum.km
+          ? esc(
+              L.dashTripsUnrated.replace('%r', tripSum.ratedKm.toLocaleString(L.locale)).replace(
+                '%k',
+                tripSum.km.toLocaleString(L.locale),
+              ),
+            )
+          : ''
+      }</p>`
+    : ''
 }
 <script>
 // Aktualisiert sich still im Hintergrund: alle 60 s, aber nur wenn die Seite

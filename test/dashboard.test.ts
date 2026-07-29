@@ -1315,3 +1315,186 @@ describe('Abruf auf der Statusseite', () => {
     expect(await seite(false)).not.toContain('id="rf"');
   });
 });
+
+describe('Fahrtenliste auf der Seite', () => {
+  let dir: string;
+  let nextPort = 18900;
+  let server: ReturnType<typeof startDashboard>;
+  let url: string;
+
+  const t = (m: number): string =>
+    new Date(Date.UTC(2026, 6, 28, 0, 0, 0) + m * 60000).toISOString();
+
+  /** Startet den Server über einem Mitschrieb aus `rows`. */
+  const serve = async (rows: ChargeLogSample[]): Promise<void> => {
+    const byDay: Record<string, ChargeLogSample[]> = {};
+    for (const r of rows) {
+      (byDay[r.ts.slice(0, 10)] ??= []).push(r);
+    }
+    for (const [d, rs] of Object.entries(byDay)) {
+      fs.writeFileSync(
+        path.join(dir, `${d}.jsonl`),
+        rs.map((r) => JSON.stringify(r)).join('\n') + '\n',
+      );
+    }
+    server = startDashboard({
+      port: nextPort++,
+      logDir: dir,
+      capacityKwh: 83.7,
+      pricePerKwh: 0.2,
+      priceCt: 30,
+      bonusCt: 0,
+      externalPriceCt: 0,
+      dayBoundaryHour: 0,
+      vehicleName: 'T',
+      uiPort: 8581,
+      labels: labelsFor('en'),
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server?.once('listening', r));
+    const a = server.address();
+    url = `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`;
+  };
+
+  /** Laden bei km 1000, danach zwei Fahrten mit bekanntem Verbrauch. */
+  const zweiFahrten = (): ChargeLogSample[] => [
+    { ts: t(0), odometerKm: 1000, soc: 80, plugged: true, charging: true, atHome: true },
+    { ts: t(20), odometerKm: 1000, soc: 80, plugged: false },
+    { ts: t(40), odometerKm: 1040, soc: 71, plugged: false, tripKwh100: 20 },
+    { ts: t(60), odometerKm: 1040, soc: 71, plugged: false, tripKwh100: 20 },
+    { ts: t(80), odometerKm: 1100, soc: 51, plugged: false, tripKwh100: 25 },
+    { ts: t(100), odometerKm: 1100, soc: 51, plugged: false, tripKwh100: 25 },
+  ];
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trip-'));
+  });
+
+  afterEach(() => {
+    server?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('zeigt die Fahrten des Zeitraums mit Strecke und Verbrauch', async () => {
+    await serve(zweiFahrten());
+    const html = await (await fetch(`${url}/?g=day`)).text();
+    expect(html).toContain('<h2>Trips');
+    expect(html).toContain('40 km');
+    expect(html).toContain('60 km');
+    expect(html).toContain('28.3 kWh/100 km');
+  });
+
+  it('nennt die Summe des Zeitraums an der Überschrift', async () => {
+    await serve(zweiFahrten());
+    const html = await (await fetch(`${url}/?g=day`)).text();
+    // 100 km, 25 kWh → 25,0 kWh/100 km, bei 30 ct/kWh ohne Bonus 7,50 €.
+    expect(html).toMatch(/<h2>Trips<em>100 km · 25\.0 kWh\/100 km · 7\.50 €/);
+  });
+
+  it('verschweigt den Abschnitt, solange keine Fahrt im Zeitraum liegt', async () => {
+    await serve([
+      { ts: t(0), odometerKm: 1000, soc: 80, plugged: true, charging: true, atHome: true },
+      { ts: t(20), odometerKm: 1000, soc: 81, plugged: true, charging: true, atHome: true },
+      { ts: t(40), odometerKm: 1000, soc: 82, plugged: false },
+    ]);
+    const html = await (await fetch(`${url}/?g=day`)).text();
+    expect(html).not.toContain('<h2>Trips');
+  });
+
+  it('folgt dem Zeitraum, statt immer alle Fahrten zu zeigen', async () => {
+    const gestern = (m: number): string =>
+      new Date(Date.UTC(2026, 6, 27, 0, 0, 0) + m * 60000).toISOString();
+    await serve([
+      { ts: gestern(0), odometerKm: 900, soc: 90, plugged: false },
+      { ts: gestern(20), odometerKm: 977, soc: 70, plugged: false },
+      { ts: gestern(40), odometerKm: 977, soc: 70, plugged: false },
+      ...zweiFahrten(),
+    ]);
+    const heute = await (await fetch(`${url}/?g=day`)).text();
+    expect(heute).not.toContain('77 km');
+    const vortag = await (await fetch(`${url}/?g=day&d=2026-07-27`)).text();
+    expect(vortag).toContain('77 km');
+    expect(vortag).not.toContain('>60 km<');
+  });
+
+  it('bleibt vom Ortsfilter unberührt — wo geladen wurde, sagt nichts über das Fahren', async () => {
+    await serve(zweiFahrten());
+    for (const p of ['', '&p=home', '&p=away']) {
+      const html = await (await fetch(`${url}/?g=day${p}`)).text();
+      expect(html).toContain('100 km · 25.0 kWh/100 km');
+    }
+  });
+
+  it('weist die Auflösung aus, statt Genauigkeit vorzutäuschen', async () => {
+    await serve(zweiFahrten());
+    const html = await (await fetch(`${url}/?g=day`)).text();
+    expect(html).toMatch(/every 20 minutes/);
+  });
+
+  it('nennt die Strecke, für die kein Verbrauch belastbar ist', async () => {
+    await serve([
+      // Erster Zyklus ohne bekannten Anfang: 30 km ohne Verbrauchsangabe.
+      { ts: t(0), odometerKm: 900, soc: 90, plugged: false, tripKwh100: 21 },
+      { ts: t(20), odometerKm: 930, soc: 83, plugged: false, tripKwh100: 21 },
+      { ts: t(40), odometerKm: 930, soc: 83, plugged: false, tripKwh100: 21 },
+    ]);
+    const html = await (await fetch(`${url}/?g=day`)).text();
+    expect(html).toContain('Consumption is only reliable for 0 of 30 km.');
+  });
+});
+
+describe('Deckel der Listen', () => {
+  let dir: string;
+  let server: ReturnType<typeof startDashboard>;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cap-'));
+  });
+
+  afterEach(() => {
+    server?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('deckelt die Ladungsliste und sagt es, statt still abzuschneiden', async () => {
+    // 50 kurze Ladungen an einem Tag. Ohne Deckel brächte jede ihre eigene
+    // Ladekurve mit — bei einem Jahr wog die Seite 1,4 MB.
+    const rows: ChargeLogSample[] = [];
+    for (let i = 0; i < 50; i++) {
+      const base = Date.UTC(2026, 6, 28, 0, 0, 0) + i * 20 * 60000;
+      const at = (s: number): string => new Date(base + s * 60000).toISOString();
+      rows.push({ ts: at(0), odometerKm: 1000, soc: 40, plugged: true, charging: true, atHome: true });
+      rows.push({ ts: at(5), odometerKm: 1000, soc: 42, plugged: true, charging: true, atHome: true });
+      rows.push({ ts: at(10), odometerKm: 1000, soc: 42, plugged: false });
+    }
+    fs.writeFileSync(
+      path.join(dir, '2026-07-28.jsonl'),
+      rows.map((r) => JSON.stringify(r)).join('\n') + '\n',
+    );
+    server = startDashboard({
+      port: 18999,
+      logDir: dir,
+      capacityKwh: 83.7,
+      pricePerKwh: 0.2,
+      priceCt: 30,
+      bonusCt: 0,
+      externalPriceCt: 0,
+      dayBoundaryHour: 0,
+      vehicleName: 'T',
+      uiPort: 8581,
+      labels: labelsFor('en'),
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server?.once('listening', r));
+    const a = server.address();
+    const url = `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`;
+    const html = await (await fetch(`${url}/?g=day`)).text();
+    expect(html).toContain('The most recent 40 of 50 charges');
+    // Die Kachel zählt weiterhin ALLE — der Deckel betrifft nur die Liste.
+    expect(html).toMatch(/<span>Charges<\/span><b>50<\/b>/);
+  });
+});

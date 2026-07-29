@@ -168,8 +168,8 @@ export interface Labels {
   pfSave: string;
   pfSaved: string;
   pfFailed: string;
-  capCycle: string;
-  capCycles: string;
+  capDrive: string;
+  capDrives: string;
   capFewCycles: string;
   setTitle: string;
   setBack: string;
@@ -340,9 +340,9 @@ aggWeek: 'CW',
   pfSave: 'Save',
   pfSaved: 'saved',
   pfFailed: 'not saved',
-  capCycle: 'discharge cycle',
-  capCycles: 'discharge cycles',
-  capFewCycles: 'few cycles so far, the value may still move',
+  capDrive: 'drive',
+  capDrives: 'drives',
+  capFewCycles: 'few drives so far, the value may still move',
   setTitle: 'Settings',
   setBack: 'Back',
   setPrice: 'Energy price',
@@ -356,8 +356,8 @@ aggWeek: 'CW',
   setDayBoundary: 'Day starts at',
   setDayBoundaryHint: 'Hour at which a new day counts. 4 assigns an overnight charge to the evening it started.',
   setAdopt: 'Adopt measured value',
-  setAdoptHint: 'Measured from your discharge cycles. Changes every kWh and cost figure retroactively.',
-  setAdoptFrom: 'Offered for adoption from %n cycles on — below that the estimate still moves too much.',
+  setAdoptHint: 'Measured from your drives between charges. Changes every kWh and cost figure retroactively.',
+  setAdoptFrom: 'Offered for adoption from %n drives on — below that the estimate still moves too much.',
   setMeasured: 'Measured',
   setFromDashboard: 'Set here',
   setFromPlugin: 'From the plugin settings',
@@ -512,9 +512,9 @@ aggWeek: 'KW',
   pfSave: 'Sichern',
   pfSaved: 'gesichert',
   pfFailed: 'nicht gespeichert',
-  capCycle: 'Ladezyklus',
-  capCycles: 'Ladezyklen',
-  capFewCycles: 'noch wenige Zyklen, Wert kann sich verschieben',
+  capDrive: 'Fahrt',
+  capDrives: 'Fahrten',
+  capFewCycles: 'noch wenige Fahrten, Wert kann sich verschieben',
   setTitle: 'Einstellungen',
   setBack: 'Zurück',
   setPrice: 'Arbeitspreis',
@@ -528,8 +528,8 @@ aggWeek: 'KW',
   setDayBoundary: 'Tagesgrenze',
   setDayBoundaryHint: 'Stunde, ab der ein neuer Tag zählt. 4 schlägt eine Nachtladung dem Vorabend zu.',
   setAdopt: 'Messwert übernehmen',
-  setAdoptHint: 'Aus deinen Ladezyklen gemessen. Ändert rückwirkend alle kWh- und Kostenzahlen.',
-  setAdoptFrom: 'Zur Übernahme angeboten ab %n Zyklen — vorher schwankt die Schätzung zu stark.',
+  setAdoptHint: 'Aus deinen Fahrten zwischen Ladungen gemessen. Ändert rückwirkend alle kWh- und Kostenzahlen.',
+  setAdoptFrom: 'Zur Übernahme angeboten ab %n Fahrten — vorher schwankt die Schätzung zu stark.',
   setMeasured: 'Gemessen',
   setFromDashboard: 'Hier gesetzt',
   setFromPlugin: 'Aus den Plugin-Einstellungen',

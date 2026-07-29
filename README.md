@@ -269,6 +269,8 @@ shows where its effective value comes from, so a change in Homebridge that appea
 never a mystery. The plugin never writes to Homebridge's `config.json`; it keeps its own file
 alongside the log.
 
+<img src="https://raw.githubusercontent.com/SchwabJ/homebridge-porsche/main/docs/img/dashboard-settings.png" alt="The dashboard settings page: energy price, charging bonus, price away from home, capacity and day boundary, each showing whether the value comes from this page or from the plugin settings" width="480">
+
 ### 🎯 Accuracy, honestly
 
 - Energy comes from the **state-of-charge delta**, not from integrating power. That survives missed

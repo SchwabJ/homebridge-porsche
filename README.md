@@ -17,7 +17,7 @@ own dashboard on your network.
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg)](https://nodejs.org)
 [![Homebridge](https://img.shields.io/badge/homebridge-%E2%89%A51.6-purple.svg)](https://homebridge.io)
-[![Tests](https://img.shields.io/badge/tests-442%20passing-success.svg)](#-development)
+[![Tests](https://img.shields.io/badge/tests-460%20passing-success.svg)](#-development)
 
 <img src="https://raw.githubusercontent.com/SchwabJ/homebridge-porsche/main/docs/img/dashboard-cards.png" alt="Charging dashboard: state of charge, energy, cost and savings per period, with the charge curve of each session" width="360">
 
@@ -297,6 +297,19 @@ These values are written only when they change. The poll runs every minute while
 plugged in, and a pressure reading repeated sixty times an hour inflates the log
 without adding anything.
 
+Each wheel gets a **trend line** over the recorded days, with the change in
+words — "-0.3 bar in 21 days" or "stable over 21 days". Falling is red. The
+y-axis follows the data, not zero: a drop from 2.7 to 2.5 bar would be a flat
+line on an axis starting at 0, and that movement is the whole point. A minimum
+span keeps a quiet tyre from looking like a defect, and one reading per day
+keeps temperature swings out of the line. Below four points nothing is drawn —
+two readings always make a straight line and claim a trend nobody can support.
+
+The service tile adds your current mileage and when the service is due at that
+rate. It stays silent below a week of history or 100 km driven, and gives only
+years once the estimate reaches beyond eighteen months: a month and year two
+and a half years out would claim a precision four weeks of data cannot deliver.
+
 There is no outside temperature: the API provides no such measurement.
 
 ### 🔔 Push notifications (optional)
@@ -328,7 +341,7 @@ notification toggle), or charge-on-arrival via **Car at home**.
 ```bash
 npm install
 npm run build      # tsc → dist/
-npm test           # jest (442 tests)
+npm test           # jest (460 tests)
 ```
 
 The codebase is split by domain: `src/api` (PPA client, commands, measurements, auth),

@@ -43,7 +43,15 @@ import {
   type DashboardSettings,
   type Source,
 } from './settings';
-import { chargeCurve, barChart, CHART_CSS, BARS_CSS, type BarPoint } from './chart';
+import {
+  chargeCurve,
+  barChart,
+  sparkline,
+  CHART_CSS,
+  BARS_CSS,
+  SPARK_CSS,
+  type BarPoint,
+} from './chart';
 
 export interface DashboardOptions {
   port: number;
@@ -1322,15 +1330,56 @@ function renderStatus(o: DashboardOptions, samples: ChargeLogSample[], host: str
   // Reifen: Der Sollabgleich kommt vom Fahrzeug (differenceBar) — eigene
   // Sollwerte zu raten wäre bei last- und temperaturabhängigen Vorgaben falsch.
   const WHEELS = [L.stFrontLeft, L.stFrontRight, L.stRearLeft, L.stRearRight];
+
+  // Verlauf je Rad. Das ist der eigentliche Gewinn gegenüber der Fahrzeug-App:
+  // Die zeigt den heutigen Druck, aber nicht, dass ein Reifen seit Wochen
+  // verliert. Ein einzelner Wert kann immer Tagesform sein — erst die Reihe
+  // unterscheidet Wetter von Verlust.
+  const history = samples
+    .filter((x) => x.tyreBar !== undefined)
+    .map((x) => ({ t: Date.parse(x.ts), v: x.tyreBar as [number, number, number, number] }));
+  // Ein Wert je Tag genügt und macht die Linie ruhig: Über den Tag schwankt
+  // der Druck mit der Temperatur, das ist kein Trend.
+  const daily: typeof history = [];
+  for (const h of history) {
+    const day = new Date(h.t).toDateString();
+    if (daily.length === 0 || new Date(daily[daily.length - 1].t).toDateString() !== day) {
+      daily.push(h);
+    } else {
+      daily[daily.length - 1] = h;
+    }
+  }
+  const trendFor = (i: number): { svg: string; text: string } => {
+    const pts = daily.map((d) => ({ t: d.t, v: d.v[i] }));
+    const svg = sparkline(pts, { minSpan: 0.2 });
+    if (pts.length < 4) {
+      return { svg: '', text: '' };
+    }
+    const delta = pts[pts.length - 1].v - pts[0].v;
+    const days = String(
+      Math.max(1, Math.round((pts[pts.length - 1].t - pts[0].t) / 86400000)),
+    );
+    return {
+      svg,
+      text:
+        Math.abs(delta) < 0.05
+          ? L.stStableOver.replace('%n', days)
+          : L.stChangeOver
+              .replace('%v', `${delta > 0 ? '+' : ''}${delta.toFixed(1)}`)
+              .replace('%n', days),
+    };
+  };
   const tyreRows = tyre
     ? tyre.value
         .map((bar, i) => {
           const d = diff?.value[i];
+          const trend = trendFor(i);
           const level = d === undefined ? '' : Math.abs(d) >= 0.3 ? ' bad' : Math.abs(d) >= 0.15 ? ' warn' : ' ok';
           return `<div class="wheel${level}">
             <span>${esc(WHEELS[i])}</span>
             <b>${bar.toFixed(1)}<i>bar</i></b>
             ${d !== undefined ? `<em>${d > 0 ? '+' : ''}${d.toFixed(1)} ${esc(L.stToTarget)}</em>` : ''}
+            ${trend.svg}${trend.text ? `<u>${esc(trend.text)}</u>` : ''}
           </div>`;
         })
         .join('')
@@ -1349,6 +1398,42 @@ function renderStatus(o: DashboardOptions, samples: ChargeLogSample[], host: str
   // `alert` hebt hervor, was man wissen WILL, ohne die Seite zu durchsuchen:
   // ein offenes Auto. Alles andere bleibt gleich laut, sonst hebt sich nichts
   // mehr ab.
+  // Service-Prognose: Wie lange reicht die Rest-Reichweite bei der aktuellen
+  // Fahrleistung? Die Kilometerzahl allein sagt wenig — 27.000 km sind bei
+  // 200 km je Woche gut zweieinhalb Jahre, bei 800 km ein gutes halbes.
+  //
+  // Gerechnet über die letzten vier Wochen, nicht über die gesamte Historie:
+  // Eine Urlaubsfahrt vor einem Jahr sagt nichts über den nächsten Monat.
+  const monthAgo = Date.now() - 28 * 86400000;
+  const odoMonth = samples.find(
+    (x) => x.odometerKm !== undefined && Date.parse(x.ts) >= monthAgo,
+  );
+  let serviceEta = '';
+  if (service && odoNow && odoMonth?.odometerKm !== undefined) {
+    const days = (Date.now() - Date.parse(odoMonth.ts)) / 86400000;
+    const km = odoNow.value - odoMonth.odometerKm;
+    // Erst ab einer Woche und 100 km ist die Hochrechnung mehr als Rauschen.
+    if (days >= 7 && km >= 100) {
+      const perDay = km / days;
+      const daysLeft = service.value / perDay;
+      const when = new Date(Date.now() + daysLeft * 86400000);
+      const perWeek = String(Math.round(perDay * 7));
+      // Ab eineinhalb Jahren nur noch grob in Jahren. Ein Monatsdatum, das
+      // zweieinhalb Jahre in der Zukunft liegt, behauptet eine Genauigkeit,
+      // die eine Hochrechnung aus vier Wochen nicht hergibt.
+      serviceEta =
+        daysLeft > 550
+          ? `${L.stPerWeek.replace('%n', perWeek)} ${L.stYearsLeft.replace(
+              '%n',
+              String(Math.floor(daysLeft / 365)),
+            )}`
+          : `${L.stPerWeek.replace('%n', perWeek)} ${L.stAbout} ${when.toLocaleDateString(
+              L.locale,
+              { month: 'long', year: 'numeric' },
+            )}`;
+    }
+  }
+
   const card = (label: string, value: string, sub = '', alert = false): string =>
     `<div class="card${alert ? ' alert' : ''}"><span>${esc(label)}</span><b>${value}</b>${
       sub ? `<span>${sub}</span>` : ''
@@ -1360,7 +1445,7 @@ function renderStatus(o: DashboardOptions, samples: ChargeLogSample[], host: str
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <title>${esc(o.vehicleName)} — ${esc(L.stTitle)}</title>
-<style>${BASE_CSS}
+<style>${BASE_CSS}${SPARK_CSS}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
 .card span{display:block;color:var(--dim);font-size:11px;text-transform:uppercase;
  letter-spacing:.04em;margin-bottom:4px}
@@ -1376,6 +1461,7 @@ function renderStatus(o: DashboardOptions, samples: ChargeLogSample[], host: str
 .wheel.ok em{color:#35c77b}
 .wheel.warn{border-color:#c8811a}.wheel.warn em{color:#c8811a}
 .wheel.bad{border-color:#d9534f}.wheel.bad em{color:#d9534f}
+.wheel u{display:block;text-decoration:none;font-size:11.5px;color:var(--dim);margin-top:2px}
 .card.alert{border:1px solid #d9534f}
 .card.alert b{color:#d9534f}
 h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim);
@@ -1393,7 +1479,7 @@ ${
 <div class="grid">
   ${
     service
-      ? card(L.stNextService, `${service.value.toLocaleString(L.locale)}<i>km</i>`)
+      ? card(L.stNextService, `${service.value.toLocaleString(L.locale)}<i>km</i>`, serviceEta)
       : ''
   }
   ${odoNow ? card(L.stOdometer, `${odoNow.value.toLocaleString(L.locale)}<i>km</i>`) : ''}

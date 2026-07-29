@@ -1,4 +1,4 @@
-import { chargeCurve, barChart } from '../src/chart';
+import { chargeCurve, barChart, sparkline } from '../src/chart';
 import type { ChargeLogSample } from '../src/chargeLog';
 import type { ChargePhase } from '../src/sessions';
 import { LABELS_DE, LABELS_EN } from '../src/i18n';
@@ -127,5 +127,51 @@ describe('Sprache der Diagramme', () => {
     const en = chargeCurve([at(0, 50, 11), at(10, 55, 11), at(20, 60)], [], { labels: LABELS_EN });
     expect(en).toContain('data-pts=');
     expect(en).not.toContain('undefined');
+  });
+});
+
+describe('sparkline', () => {
+  const pts = (vals: number[]): { t: number; v: number }[] =>
+    vals.map((v, i) => ({ t: Date.UTC(2026, 6, 1 + i), v }));
+
+  it('liefert nichts bei zu wenigen Punkten', () => {
+    // Zwei oder drei Messwerte ergeben immer eine Gerade und behaupten einen
+    // Trend, den niemand belegen kann.
+    expect(sparkline(pts([2.7, 2.6]))).toBe('');
+    expect(sparkline(pts([2.7, 2.6, 2.6]))).toBe('');
+  });
+
+  it('zeichnet ab vier Punkten', () => {
+    expect(sparkline(pts([2.7, 2.7, 2.6, 2.6]))).toContain('<path');
+  });
+
+  it('markiert einen fallenden Verlauf', () => {
+    expect(sparkline(pts([2.9, 2.8, 2.7, 2.5]))).toContain('spark down');
+  });
+
+  it('markiert einen steigenden Verlauf', () => {
+    expect(sparkline(pts([2.5, 2.6, 2.8, 2.9]))).toContain('spark up');
+  });
+
+  it('lässt einen ruhigen Verlauf neutral', () => {
+    const svg = sparkline(pts([2.7, 2.7, 2.71, 2.7]));
+    expect(svg).not.toContain('down');
+    expect(svg).not.toContain('up');
+  });
+
+  it('skaliert nach den Daten, nicht ab null', () => {
+    // Ein Abfall von 2,7 auf 2,5 bar wäre auf einer Achse ab 0 eine
+    // waagerechte Linie — genau die Bewegung ist hier aber die Aussage.
+    const svg = sparkline(pts([2.7, 2.65, 2.6, 2.5]));
+    const ys = [...svg.matchAll(/[ML][\d.]+,([\d.]+)/g)].map((m) => Number(m[1]));
+    expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(15);
+  });
+
+  it('bläht einen ruhigen Verlauf NICHT zum Beben auf', () => {
+    // Ohne Mindestspanne würde eine Schwankung von 0,01 bar den ganzen
+    // Kasten füllen und wie ein Defekt aussehen.
+    const svg = sparkline(pts([2.7, 2.71, 2.7, 2.71]), { minSpan: 0.2 });
+    const ys = [...svg.matchAll(/[ML][\d.]+,([\d.]+)/g)].map((m) => Number(m[1]));
+    expect(Math.max(...ys) - Math.min(...ys)).toBeLessThan(4);
   });
 });

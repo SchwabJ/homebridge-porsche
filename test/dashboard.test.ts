@@ -877,3 +877,109 @@ describe('Statusseite', () => {
     expect(html).not.toContain('undefined');
   });
 });
+
+describe('Service-Prognose', () => {
+  let dir: string;
+  let nextPort = 18950;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'svc-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** Schreibt `days` Tage Historie mit `kmPerDay` Fahrleistung. */
+  const schreibe = (days: number, kmPerDay: number, serviceKm = 27000): void => {
+    for (let d = days; d >= 0; d--) {
+      const at = new Date(Date.now() - d * 86400000);
+      const row = {
+        ts: at.toISOString(),
+        soc: 60,
+        odometerKm: 50000 + (days - d) * kmPerDay,
+        plugged: false,
+        ...(d === days ? { serviceKm, locked: true } : {}),
+      };
+      fs.writeFileSync(
+        path.join(dir, `${at.toISOString().slice(0, 10)}.jsonl`),
+        JSON.stringify(row) + '\n',
+      );
+    }
+    // Serviceangabe zusätzlich am Ende, damit sie als letzter Stand gilt.
+    const last = new Date();
+    fs.appendFileSync(
+      path.join(dir, `${last.toISOString().slice(0, 10)}.jsonl`),
+      JSON.stringify({
+        ts: last.toISOString(),
+        soc: 60,
+        odometerKm: 50000 + days * kmPerDay,
+        plugged: false,
+        serviceKm,
+        locked: true,
+      }) + '\n',
+    );
+  };
+
+  const seite = async (): Promise<string> => {
+    const server = startDashboard({
+      port: nextPort++,
+      logDir: dir,
+      capacityKwh: 83.7,
+      pricePerKwh: 0.2,
+      priceCt: 30,
+      bonusCt: 0,
+      externalPriceCt: 0,
+      dayBoundaryHour: 0,
+      vehicleName: 'T',
+      uiPort: 8581,
+      labels: labelsFor('en'),
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server.once('listening', r));
+    const a = server.address();
+    const html = await (
+      await fetch(`http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}/status`)
+    ).text();
+    server.close();
+    return html;
+  };
+
+  it('nennt Fahrleistung und geschätzten Zeitpunkt', async () => {
+    schreibe(28, 30, 3000);
+    const html = await seite();
+    expect(html).toMatch(/at \d+ km\/week/);
+  });
+
+  it('gibt bei langer Restlaufzeit nur Jahre an', async () => {
+    // Ein Monatsdatum zweieinhalb Jahre voraus behauptet eine Genauigkeit,
+    // die eine Hochrechnung aus vier Wochen nicht hergibt.
+    schreibe(28, 30, 27000);
+    expect(await seite()).toMatch(/over \d+ more years/);
+  });
+
+  it('schweigt bei zu kurzer Historie', async () => {
+    // Drei Tage Fahrleistung sind keine Grundlage für eine Jahresprognose.
+    schreibe(3, 30, 27000);
+    expect(await seite()).not.toMatch(/km\/week/);
+  });
+
+  it('schweigt, wenn kaum gefahren wurde', async () => {
+    // Ohne Bewegung ergäbe die Hochrechnung eine Division durch fast null.
+    schreibe(28, 1, 27000);
+    expect(await seite()).not.toMatch(/km\/week/);
+  });
+
+  it('kommt ohne Serviceangabe aus', async () => {
+    const at = new Date();
+    fs.writeFileSync(
+      path.join(dir, `${at.toISOString().slice(0, 10)}.jsonl`),
+      JSON.stringify({ ts: at.toISOString(), soc: 60, odometerKm: 50000 }) + '\n',
+    );
+    const html = await seite();
+    expect(html).not.toContain('undefined');
+    expect(html).not.toContain('NaN');
+  });
+});

@@ -184,6 +184,11 @@ export interface Labels {
   stAgoMin: string;
   stAgoHour: string;
   stFootnote: string;
+  stStableOver: string;
+  stChangeOver: string;
+  stPerWeek: string;
+  stAbout: string;
+  stYearsLeft: string;
   aggWeek: string;
   placeAll: string;
   placeHome: string;
@@ -383,6 +388,11 @@ export const LABELS_EN: Labels = {
   stAgoMin: '%n min ago',
   stAgoHour: '%n h ago',
   stFootnote: 'State values are only recorded when they change — the time above each block is therefore the last KNOWN reading, not the last poll. The interface provides no outside temperature.',
+  stStableOver: 'stable over %n days',
+  stChangeOver: '%v bar in %n days',
+  stPerWeek: 'at %n km/week',
+  stAbout: 'about',
+  stYearsLeft: 'over %n more years',
   aggWeek: 'CW',
   placeAll: 'All',
   placeHome: 'Home',
@@ -582,6 +592,11 @@ export const LABELS_DE: Labels = {
   stAgoMin: 'vor %n min',
   stAgoHour: 'vor %n h',
   stFootnote: 'Zustandswerte werden nur mitgeschrieben, wenn sie sich ändern — der Zeitpunkt über jedem Block ist deshalb der letzte BEKANNTE Stand, nicht der letzte Abruf. Eine Außentemperatur liefert die Schnittstelle nicht.',
+  stStableOver: 'stabil über %n Tage',
+  stChangeOver: '%v bar in %n Tagen',
+  stPerWeek: 'bei %n km/Woche',
+  stAbout: 'etwa',
+  stYearsLeft: 'noch gut %n Jahre',
   aggWeek: 'KW',
   placeAll: 'Alle',
   placeHome: 'Zuhause',

@@ -1139,3 +1139,99 @@ describe('Fremdladung ohne Preis', () => {
     server.close();
   });
 });
+
+describe('Zeitraum wählen und blättern', () => {
+  let dir: string;
+  let nextPort = 19250;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nav-'));
+    // Drei Tage, je eine Ladung.
+    const rows: ChargeLogSample[] = [];
+    for (let d = 3; d >= 1; d--) {
+      const base = Date.now() - d * 86400000;
+      const t = (m: number): string => new Date(base + m * 60000).toISOString();
+      rows.push(
+        { ts: t(0), soc: 40, rangeKm: 160, odometerKm: 50000, plugged: true, charging: true, atHome: true },
+        { ts: t(60), soc: 40 + d * 10, rangeKm: 200, odometerKm: 50000, plugged: true, charging: true, atHome: true },
+        { ts: t(70), soc: 40 + d * 10, rangeKm: 200, odometerKm: 50000, plugged: false },
+      );
+    }
+    const byDay: Record<string, ChargeLogSample[]> = {};
+    for (const r of rows) (byDay[r.ts.slice(0, 10)] ??= []).push(r);
+    for (const [day, rs] of Object.entries(byDay)) {
+      fs.writeFileSync(path.join(dir, `${day}.jsonl`), rs.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    }
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const seite = async (q: string): Promise<string> => {
+    const server = startDashboard({
+      port: nextPort++, logDir: dir, capacityKwh: 100, pricePerKwh: 0.2,
+      priceCt: 30, bonusCt: 0, externalPriceCt: 0, dayBoundaryHour: 0,
+      vehicleName: 'T', uiPort: 8581, labels: labelsFor('en'),
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server.once('listening', r));
+    const a = server.address();
+    const html = await (
+      await fetch(`http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}/${q}`)
+    ).text();
+    server.close();
+    return html;
+  };
+
+  const ladungen = (html: string): number => (html.match(/<tr class="sess/g) ?? []).length;
+
+  it('zeigt in der Tagesansicht nur die Ladungen DIESES Tages', async () => {
+    // Vorher stand unter jedem Zeitraum dieselbe vollständige Liste: Der
+    // Umschalter änderte Kacheln und Balken, aber nicht die Liste darunter.
+    expect(ladungen(await seite('?g=day'))).toBe(1);
+  });
+
+  it('fasst in der Wochenansicht alle Ladungen der Woche zusammen', async () => {
+    expect(ladungen(await seite('?g=week'))).toBeGreaterThan(1);
+  });
+
+  it('springt über die Adresse in einen früheren Zeitraum', async () => {
+    const gestern = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const html = await seite(`?g=day&d=${gestern}`);
+    // Datumsformat folgt der Sprache — geprüft wird der Tag, nicht die Schreibweise.
+    expect(html).toContain(gestern.slice(8));
+    expect(ladungen(html)).toBe(1);
+  });
+
+  it('bietet einen Zurück-Pfeil, solange es einen früheren Zeitraum gibt', async () => {
+    expect(await seite('?g=day')).toContain('rel="prev"');
+  });
+
+  it('bietet keinen Vorwärts-Pfeil im jüngsten Zeitraum', async () => {
+    expect(await seite('?g=day')).not.toContain('rel="next"');
+  });
+
+  it('bietet im älteren Zeitraum beide Pfeile und den Weg zurück zu heute', async () => {
+    // Vorgestern: Es gibt sowohl davor als auch danach Daten. (Der jüngste
+    // Zeitraum ist hier gestern, weil die Testdaten dort enden.)
+    const vorgestern = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
+    const html = await seite(`?g=day&d=${vorgestern}`);
+    expect(html).toContain('rel="prev"');
+    expect(html).toContain('rel="next"');
+    expect(html).toContain('class="now"');
+  });
+
+  it('ignoriert einen unsinnigen Zeitraum, statt eine leere Seite zu zeigen', async () => {
+    const html = await seite('?g=day&d=1999-01-01');
+    expect(html).not.toContain('undefined');
+    expect(ladungen(html)).toBe(1);
+  });
+
+  it('behält den Ortsfilter beim Blättern', async () => {
+    const html = await seite('?g=day&p=home');
+    expect(html).toMatch(/href="\?g=day&p=home&d=/);
+  });
+});

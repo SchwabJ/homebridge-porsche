@@ -242,6 +242,15 @@ export function aggregate(
   for (let i = 1; i < samples.length; i++) {
     const prev = samples[i - 1];
     const cur = samples[i];
+    // Zugeordnet wird nach dem SPÄTEREN der beiden Messpunkte: Ein Zuwachs
+    // wird dem Zeitpunkt gutgeschrieben, an dem er festgestellt wurde. Eine
+    // Nachtladung landet damit auf dem Tag ihres Endes, nicht anteilig auf
+    // beiden — anteilig aufzuteilen setzte voraus, den Verlauf zwischen zwei
+    // Messpunkten zu kennen, und den kennt hier niemand.
+    //
+    // Genau dafür gibt es die Tagesgrenze: Wer eine Nachtladung dem Vorabend
+    // zurechnen will, setzt sie auf 4 — dann verschiebt sich der Schnitt,
+    // statt dass die Energie geteilt wird.
     const key = keyOf(shift(new Date(cur.ts), boundary), g);
     const b = touch(key);
     b.samples++;

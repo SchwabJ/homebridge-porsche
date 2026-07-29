@@ -306,3 +306,75 @@ export const BARS_CSS = `
 .bars g:hover .v{opacity:.75}
 .bars .hit{fill:transparent}
 `;
+
+/** Ein Messwert einer Verlaufslinie. */
+export interface TrendPoint {
+  /** Zeitpunkt in ms seit Epoch. */
+  t: number;
+  v: number;
+}
+
+/**
+ * Kleine Verlaufslinie für einen langsam veränderlichen Messwert.
+ *
+ * Gedacht für den Reifendruck: Die Porsche-App zeigt den heutigen Wert, aber
+ * nicht, dass ein Reifen seit Wochen Luft verliert. Genau diese Bewegung ist
+ * hier die Aussage — die absolute Höhe steht ohnehin als Zahl daneben.
+ *
+ * Die Y-Achse folgt deshalb den DATEN, nicht der Null: Ein Druckverlust von
+ * 2,7 auf 2,5 bar wäre auf einer Achse ab 0 eine waagerechte Linie. Damit ein
+ * ruhiger Verlauf nicht wie ein Beben aussieht, gilt eine Mindestspanne.
+ *
+ * Gibt einen leeren String zurück, solange zu wenige Punkte vorliegen — zwei
+ * Messwerte ergeben immer eine Gerade und behaupten einen Trend, den niemand
+ * belegen kann.
+ */
+export function sparkline(points: TrendPoint[], opts: { minSpan?: number } = {}): string {
+  if (points.length < 4) {
+    return '';
+  }
+  const W = 120;
+  const H = 28;
+  const PAD = 3;
+  const minSpan = opts.minSpan ?? 0.2;
+
+  const t0 = points[0].t;
+  const t1 = points[points.length - 1].t;
+  const tSpan = Math.max(1, t1 - t0);
+
+  const values = points.map((p) => p.v);
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  const mid = (lo + hi) / 2;
+  const span = Math.max(hi - lo, minSpan);
+  const from = mid - span / 2;
+
+  const x = (t: number): number => PAD + ((t - t0) / tSpan) * (W - 2 * PAD);
+  const y = (v: number): number => PAD + (1 - (v - from) / span) * (H - 2 * PAD);
+
+  const d = points
+    .map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`)
+    .join('');
+  const last = points[points.length - 1];
+
+  // Richtung färbt die Linie: Fallender Druck ist das, was auffallen soll.
+  const delta = last.v - points[0].v;
+  const cls = delta <= -minSpan / 2 ? ' down' : delta >= minSpan / 2 ? ' up' : '';
+
+  return `<svg class="spark${cls}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"
+   role="img" aria-hidden="true"><path d="${d}"/><circle cx="${x(last.t).toFixed(
+     1,
+   )}" cy="${y(last.v).toFixed(1)}" r="2.2"/></svg>`;
+}
+
+/** CSS der Verlaufslinie. */
+export const SPARK_CSS = `
+.spark{width:100%;height:28px;display:block;margin-top:6px;overflow:visible}
+.spark path{fill:none;stroke:var(--dim);stroke-width:1.6;stroke-linejoin:round;
+ stroke-linecap:round;vector-effect:non-scaling-stroke}
+.spark circle{fill:var(--dim)}
+.spark.down path,.spark.down circle{stroke:#d9534f;fill:#d9534f}
+.spark.down path{fill:none}
+.spark.up path,.spark.up circle{stroke:#35c77b;fill:#35c77b}
+.spark.up path{fill:none}
+`;

@@ -562,15 +562,55 @@ function renderPage(
   const hasBonus = hasPrice && cfg.bonusCt > 0 && place !== 'away';
 
 
-  const barPoints: BarPoint[] = series.map((b) => ({
-    label: b.label,
-    value: b.kwh,
-    detail:
-      (hasPrice ? `${b.cost.toFixed(2)} € · ` : '') +
-      (b.rangeAdded > 0 ? `+${b.rangeAdded} km` : '') +
-      (b.km > 0 ? ` · ${b.km} km ${L.dashDriven.toLowerCase()}` : ''),
-    current: b === current,
-  }));
+  // --- Fahrten --------------------------------------------------------------
+  //
+  // Aus ALLEN Messpunkten, nicht aus den ortsgefilterten: Wo geladen wurde,
+  // sagt nichts darüber, wo gefahren wurde. Eine Fahrt zählt zu dem Zeitraum,
+  // in dem sie ENDETE — sie ist ein Ereignis mit einem Ziel.
+  //
+  // Derselbe Effektivpreis wie bei den Ladungen — Grundpreis minus Bonus.
+  const allTrips = buildTrips(allSamples, { pricePerKwh: optionsFor(o).pricePerKwh });
+
+  // Verbrauch je Abschnitt des Diagramms — der Gegenbalken zum Laden.
+  //
+  // Nicht `b.km` aus der Aggregation: Das sind Kilometer, keine Energie. Für
+  // den Gegensatz zum Laden muss dieselbe Größe in derselben Einheit stehen,
+  // sonst vergleicht das Bild zwei verschiedene Dinge.
+  //
+  // Fahrten ohne belastbaren Verbrauch fehlen zwangsläufig — dann ist der
+  // Gegenbalken zu kurz. Deshalb wird die unbewertete Strecke je Abschnitt
+  // mitgezählt und im Tooltip genannt, statt sie zu verschweigen.
+  const usedKwh = new Map<string, number>();
+  const unratedKm = new Map<string, number>();
+  for (const t of allTrips) {
+    const k = keyOf(new Date(Date.parse(t.endedAt) - cfg.dayBoundaryHour * 3600000), sub);
+    if (t.energyKwh !== undefined) {
+      usedKwh.set(k, (usedKwh.get(k) ?? 0) + t.energyKwh);
+    } else {
+      unratedKm.set(k, (unratedKm.get(k) ?? 0) + t.km);
+    }
+  }
+
+  const barPoints: BarPoint[] = series.map((b) => {
+    const offen = unratedKm.get(b.key) ?? 0;
+    return {
+      label: b.label,
+      value: b.kwh,
+      down: Math.round((usedKwh.get(b.key) ?? 0) * 10) / 10,
+      // Stückweise zusammengesetzt und dann verbunden: Vorher entstand bei
+      // fehlender Reichweite ein doppelter Trenner („0,00 € ·  · 6 km").
+      detail: [
+        hasPrice ? `${b.cost.toFixed(2)} €` : '',
+        b.rangeAdded > 0 ? `+${b.rangeAdded} km` : '',
+        b.km > 0 ? `${b.km} km ${L.dashDriven.toLowerCase()}` : '',
+      ]
+        .filter(Boolean)
+        .join(' · '),
+      downDetail:
+        offen > 0 ? L.chartUnrated.replace('%n', offen.toLocaleString(L.locale)) : undefined,
+      current: b === current,
+    };
+  });
   const bars = barChart(barPoints, L);
 
   const q = (g: Granularity, p: Place, d?: string): string =>
@@ -735,14 +775,6 @@ function renderPage(
   // ihre Messpunkte danach per Binärsuche heraus.
   const sampleTimes = samples.map((x) => Date.parse(x.ts));
 
-  // --- Fahrten --------------------------------------------------------------
-  //
-  // Aus ALLEN Messpunkten, nicht aus den ortsgefilterten: Wo geladen wurde,
-  // sagt nichts darüber, wo gefahren wurde. Eine Fahrt zählt zu dem Zeitraum,
-  // in dem sie ENDETE — sie ist ein Ereignis mit einem Ziel.
-  //
-  // Derselbe Effektivpreis wie bei den Ladungen — Grundpreis minus Bonus.
-  const allTrips = buildTrips(allSamples, { pricePerKwh: optionsFor(o).pricePerKwh });
   const tripsInPeriod = current
     ? allTrips.filter(
         (t) =>
@@ -1135,6 +1167,14 @@ td small{display:block;color:var(--dim);font-size:12px}
 .empty{background:var(--card);border:1px solid var(--line);border-radius:12px;
  padding:26px;text-align:center;color:var(--dim)}
 ${CHART_CSS}${BARS_CSS}${SPARK_CSS}
+/* Legende des Gegenbalkens: Ohne sie ist die zweite Farbe eine Behauptung,
+   die nur der Tooltip auflöst. */
+.legend{display:flex;gap:14px;justify-content:center;margin:2px 0 6px;
+ font-size:11.5px;color:var(--dim)}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.legend span::before{content:"";width:9px;height:9px;border-radius:3px}
+.legend .up::before{background:var(--accent)}
+.legend .dn::before{background:#e8833a}
 @media(max-width:620px){
   /* Spaltenlayout bricht auf dem Telefon zu Wortsalat — deshalb je Ladung
      eine Karte. Positionen explizit über Zeile/Spalte statt benannter
@@ -1369,7 +1409,19 @@ ${
     ? `<div class="quality ${quality.level}">${esc(quality.text)}</div>`
     : ''
 }
-${series.length ? `<div class="chart">${bars}</div>` : ''}
+${
+  series.length
+    ? `<div class="chart">${
+        // Legende nur, wenn es zwei Richtungen gibt. Bei einer Reihe sagt die
+        // Überschrift schon alles, und eine Legende wäre nur Bedienlast.
+        barPoints.some((b) => (b.down ?? 0) > 0)
+          ? `<div class="legend"><span class="up">${esc(
+              L.chartCharged,
+            )}</span><span class="dn">${esc(L.chartUsed)}</span></div>`
+          : ''
+      }${bars}</div>`
+    : ''
+}
 ${
   recent.length
     ? `<div class="tablewrap"><table><thead><tr><th>${esc(L.dashStart)}</th><th>${esc(L.dashDuration)}</th><th>${esc(L.dashChargeState)}</th>

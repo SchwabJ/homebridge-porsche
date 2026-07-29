@@ -1792,3 +1792,100 @@ describe('Kapazitätsverlauf auf der Seite', () => {
     expect(html).not.toContain('class="captrend"');
   });
 });
+
+describe('Verbrauch im Diagramm', () => {
+  let dir: string;
+  let server: ReturnType<typeof startDashboard>;
+  let url: string;
+
+  const heute = new Date();
+  heute.setHours(0, 0, 0, 0);
+  const t = (min: number): string => new Date(heute.getTime() + min * 60000).toISOString();
+
+  const serve = async (rows: ChargeLogSample[], port: number): Promise<void> => {
+    const byDay: Record<string, ChargeLogSample[]> = {};
+    for (const r of rows) (byDay[r.ts.slice(0, 10)] ??= []).push(r);
+    for (const [d, rs] of Object.entries(byDay)) {
+      fs.writeFileSync(
+        path.join(dir, `${d}.jsonl`),
+        rs.map((r) => JSON.stringify(r)).join('\n') + '\n',
+      );
+    }
+    server = startDashboard({
+      port,
+      logDir: dir,
+      capacityKwh: 100,
+      pricePerKwh: 0.2,
+      priceCt: 30,
+      bonusCt: 0,
+      externalPriceCt: 0,
+      dayBoundaryHour: 0,
+      vehicleName: 'T',
+      uiPort: 8581,
+      labels: labelsFor('en'),
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server?.once('listening', r));
+    const a = server.address();
+    url = `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`;
+  };
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gegen-'));
+  });
+
+  afterEach(() => {
+    server?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('trägt die verbrauchte Energie als Gegenbalken auf', async () => {
+    // Laden bei km 1000, dann 40 km mit 20 kWh/100 km = 8 kWh verbraucht.
+    await serve(
+      [
+        { ts: t(0), soc: 40, odometerKm: 1000, plugged: true, charging: true, atHome: true },
+        { ts: t(60), soc: 70, odometerKm: 1000, plugged: true, charging: true, atHome: true },
+        { ts: t(70), soc: 70, odometerKm: 1000, plugged: false },
+        { ts: t(120), soc: 62, odometerKm: 1040, plugged: false, tripKwh100: 20 },
+        { ts: t(140), soc: 62, odometerKm: 1040, plugged: false, tripKwh100: 20 },
+      ],
+      19500,
+    );
+    const html = await (await fetch(`${url}/?g=day`)).text();
+    expect(html).toContain('kWh used');
+    expect(html).toContain('8.0 kWh used');
+    expect(html).toContain('class="d"');
+  });
+
+  it('zeigt die Legende nur, wenn es zwei Richtungen gibt', async () => {
+    // Ohne Fahrten bleibt es eine Reihe — dann wäre die Legende Bedienlast.
+    await serve(
+      [
+        { ts: t(0), soc: 40, odometerKm: 1000, plugged: true, charging: true, atHome: true },
+        { ts: t(60), soc: 70, odometerKm: 1000, plugged: true, charging: true, atHome: true },
+        { ts: t(70), soc: 70, odometerKm: 1000, plugged: false },
+      ],
+      19501,
+    );
+    const html = await (await fetch(`${url}/?g=day`)).text();
+    expect(html).not.toContain('class="legend"');
+    expect(html).not.toContain('class="d"');
+  });
+
+  it('nennt die Strecke, deren Verbrauch nicht belastbar ist', async () => {
+    // Der erste Zyklus hat keinen bekannten Anfang — seine Strecke fehlt dem
+    // Gegenbalken. Das darf nicht stillschweigend passieren.
+    await serve(
+      [
+        { ts: t(0), soc: 90, odometerKm: 900, plugged: false, tripKwh100: 21 },
+        { ts: t(20), soc: 80, odometerKm: 950, plugged: false, tripKwh100: 21 },
+        { ts: t(40), soc: 80, odometerKm: 950, plugged: false, tripKwh100: 21 },
+      ],
+      19502,
+    );
+    const html = await (await fetch(`${url}/?g=day`)).text();
+    expect(html).toContain('50 km without a reliable consumption figure');
+  });
+});

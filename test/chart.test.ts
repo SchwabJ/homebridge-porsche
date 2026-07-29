@@ -175,3 +175,89 @@ describe('sparkline', () => {
     expect(Math.max(...ys) - Math.min(...ys)).toBeLessThan(4);
   });
 });
+
+describe('Gegenbalken: geladen nach oben, verbraucht nach unten', () => {
+  /** Alle `rect`-Höhen einer Klasse aus dem SVG. */
+  const hoehen = (svg: string, cls: string): number[] =>
+    [...svg.matchAll(new RegExp(`class="${cls}"[^>]*height="([\\d.]+)"`, 'g'))].map((m) =>
+      Number(m[1]),
+    );
+
+  it('zeichnet ohne Verbrauchsdaten genau wie vorher — eine Richtung', () => {
+    const svg = barChart([
+      { label: 'Mo', value: 10 },
+      { label: 'Di', value: 20 },
+    ], LABELS_DE);
+    expect(svg).toContain('viewBox="0 0 640 132"');
+    expect(hoehen(svg, 'd')).toHaveLength(0);
+  });
+
+  it('macht das Bild höher, sobald es zwei Richtungen gibt', () => {
+    // Sonst schrumpfen beide Richtungen auf die Hälfte der bisherigen Höhe.
+    const svg = barChart([{ label: 'Mo', value: 10, down: 8 }], LABELS_DE);
+    expect(svg).toContain('viewBox="0 0 640 176"');
+  });
+
+  it('gibt beiden Richtungen DIESELBE Skala', () => {
+    // Bei gleichem Wert oben und unten müssen beide Balken gleich hoch sein.
+    // Eine feste Flächenaufteilung würde hier zwei Maßstäbe ergeben.
+    const svg = barChart([
+      { label: 'Mo', value: 20, down: 20 },
+      { label: 'Di', value: 10, down: 5 },
+    ], LABELS_DE);
+    const up = hoehen(svg, 'v');
+    const down = hoehen(svg, 'd');
+    expect(up[0]).toBeCloseTo(down[0], 0);
+    // Und das Verhältnis innerhalb einer Richtung bleibt erhalten.
+    expect(up[1] / up[0]).toBeCloseTo(0.5, 1);
+    expect(down[1] / down[0]).toBeCloseTo(0.25, 1);
+  });
+
+  it('behält die Skala auch bei ungleichen Maxima', () => {
+    // Oben 40, unten 10: Der Gegenbalken darf nicht auf die halbe Fläche
+    // gestreckt werden, sonst sähe ein Viertel wie die Hälfte aus.
+    const svg = barChart([{ label: 'Mo', value: 40, down: 10 }], LABELS_DE);
+    const up = hoehen(svg, 'v')[0];
+    const down = hoehen(svg, 'd')[0];
+    expect(down / up).toBeCloseTo(0.25, 1);
+  });
+
+  it('beschriftet die Gegenachse ohne Minuszeichen', () => {
+    // Es ist ein Betrag in der anderen Richtung, keine negative Energie.
+    const svg = barChart([{ label: 'Mo', value: 20, down: 15 }], LABELS_DE);
+    expect(svg).not.toContain('>-20<');
+    expect(svg).not.toContain('>-15<');
+    expect(svg).toMatch(/>20</);
+  });
+
+  it('zieht die Nulllinie als eigene Linie, nicht als Hilfslinie', () => {
+    const svg = barChart([{ label: 'Mo', value: 20, down: 15 }], LABELS_DE);
+    expect(svg).toContain('class="zl"');
+  });
+
+  it('nennt in einem Tooltip beide Richtungen', () => {
+    const svg = barChart([
+      { label: 'Di', value: 20.1, down: 22.1, downDetail: '88 km ohne belastbaren Verbrauch' },
+    ], LABELS_DE);
+    expect(svg).toContain('20.1 kWh geladen');
+    expect(svg).toContain('22.1 kWh verbraucht');
+    expect(svg).toContain('88 km ohne belastbaren Verbrauch');
+  });
+
+  it('lässt zwischen den Füllungen Luft, statt sie zu verschmelzen', () => {
+    // Ein durchgehender Block wäre als ein Balken lesbar.
+    const svg = barChart([{ label: 'Mo', value: 20, down: 20 }], LABELS_DE);
+    const yUp = Number((svg.match(/class="v"[^>]*y="([\d.]+)"/) as string[])[1]);
+    const hUp = hoehen(svg, 'v')[0];
+    const yDown = Number((svg.match(/class="d"[^>]*y="([\d.]+)"/) as string[])[1]);
+    expect(yDown).toBeGreaterThan(yUp + hUp);
+  });
+
+  it('zeigt einen Gegenbalken auch bei null Ladung', () => {
+    // Ein Tag, an dem gefahren, aber nicht geladen wurde, ist genau der Fall,
+    // für den es die zweite Richtung gibt.
+    const svg = barChart([{ label: 'Mo', value: 0, down: 12 }], LABELS_DE);
+    expect(hoehen(svg, 'd')).toHaveLength(1);
+    expect(svg).toContain('12.0 kWh verbraucht');
+  });
+});

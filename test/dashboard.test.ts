@@ -983,3 +983,100 @@ describe('Service-Prognose', () => {
     expect(html).not.toContain('NaN');
   });
 });
+
+describe('Verspätete Öffnungsmeldung', () => {
+  let dir: string;
+  let nextPort = 19050;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'open-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** Schreibt einen Verlauf, in dem seit `minutes` Minuten „offen" gemeldet wird. */
+  const offenSeit = (minutes: number): void => {
+    const rows = [
+      {
+        ts: new Date(Date.now() - (minutes + 60) * 60000).toISOString(),
+        soc: 60,
+        anyOpen: false,
+        locked: true,
+      },
+      {
+        ts: new Date(Date.now() - minutes * 60000).toISOString(),
+        soc: 60,
+        anyOpen: true,
+        locked: true,
+      },
+      { ts: new Date().toISOString(), soc: 60 },
+    ];
+    fs.writeFileSync(
+      path.join(dir, `${new Date().toISOString().slice(0, 10)}.jsonl`),
+      rows.map((r) => JSON.stringify(r)).join('\n') + '\n',
+    );
+  };
+
+  const seite = async (): Promise<string> => {
+    const server = startDashboard({
+      port: nextPort++,
+      logDir: dir,
+      capacityKwh: 83.7,
+      pricePerKwh: 0.2,
+      priceCt: 30,
+      bonusCt: 0,
+      externalPriceCt: 0,
+      dayBoundaryHour: 0,
+      vehicleName: 'T',
+      uiPort: 8581,
+      labels: labelsFor('en'),
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server.once('listening', r));
+    const a = server.address();
+    const html = await (
+      await fetch(`http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}/status`)
+    ).text();
+    server.close();
+    return html;
+  };
+
+  it('schlägt bei frischer Meldung NICHT Alarm', async () => {
+    // Das Fahrzeug meldet nach dem Abstellen regelmäßig ein offenes Fenster im
+    // Fond, das zu ist, und korrigiert sich nach etwa einer halben Stunde. Ein
+    // Alarm, der mehrmals täglich grundlos angeht, wird ignoriert — und nützt
+    // dann auch nicht mehr, wenn wirklich etwas offen steht.
+    offenSeit(10);
+    const html = await seite();
+    expect(html).toContain('reported for 10 min');
+    expect(html).not.toContain('card alert');
+  });
+
+  it('schlägt Alarm, sobald die Meldung stehen bleibt', async () => {
+    offenSeit(60);
+    const html = await seite();
+    expect(html).toContain('card alert');
+  });
+
+  it('nennt den Grund, statt die Meldung zu verschweigen', async () => {
+    offenSeit(10);
+    const html = await seite();
+    // Der Zustand steht da — nur ohne Alarmfarbe und mit Einordnung.
+    expect(html).toContain('>no<');
+    expect(html).toContain('often delayed');
+  });
+
+  it('lässt „alles geschlossen" unangetastet', async () => {
+    fs.writeFileSync(
+      path.join(dir, `${new Date().toISOString().slice(0, 10)}.jsonl`),
+      JSON.stringify({ ts: new Date().toISOString(), soc: 60, anyOpen: false }) + '\n',
+    );
+    const html = await seite();
+    expect(html).not.toContain('card alert');
+    expect(html).not.toContain('often delayed');
+  });
+});

@@ -1174,6 +1174,19 @@ describe('Zeitraum wählen und blättern', () => {
   let dir: string;
   let nextPort = 19250;
 
+  /**
+   * Tagesschlüssel wie das Dashboard ihn bildet — aus LOKALEN Datumsteilen.
+   *
+   * `toISOString().slice(0, 10)` liefert den UTC-Tag. Östlich von Greenwich
+   * fallen beide nach Mitternacht Ortszeit auseinander: Um 00:30 MESZ ist in
+   * UTC noch der Vortag. Genau daran ist dieser Block einmal über Nacht
+   * umgekippt — grün am Abend, rot am Morgen, ohne eine Zeile Codeänderung.
+   */
+  const tagKey = (d: Date): string =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+      d.getDate(),
+    ).padStart(2, '0')}`;
+
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nav-'));
     // Drei Tage, je eine Ladung.
@@ -1229,7 +1242,7 @@ describe('Zeitraum wählen und blättern', () => {
   });
 
   it('springt über die Adresse in einen früheren Zeitraum', async () => {
-    const gestern = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const gestern = tagKey(new Date(Date.now() - 86400000));
     const html = await seite(`?g=day&d=${gestern}`);
     // Datumsformat folgt der Sprache — geprüft wird der Tag, nicht die Schreibweise.
     expect(html).toContain(gestern.slice(8));
@@ -1247,7 +1260,7 @@ describe('Zeitraum wählen und blättern', () => {
   it('bietet im älteren Zeitraum beide Pfeile und den Weg zurück zu heute', async () => {
     // Vorgestern: Es gibt sowohl davor als auch danach Daten. (Der jüngste
     // Zeitraum ist hier gestern, weil die Testdaten dort enden.)
-    const vorgestern = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
+    const vorgestern = tagKey(new Date(Date.now() - 2 * 86400000));
     const html = await seite(`?g=day&d=${vorgestern}`);
     expect(html).toContain('rel="prev"');
     expect(html).toContain('rel="next"');

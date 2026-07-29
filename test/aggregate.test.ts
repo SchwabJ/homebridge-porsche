@@ -1,4 +1,4 @@
-import { aggregate, isoWeek, keyOf, labelOf, efficiency } from '../src/aggregate';
+import { aggregate, isoWeek, keyOf, labelOf, efficiency, SUB } from '../src/aggregate';
 import type { ChargeLogSample } from '../src/chargeLog';
 import { LABELS_DE, LABELS_EN } from '../src/i18n';
 
@@ -272,14 +272,14 @@ describe('dayBoundaryHour', () => {
 describe('efficiency', () => {
   it('computes consumption and cost per kilometre', () => {
     const e = efficiency([
-      { key: 'a', label: 'a', kwh: 20, cost: 4, costGross: 6.5, saved: 2.5, rangeAdded: 0, km: 100, samples: 1, gapMinutes: 0, spanMinutes: 60 },
+      { key: 'a', from: '', label: 'a', kwh: 20, cost: 4, costGross: 6.5, saved: 2.5, rangeAdded: 0, km: 100, samples: 1, gapMinutes: 0, spanMinutes: 60 },
     ]);
     expect(e.kwhPer100km).toBe(20);
     expect(e.centPerKm).toBe(4);
   });
 
   it('omits the ratios without driven distance (no division by zero)', () => {
-    const e = efficiency([{ key: 'a', label: 'a', kwh: 20, cost: 4, costGross: 6.5, saved: 2.5, rangeAdded: 0, km: 0, samples: 1, gapMinutes: 0, spanMinutes: 60 }]);
+    const e = efficiency([{ key: 'a', from: '', label: 'a', kwh: 20, cost: 4, costGross: 6.5, saved: 2.5, rangeAdded: 0, km: 0, samples: 1, gapMinutes: 0, spanMinutes: 60 }]);
     expect(e.kwhPer100km).toBeUndefined();
     expect(e.centPerKm).toBeUndefined();
   });
@@ -364,5 +364,59 @@ describe('Sprünge über leere Messpunkte hinweg', () => {
     const days = aggregate(s, 'day', OPTS);
     expect(days.find((b) => b.key === '2026-07-27')?.kwh).toBe(0);
     expect(days.find((b) => b.key === '2026-07-28')?.kwh).toBe(5);
+  });
+});
+
+describe('Unterteilung eines Zeitraums', () => {
+  it('unterteilt jeden Zeitraum eine Stufe feiner', () => {
+    // Der gewählte Zeitraum ist der RAHMEN, nicht der Balken: Wer „Woche"
+    // wählt, will die Tage dieser Woche sehen — nicht die letzten 26 Wochen.
+    expect(SUB.day).toBe('hour');
+    expect(SUB.week).toBe('day');
+    expect(SUB.month).toBe('week');
+    expect(SUB.year).toBe('month');
+  });
+
+  it('bildet Stundenschlüssel', () => {
+    expect(keyOf(new Date(2026, 6, 29, 14, 37), 'hour')).toBe('2026-07-29T14');
+  });
+
+  it('beschriftet Stunden als Uhrzeit', () => {
+    expect(labelOf('2026-07-29T14', 'hour', LABELS_DE)).toBe('14:00');
+  });
+
+  it('führt Stunden lückenlos über den Tageswechsel', () => {
+    const s = [
+      local(2026, 6, 28, 23, 0, { soc: 40, plugged: true, charging: true }),
+      local(2026, 6, 29, 1, 0, { soc: 60, plugged: true, charging: true }),
+    ];
+    const keys = aggregate(s, 'hour', OPTS).map((b) => b.key);
+    expect(keys).toEqual(['2026-06-28T23', '2026-06-29T00', '2026-06-29T01']);
+  });
+
+  it('nennt zu jedem Abschnitt seinen Beginn', () => {
+    // Ohne den ließe sich ein Abschnitt seinem Zeitraum nicht zuordnen: Eine
+    // Kalenderwoche kann über den Monatswechsel reichen.
+    const s = [
+      local(2026, 6, 28, 10, 0, { soc: 40, plugged: true, charging: true }),
+      local(2026, 6, 28, 12, 0, { soc: 60, plugged: true, charging: true }),
+    ];
+    for (const b of aggregate(s, 'day', OPTS)) {
+      expect(b.from).not.toBe('');
+      expect(Number.isFinite(Date.parse(b.from))).toBe(true);
+    }
+  });
+
+  it('gibt auch aufgefüllten Lücken einen Beginn', () => {
+    // Lückenfüller haben keinen Messpunkt — ihr Beginn kommt aus dem Schlüssel.
+    const s = [
+      local(2026, 6, 26, 10, 0, { soc: 40, plugged: true, charging: true }),
+      local(2026, 6, 29, 10, 0, { soc: 60, plugged: true, charging: true }),
+    ];
+    const buckets = aggregate(s, 'day', OPTS);
+    expect(buckets.length).toBeGreaterThan(2);
+    for (const b of buckets) {
+      expect(Number.isFinite(Date.parse(b.from))).toBe(true);
+    }
   });
 });

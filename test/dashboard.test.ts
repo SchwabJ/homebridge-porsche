@@ -662,3 +662,110 @@ describe('Einstellungsseite', () => {
     stop();
   });
 });
+
+describe('Datenqualität und Ortsfilter', () => {
+  let dir: string;
+  let nextPort = 18700;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dq-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('meldet keine Datenlücke, die nur der Ortsfilter erzeugt hat', async () => {
+    // Lückenloser Mitschrieb: alle 10 Minuten ein Messpunkt, erst eine lange
+    // Heimladung, dann eine Fahrt. Der Filter „unterwegs" schneidet die
+    // Heimladung heraus — das entstehende Loch ist gewollt und keine fehlende
+    // Messung. Vorher meldete die Seite dafür „69 % erfasst, 11,4 h fehlen".
+    const rows: ChargeLogSample[] = [];
+    const t = (m: number): string =>
+      new Date(Date.UTC(2026, 6, 28, 0, 0, 0) + m * 60000).toISOString();
+    for (let m = 0; m <= 600; m += 10) {
+      rows.push({
+        ts: t(m),
+        soc: 40 + Math.floor(m / 20),
+        odometerKm: 50000,
+        plugged: true,
+        charging: true,
+        atHome: true,
+      });
+    }
+    for (let m = 610; m <= 900; m += 10) {
+      rows.push({ ts: t(m), soc: 70, odometerKm: 50000 + (m - 610), plugged: false });
+    }
+    fs.writeFileSync(
+      path.join(dir, '2026-07-28.jsonl'),
+      rows.map((r) => JSON.stringify(r)).join('\n') + '\n',
+    );
+
+    const server = startDashboard({
+      port: nextPort++,
+      logDir: dir,
+      capacityKwh: 100,
+      pricePerKwh: 0.2,
+      priceCt: 30,
+      bonusCt: 0,
+      externalPriceCt: 0,
+      dayBoundaryHour: 0,
+      vehicleName: 'T',
+      uiPort: 8581,
+      labels: labelsFor('en'),
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server.once('listening', r));
+    const a = server.address();
+    const url = `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`;
+
+    for (const p of ['', '&p=home', '&p=away']) {
+      const html = await (await fetch(`${url}/?g=day${p}`)).text();
+      expect(html).not.toContain('Data gaps');
+    }
+    server.close();
+  });
+
+  it('meldet eine ECHTE Lücke weiterhin', async () => {
+    // Gegenprobe zur vorigen: Fehlt wirklich ein halber Tag im Mitschrieb,
+    // muss die Warnung kommen — sonst hätte der Fix sie nur stummgeschaltet.
+    const t = (m: number): string =>
+      new Date(Date.UTC(2026, 6, 28, 0, 0, 0) + m * 60000).toISOString();
+    const rows: ChargeLogSample[] = [];
+    for (let m = 0; m <= 60; m += 10) {
+      rows.push({ ts: t(m), soc: 40, odometerKm: 50000, plugged: false });
+    }
+    // Zehn Stunden nichts.
+    for (let m = 660; m <= 720; m += 10) {
+      rows.push({ ts: t(m), soc: 38, odometerKm: 50050, plugged: false });
+    }
+    fs.writeFileSync(
+      path.join(dir, '2026-07-28.jsonl'),
+      rows.map((r) => JSON.stringify(r)).join('\n') + '\n',
+    );
+    const server = startDashboard({
+      port: nextPort++,
+      logDir: dir,
+      capacityKwh: 100,
+      pricePerKwh: 0.2,
+      priceCt: 30,
+      bonusCt: 0,
+      externalPriceCt: 0,
+      dayBoundaryHour: 0,
+      vehicleName: 'T',
+      uiPort: 8581,
+      labels: labelsFor('en'),
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server.once('listening', r));
+    const a = server.address();
+    const url = `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`;
+    const html = await (await fetch(`${url}/?g=day`)).text();
+    expect(html).toContain('Data gaps');
+    server.close();
+  });
+});

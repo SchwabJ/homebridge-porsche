@@ -543,12 +543,23 @@ function renderPage(
   // Datenqualität des angezeigten Zeitraums. Ohne dieses Maß sähe eine
   // Auswertung aus sechs Messpunkten genauso vertrauenswürdig aus wie eine
   // aus sechshundert — und der Vergleich beider Verbrauchswerte wäre wertlos.
+  //
+  // Gemessen an den UNGEFILTERTEN Daten. Der Ortsfilter schneidet ganze
+  // Ladungen heraus, und die entstehenden Löcher sind keine fehlenden
+  // Messwerte, sondern genau das, was der Filter tun soll. Über die gefilterte
+  // Reihe gerechnet meldete die Warnung „69 % erfasst, 11,4 h fehlen", während
+  // der Mitschrieb in Wahrheit keine einzige Lücke über 35 Minuten hatte.
+  const qualitySeries =
+    place === 'all' ? all : aggregate(allSamples, gran, optionsFor(o));
+  const qualityBucket = current
+    ? qualitySeries.find((b) => b.key === current.key)
+    : undefined;
   let quality: { level: string; text: string } | undefined;
-  if (current) {
-    const covered = current.spanMinutes + current.gapMinutes;
-    const pct = covered > 0 ? Math.round((current.spanMinutes / covered) * 100) : 0;
-    const gapH = current.gapMinutes / 60;
-    if (current.samples < 5) {
+  if (current && qualityBucket) {
+    const covered = qualityBucket.spanMinutes + qualityBucket.gapMinutes;
+    const pct = covered > 0 ? Math.round((qualityBucket.spanMinutes / covered) * 100) : 0;
+    const gapH = qualityBucket.gapMinutes / 60;
+    if (qualityBucket.samples < 5) {
       quality = { level: 'bad', text: L.dashTooFewPoints.replace('%n', String(current.samples)) };
     } else if (pct < 90) {
       quality = {

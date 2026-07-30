@@ -24,9 +24,9 @@ describe('buildReceipt', () => {
   it('nimmt nur Ladungen des angeforderten Monats', () => {
     const r = buildReceipt(
       [
-        session({ startedAt: '2026-06-30T20:00:00.000Z' }),
-        session({ startedAt: '2026-07-10T20:00:00.000Z' }),
-        session({ startedAt: '2026-08-01T20:00:00.000Z' }),
+        session({ startedAt: new Date(2026, 5, 30, 20, 0).toISOString() }),
+        session({ startedAt: new Date(2026, 6, 10, 20, 0).toISOString() }),
+        session({ startedAt: new Date(2026, 7, 1, 20, 0).toISOString() }),
       ],
       '2026-07',
     );
@@ -36,9 +36,12 @@ describe('buildReceipt', () => {
   it('ordnet eine Nachtladung über den Monatswechsel dem Startmonat zu', () => {
     // Eine Ladung wird als Ganzes bezahlt — anders als die Energie in der
     // Zeitreihe, die sich über die Tage verteilt.
+    // Die Zeiten LOKAL gebildet, nicht als UTC-Literal: `2026-07-31T22:00Z`
+    // ist in Mitteleuropa schon der 1. August, und der Test prüfte damit das
+    // Gegenteil seiner Behauptung.
     const s = session({
-      startedAt: '2026-07-31T22:00:00.000Z',
-      endedAt: '2026-08-01T06:00:00.000Z',
+      startedAt: new Date(2026, 6, 31, 22, 0).toISOString(),
+      endedAt: new Date(2026, 7, 1, 6, 0).toISOString(),
     });
     expect(buildReceipt([s], '2026-07').lines).toHaveLength(1);
     expect(buildReceipt([s], '2026-08').lines).toHaveLength(0);
@@ -166,5 +169,35 @@ describe('receiptMonths', () => {
 
   it('zählt Monate ohne geladene Energie nicht mit', () => {
     expect(receiptMonths([session({ energyKwh: 0 })])).toEqual([]);
+  });
+});
+
+describe('Monatsgrenze in Ortszeit', () => {
+  /** Ladung, die zur angegebenen LOKALEN Zeit beginnt. */
+  const lokal = (y: number, m: number, d: number, h: number): ChargeSession =>
+    session({
+      startedAt: new Date(y, m - 1, d, h, 0).toISOString(),
+      endedAt: new Date(y, m - 1, d, h + 2, 0).toISOString(),
+    });
+
+  it('ordnet eine Ladung am Monatsersten nach 00:00 Ortszeit dem neuen Monat zu', () => {
+    // Um 01:00 Ortszeit ist in UTC noch der Vormonat. Über `slice(0, 7)`
+    // landete die Ladung im Juli-Beleg — bei einer Abrechnung kein
+    // Schönheitsfehler.
+    const s = lokal(2026, 8, 1, 1);
+    expect(buildReceipt([s], '2026-08').lines).toHaveLength(1);
+    expect(buildReceipt([s], '2026-07').lines).toHaveLength(0);
+    expect(receiptMonths([s])).toEqual(['2026-08']);
+  });
+
+  it('ordnet eine Ladung am Monatsletzten vor 24:00 Ortszeit dem alten Monat zu', () => {
+    const s = lokal(2026, 7, 31, 23);
+    expect(buildReceipt([s], '2026-07').lines).toHaveLength(1);
+    expect(buildReceipt([s], '2026-08').lines).toHaveLength(0);
+  });
+
+  it('bleibt über den Jahreswechsel richtig', () => {
+    const s = lokal(2027, 1, 1, 1);
+    expect(receiptMonths([s])).toEqual(['2027-01']);
   });
 });

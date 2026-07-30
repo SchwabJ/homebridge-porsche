@@ -386,3 +386,126 @@ describe('Ladeabbruch erkennen', () => {
     expect(s.aborted).toBeUndefined();
   });
 });
+
+describe('Ladezeit bei Tarifsteuerung', () => {
+  /**
+   * Nachtladung mit einer echten PAUSE: 30 min laden, 90 min stromlos am
+   * Kabel, wieder 30 min laden. Genau das Muster eines Slot-Tarifs.
+   */
+  const mitPause = (): ChargeLogSample[] => {
+    const rows: ChargeLogSample[] = [];
+    // Phase 1: 0–30 min
+    for (let m = 0; m <= 30; m += 10) {
+      rows.push(at(m, { soc: 40 + m / 5, plugged: true, charging: true, atHome: true }));
+    }
+    // Pause: 40–120 min, am Kabel aber ohne Strom
+    for (let m = 40; m <= 120; m += 10) {
+      rows.push(at(m, { soc: 46, plugged: true, charging: false, atHome: true }));
+    }
+    // Phase 2: 130–160 min
+    for (let m = 130; m <= 160; m += 10) {
+      rows.push(at(m, { soc: 46 + (m - 130) / 5, plugged: true, charging: true, atHome: true }));
+    }
+    rows.push(at(170, { soc: 52, plugged: false }));
+    return rows;
+  };
+
+  it('zählt die stromlose Pause NICHT zur Ladezeit', () => {
+    // Vorher wurden die Abstände zwischen allen Lade-Messpunkten summiert.
+    // Diese Summe teleskopiert zu „letzter minus erster" und enthielt damit
+    // genau das, was sie ausschließen sollte: die Pause. Am echten Mitschrieb
+    // stand unter „davon 4 h 55 min laden" ein Wert, den die Phasenliste
+    // derselben Zeile mit 2 h 47 min widerlegte.
+    const [s] = buildSessions(mitPause());
+    expect(s.durationMin).toBe(170);
+    // Zwei Phasen von je 30 min, plus je der vorangestellte Ankerpunkt.
+    expect(s.chargingMin).toBeLessThan(90);
+    expect(s.chargingMin).toBe(s.phases.reduce((a, p) => a + p.durationMin, 0));
+  });
+
+  it('bleibt widerspruchsfrei zur Phasenliste, die daneben steht', () => {
+    // Zwei Zahlen auf derselben Seite, die dasselbe meinen, müssen gleich sein.
+    for (const rows of [mitPause(), mitPause().slice(0, 12)]) {
+      const [s] = buildSessions(rows);
+      expect(s.chargingMin).toBe(s.phases.reduce((a, p) => a + p.durationMin, 0));
+    }
+  });
+
+  it('ergibt eine physikalisch plausible Ladeleistung', () => {
+    // Die Gegenprobe von außen: Energie geteilt durch Ladezeit muss eine
+    // Leistung ergeben, die die Wallbox liefern kann. Mit der Pause im Nenner
+    // kam die halbe heraus.
+    const [s] = buildSessions(mitPause(), { capacityKwh: 100 });
+    const kw = ((s.energyKwh as number) / s.chargingMin) * 60;
+    expect(kw).toBeGreaterThan(8);
+    expect(kw).toBeLessThan(12);
+  });
+
+  it('lässt eine Ladung ohne Pause unverändert', () => {
+    const rows: ChargeLogSample[] = [];
+    for (let m = 0; m <= 60; m += 10) {
+      rows.push(at(m, { soc: 40 + m / 3, plugged: true, charging: true, atHome: true }));
+    }
+    rows.push(at(70, { soc: 60, plugged: false }));
+    const [s] = buildSessions(rows);
+    expect(s.chargingMin).toBe(60);
+  });
+});
+
+describe('Laderate gegen die gemessene Leistung', () => {
+  /** Ladung mit Reichweitensprung aus dem Cache. */
+  const mitSprung = (powerKw?: number): ChargeLogSample[] => [
+    at(0, { plugged: true, charging: true, rangeKm: 100, soc: 40, powerKw }),
+    at(3, { plugged: true, charging: true, rangeKm: 340, soc: 41, powerKw }),
+    at(60, { plugged: true, charging: true, rangeKm: 360, soc: 70, powerKw }),
+    at(70, { plugged: false, rangeKm: 360, soc: 70 }),
+  ];
+
+  it('verwirft eine Rate, die die gemeldete Leistung nicht hergibt', () => {
+    // 11 kW ergeben bei fünf km je kWh höchstens 0,9 km/min. Aus dem Sprung
+    // käme 4,3 — unter jeder festen Obergrenze, an einer Wallbox unmöglich.
+    const [s] = buildSessions(mitSprung(11));
+    expect(s.avgKmPerMin).toBeUndefined();
+  });
+
+  it('lässt eine plausible Rate stehen', () => {
+    const rows = [
+      at(0, { plugged: true, charging: true, rangeKm: 100, soc: 40, powerKw: 11 }),
+      at(60, { plugged: true, charging: true, rangeKm: 155, soc: 70, powerKw: 11 }),
+      at(70, { plugged: false, rangeKm: 155, soc: 70 }),
+    ];
+    const [s] = buildSessions(rows);
+    // 55 km in 60 min = 0,92 km/min, Grenze bei 11 kW = 1,37.
+    expect(s.avgKmPerMin).toBeCloseTo(0.9, 1);
+  });
+
+  it('erlaubt der Schnellladung ihre hohe Rate', () => {
+    const rows = [
+      at(0, { plugged: true, charging: true, rangeKm: 100, soc: 20, powerKw: 180 }),
+      at(20, { plugged: true, charging: true, rangeKm: 400, soc: 80, powerKw: 180 }),
+      at(25, { plugged: false, rangeKm: 400, soc: 80 }),
+    ];
+    const [s] = buildSessions(rows);
+    // 300 km in 20 min = 15 km/min; bei 180 kW sind 22,5 erlaubt.
+    expect(s.avgKmPerMin).toBeCloseTo(15, 0);
+  });
+
+  it('zeigt die Rate ohne gemeldete Leistung, kann sie dann aber nicht prüfen', () => {
+    // Bewusste Entscheidung, nicht Nachlässigkeit: Die Rate ist GEMESSEN
+    // (Reichweitendifferenz durch Zeit), nur ihre Plausibilität ist ohne
+    // Leistungsangabe unprüfbar. Sie zu verschweigen hieße, in dem Randfall,
+    // in dem das Fahrzeug keine Leistung meldet, auch die brauchbaren Zahlen
+    // zu verlieren — und das ist der häufigere Fall als ein Cache-Sprung
+    // ausgerechnet dort.
+    const [s] = buildSessions(mitSprung(undefined));
+    expect(s.avgKmPerMin).toBeDefined();
+  });
+
+  it('verwirft den Sprung, nicht die ganze Ladung', () => {
+    const [s] = buildSessions(mitSprung(11));
+    // Die Energiebilanz aus dem Ladestand bleibt gültig — sie kommt aus einer
+    // anderen Größe. Nur die Reichweite ist nicht mehr bestimmbar.
+    expect(s.energyKwh).toBeGreaterThan(0);
+    expect(s.rangeAddedKm).toBeUndefined();
+  });
+});

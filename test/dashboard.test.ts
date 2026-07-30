@@ -761,8 +761,10 @@ describe('Datenqualität und Ortsfilter', () => {
   it('meldet eine ECHTE Lücke weiterhin', async () => {
     // Gegenprobe zur vorigen: Fehlt wirklich ein halber Tag im Mitschrieb,
     // muss die Warnung kommen — sonst hätte der Fix sie nur stummgeschaltet.
+    // Lokale Basis, nicht UTC: In fernen Zeitzonen verteilt `Date.UTC(...0:00)`
+    // die Messpunkte über zwei Kalendertage, und die Lücke fällt in den falschen.
     const t = (m: number): string =>
-      new Date(Date.UTC(2026, 6, 28, 0, 0, 0) + m * 60000).toISOString();
+      new Date(new Date(2026, 6, 28, 0, 0, 0).getTime() + m * 60000).toISOString();
     const rows: ChargeLogSample[] = [];
     for (let m = 0; m <= 60; m += 10) {
       rows.push({ ts: t(m), soc: 40, odometerKm: 50000, plugged: false });
@@ -1335,8 +1337,11 @@ describe('Fahrtenliste auf der Seite', () => {
   let server: ReturnType<typeof startDashboard>;
   let url: string;
 
+  // Lokale Basis, nicht UTC: Das Dashboard bildet seine Tagesschlüssel aus
+  // Ortszeit. Ein `Date.UTC(...)`-Anker verteilt dieselben Messpunkte je
+  // Zeitzone auf verschiedene Kalendertage.
   const t = (m: number): string =>
-    new Date(Date.UTC(2026, 6, 28, 0, 0, 0) + m * 60000).toISOString();
+    new Date(new Date(2026, 6, 28, 0, 0, 0).getTime() + m * 60000).toISOString();
 
   /** Startet den Server über einem Mitschrieb aus `rows`. */
   const serve = async (rows: ChargeLogSample[]): Promise<void> => {
@@ -1418,7 +1423,7 @@ describe('Fahrtenliste auf der Seite', () => {
 
   it('folgt dem Zeitraum, statt immer alle Fahrten zu zeigen', async () => {
     const gestern = (m: number): string =>
-      new Date(Date.UTC(2026, 6, 27, 0, 0, 0) + m * 60000).toISOString();
+      new Date(new Date(2026, 6, 27, 0, 0, 0).getTime() + m * 60000).toISOString();
     await serve([
       { ts: gestern(0), odometerKm: 900, soc: 90, plugged: false },
       { ts: gestern(20), odometerKm: 977, soc: 70, plugged: false },
@@ -1476,7 +1481,8 @@ describe('Deckel der Listen', () => {
     // Ladekurve mit — bei einem Jahr wog die Seite 1,4 MB.
     const rows: ChargeLogSample[] = [];
     for (let i = 0; i < 50; i++) {
-      const base = Date.UTC(2026, 6, 28, 0, 0, 0) + i * 20 * 60000;
+      // Lokale Basis — sonst verteilt sich der Tag in fernen Zeitzonen auf zwei.
+      const base = new Date(2026, 6, 28, 0, 0, 0).getTime() + i * 20 * 60000;
       const at = (s: number): string => new Date(base + s * 60000).toISOString();
       rows.push({ ts: at(0), odometerKm: 1000, soc: 40, plugged: true, charging: true, atHome: true });
       rows.push({ ts: at(5), odometerKm: 1000, soc: 42, plugged: true, charging: true, atHome: true });
@@ -2073,5 +2079,94 @@ describe('Kacheln bei fehlender Ladung im Zeitraum', () => {
     // CSS-Klassen und Labels, die nichts mit dieser Kachel zu tun haben.
     const stellen = (html.match(/€ saved/g) ?? []).length;
     expect(stellen).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('Riegel des Abruf-Knopfs', () => {
+  const base = {
+    logDir: '/tmp',
+    capacityKwh: 83.7,
+    pricePerKwh: 0.2,
+    priceCt: 32,
+    bonusCt: 12,
+    externalPriceCt: 0,
+    dayBoundaryHour: 0,
+    vehicleName: 'T',
+    uiPort: 8581,
+    labels: labelsFor('en'),
+  };
+  let nextPort = 19850;
+
+  const serve = async (): Promise<{ url: string; stop: () => void; calls: () => number }> => {
+    let n = 0;
+    const server = startDashboard({
+      ...base,
+      port: nextPort++,
+      onRefresh: async () => {
+        n++;
+      },
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server.once('listening', r));
+    const a = server.address();
+    return {
+      url: `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`,
+      stop: () => server.close(),
+      calls: () => n,
+    };
+  };
+
+  it('lehnt GET ab — sonst genügt ein <img src> auf einer fremden Seite', async () => {
+    // Ein GET löst keinen Preflight aus, und die Antwort muss der Angreifer
+    // nicht lesen: Der Abruf beim Porsche-Backend läuft trotzdem. Bei 20 s
+    // Sperre wären das 180 Abrufe je Stunde — gerichtet gegen genau das
+    // Ratenlimit, dessen Überschreiten eine Captcha-Sperre erzwingt.
+    const { url, stop, calls } = await serve();
+    const res = await fetch(`${url}/api/refresh`);
+    expect(res.status).toBe(405);
+    expect(calls()).toBe(0);
+    stop();
+  });
+
+  it('lehnt einen POST mit fremdem Origin ab', async () => {
+    const { url, stop, calls } = await serve();
+    const res = await fetch(`${url}/api/refresh`, {
+      method: 'POST',
+      headers: { origin: 'http://evil.example' },
+    });
+    expect(res.status).toBe(403);
+    expect(calls()).toBe(0);
+    stop();
+  });
+
+  it('lässt sich nicht von einem Origin täuschen, der nur so anfängt', async () => {
+    const { url, stop, calls } = await serve();
+    const host = new URL(url).host;
+    const res = await fetch(`${url}/api/refresh`, {
+      method: 'POST',
+      headers: { origin: `http://${host}.evil.example` },
+    });
+    expect(res.status).toBe(403);
+    expect(calls()).toBe(0);
+    stop();
+  });
+
+  it('lässt einen POST ohne Origin durch (curl, Homescreen-Modus)', async () => {
+    const { url, stop, calls } = await serve();
+    const r = await (await fetch(`${url}/api/refresh`, { method: 'POST' })).json();
+    expect(r).toEqual({ ok: true });
+    expect(calls()).toBe(1);
+    stop();
+  });
+
+  it('ruft den Knopf im Dashboard selbst per POST auf', async () => {
+    // Der Riegel wäre nutzlos, wenn die eigene Seite ihn nicht bedient.
+    const { url, stop } = await serve();
+    const html = await (await fetch(`${url}/?g=day`)).text();
+    expect(html).toContain("fetch('/api/refresh',{method:'POST'})");
+    expect(html).not.toContain("fetch('/api/refresh').");
+    stop();
   });
 });

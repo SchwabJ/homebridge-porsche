@@ -156,6 +156,50 @@ const TARGET_TOLERANCE = 5;
  */
 const ABORT_IDLE_MIN = 60;
 
+/**
+ * Grobe Reichweite je Kilowattstunde, für die Plausibilitätsprüfung der
+ * Laderate.
+ *
+ * Kein Messwert, sondern eine Größenordnung: Ein Elektroauto fährt zwischen
+ * vier und sechs Kilometer je Kilowattstunde. Genauer muss es nicht sein — die
+ * Prüfung soll Cache-Sprünge vom Faktor zehn abfangen, nicht die Rate
+ * korrigieren.
+ */
+const KM_PER_KWH = 5;
+
+/** Spielraum auf die errechnete Höchstrate, für Rundung und Kaltstart. */
+const RATE_TOLERANCE = 1.5;
+
+/**
+ * Nimmt einen Reichweitenwert auf — es sei denn, der Sprung dorthin ist
+ * physikalisch unmöglich.
+ *
+ * Verworfen wird der SPRUNG, nicht die Session: Der nächste plausible Wert
+ * zählt wieder. Damit überlebt eine Ladung einen einzelnen Cache-Aussetzer,
+ * ohne ihre Kennzahlen zu verlieren.
+ */
+/**
+ * Nimmt einen Reichweitenwert auf.
+ *
+ * ## Warum hier NICHT auf Sprünge geprüft wird
+ *
+ * Der naheliegende Ort für eine Plausibilitätsprüfung ist der einzelne
+ * Messabstand — und genau dort funktioniert sie nicht. Nachgemessen an einer
+ * echten Wallbox-Ladung mit 10 kW: Die Restreichweite steigt in Schritten von
+ * vier bis sieben Kilometern, bei einem Poll-Abstand von drei Minuten also um
+ * 1,3 bis 2,3 km/min. Physikalisch möglich wären 0,8. Der Grund ist keine
+ * Fehlmessung: Die Anzeige ist grob quantisiert und folgt einer Prognose, die
+ * mit dem Ladestand ihre Meinung ändert.
+ *
+ * **Die Quantisierung ist also größer als der Effekt, den die Prüfung finden
+ * soll.** Über eine ganze Ladung mittelt sie sich heraus — deshalb sitzt die
+ * Prüfung auf der Session-Ebene und nicht hier.
+ */
+function takeRange(open: Open, s: ChargeLogSample): void {
+  open.rangeValues.push(s.rangeKm as number);
+  open.lastRangeSample = s;
+}
+
 /** Sammelzustand einer noch offenen Session. */
 interface Open {
   first: ChargeLogSample;
@@ -171,6 +215,16 @@ interface Open {
   phases: ChargeLogSample[][];
   /** Letzter Messpunkt ohne Laden — Startanker der nächsten Phase. */
   lastIdle?: ChargeLogSample;
+  /**
+   * Letzter ÜBERNOMMENER Reichweiten-Messpunkt.
+   *
+   * Nötig, um einen Sprung als solchen zu erkennen: Die Fahrzeugantwort ist
+   * zwischengespeichert, und nach einem Poll ohne frische Daten holt die
+   * Restreichweite gelegentlich in einem Satz dreistellig auf. Ein solcher
+   * Sprung gehört gar nicht in die Sammlung — er verdirbt sonst die geladene
+   * Reichweite und die Laderate gleichermaßen.
+   */
+  lastRangeSample?: ChargeLogSample;
   chargingType?: string;
   /**
    * Zuletzt gemeldeter Ziel-Ladestand.
@@ -202,15 +256,6 @@ function finish(
     energyKwh = Math.round(Math.max(0, delta) * 0.01 * capacity * 100) / 100;
   }
 
-  // Ladezeit aus den Abständen zwischen aufeinanderfolgenden Lade-Samples.
-  let chargingMin = 0;
-  for (let i = 1; i < open.chargingSamples.length; i++) {
-    chargingMin += minutesBetween(
-      open.chargingSamples[i - 1].ts,
-      open.chargingSamples[i].ts,
-    );
-  }
-
   // Laufende Phase mit abschließen, falls die Session im Laden endet.
   const rawPhases = open.phase.length > 0 ? [...open.phases, open.phase] : open.phases;
 
@@ -239,6 +284,18 @@ function finish(
       }
       return phase;
     });
+
+  // Ladezeit = Summe der PHASENDAUERN, nicht die Spanne vom ersten bis zum
+  // letzten Ladeimpuls.
+  //
+  // Vorher wurden die Abstände zwischen aufeinanderfolgenden Lade-Messpunkten
+  // summiert. Diese Summe teleskopiert zu „letzter minus erster" und enthält
+  // damit genau das, was sie ausschließen sollte: die stromlosen Pausen. Bei
+  // tarifgesteuertem Laden mit zwei Pausen von 34 und 94 Minuten stand unter
+  // „davon 4 h 55 min laden" ein Wert, den die Phasenliste derselben Zeile mit
+  // 2 h 47 min widerlegte — Faktor 1,8. Die Gegenprobe über die Physik gibt
+  // den Phasen recht: 26,8 kWh bei 9,9 kW sind 162 Minuten.
+  const chargingMin = phases.reduce((a, p) => a + p.durationMin, 0);
 
   const session: ChargeSession = {
     startedAt: open.first.ts,
@@ -289,13 +346,37 @@ function finish(
   }
   // Geladene Reichweite: Zuwachs von Anfang zu Ende, nie negativ (die
   // Prognose kann während einer Ladung auch fallen, etwa wenn geheizt wird).
+  // Reichweite: Anfang gegen Ende der Session.
+  //
+  // Ein einzelner Cache-Sprung reicht, um beides zu verderben: Nach einem Poll
+  // ohne frische Daten springt die Restreichweite gelegentlich um dreistellige
+  // Kilometer, sobald der Cache aufholt. Nachgestellt ergab 100 → 340 km in
+  // drei Minuten eine Laderate von 4,3 km/min — bei 11 kW sind höchstens 0,9
+  // möglich. Deshalb wird der ANFANGSWERT auf den ersten Messpunkt gelegt,
+  // dessen Sprung zum nächsten physikalisch erklärbar ist.
   const firstRange = open.rangeValues[0];
   const lastRange = open.rangeValues[open.rangeValues.length - 1];
   if (firstRange !== undefined && lastRange !== undefined) {
     const added = Math.max(0, lastRange - firstRange);
-    session.rangeAddedKm = Math.round(added);
-    if (chargingMin > 0 && added > 0) {
-      session.avgKmPerMin = Math.round((added / chargingMin) * 10) / 10;
+    const rate = chargingMin > 0 ? added / chargingMin : undefined;
+    // Über die GANZE Ladung ist die Rate prüfbar: Quantisierungssprünge
+    // mitteln sich heraus, ein Cache-Sprung nicht. Ist sie unmöglich, sind
+    // geladene Reichweite UND Rate unbrauchbar — welcher der beiden Werte der
+    // Aussetzer war, lässt sich nicht entscheiden.
+    //
+    // Die Energiebilanz aus dem Ladestand bleibt davon unberührt: Sie kommt
+    // aus einer anderen Größe.
+    const peakForRate = open.powers.length > 0 ? Math.max(...open.powers) : undefined;
+    const grenze =
+      peakForRate !== undefined
+        ? ((peakForRate * KM_PER_KWH) / 60) * RATE_TOLERANCE
+        : undefined;
+    const plausibel = rate === undefined || grenze === undefined || rate <= grenze;
+    if (plausibel) {
+      session.rangeAddedKm = Math.round(added);
+    }
+    if (plausibel && rate !== undefined && added > 0) {
+      session.avgKmPerMin = Math.round(rate * 10) / 10;
     }
   }
   if (open.rates.length > 0) {
@@ -367,7 +448,7 @@ export function buildSessions(
         open.socValues.push(s.soc);
       }
       if (s.rangeKm !== undefined) {
-        open.rangeValues.push(s.rangeKm);
+        takeRange(open, s);
       }
       if (s.charging) {
         // Beim Einschalten den letzten Nicht-Lade-Messpunkt als Startpunkt
@@ -402,7 +483,7 @@ export function buildSessions(
         open.socValues.push(s.soc);
       }
       if (s.rangeKm !== undefined) {
-        open.rangeValues.push(s.rangeKm);
+        takeRange(open, s);
       }
       sessions.push(finish(open, true, opts));
       open = undefined;

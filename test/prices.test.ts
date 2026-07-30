@@ -99,3 +99,29 @@ describe('sanitize', () => {
     expect(sanitize({ note: 'Ionity' })).toBeUndefined();
   });
 });
+
+describe('Gratisladung', () => {
+  it('nimmt einen Preis von 0 an, statt ihn zu verwerfen', () => {
+    // An einer Gratissäule lädt man kostenlos, und das ist eine Beobachtung.
+    // Vorher wies die Route eine 0 mit HTTP 400 ab, danach griff die Vorgabe:
+    // Aus einer kostenlosen Ladung wurden so 17,70 €.
+    expect(sanitize({ eur: 0 })).toEqual({ eur: 0 });
+    expect(sanitize({ ct: 0 })).toEqual({ ct: 0 });
+  });
+
+  it('rechnet mit der Null, statt auf die Vorgabe zurückzufallen', () => {
+    expect(costFrom({ eur: 0 }, 30)).toBe(0);
+    expect(costFrom({ ct: 0 }, 30)).toBe(0);
+  });
+
+  it('unterscheidet die Null weiterhin von „nichts eingetragen"', () => {
+    expect(sanitize({ eur: '' })).toBeUndefined();
+    expect(sanitize({ eur: null })).toBeUndefined();
+    expect(sanitize({ eur: 'abc' })).toBeUndefined();
+    expect(sanitize({})).toBeUndefined();
+  });
+
+  it('weist negative Beträge weiterhin ab', () => {
+    expect(sanitize({ eur: -1 })).toBeUndefined();
+  });
+});

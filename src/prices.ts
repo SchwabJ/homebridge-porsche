@@ -131,9 +131,19 @@ export function sanitize(input: unknown): ChargePrice | undefined {
     return undefined;
   }
   const src = input as Record<string, unknown>;
+  // Null ist ein GÜLTIGER Preis, nicht die Abwesenheit eines Preises: An einer
+  // Gratissäule lädt man kostenlos, und das ist eine Beobachtung. Vorher wies
+  // die Route eine 0 mit HTTP 400 ab und ließ danach die Vorgabe greifen — aus
+  // einer kostenlosen Ladung wurden so 17,70 €.
+  //
+  // „Nichts eingetragen" bleibt unterscheidbar: Dafür steht `undefined`, und
+  // das entsteht bei leerem Feld, bei Text und bei allem außerhalb der Grenzen.
   const num = (v: unknown, max: number): number | undefined => {
+    if (v === '' || v === null || v === undefined) {
+      return undefined;
+    }
     const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v.replace(',', '.')) : NaN;
-    return Number.isFinite(n) && n > 0 && n <= max ? Math.round(n * 100) / 100 : undefined;
+    return Number.isFinite(n) && n >= 0 && n <= max ? Math.round(n * 100) / 100 : undefined;
   };
   const out: ChargePrice = {};
   const eur = num(src.eur, 500);

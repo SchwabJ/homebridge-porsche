@@ -242,6 +242,8 @@ export interface Labels {
   stPerWeek: string;
   stAbout: string;
   stYearsLeft: string;
+  /** Einzahl zu {@link Labels.stYearsLeft} — „noch gut 1 Jahre" war falsch. */
+  stYearLeft: string;
   aggWeek: string;
   placeAll: string;
   placeHome: string;
@@ -490,6 +492,7 @@ export const LABELS_EN: Labels = {
   stPerWeek: 'at %n km/week',
   stAbout: 'about',
   stYearsLeft: 'over %n more years',
+  stYearLeft: 'over %n more year',
   aggWeek: 'CW',
   placeAll: 'All',
   placeHome: 'Home',
@@ -735,6 +738,7 @@ export const LABELS_DE: Labels = {
   stPerWeek: 'bei %n km/Woche',
   stAbout: 'etwa',
   stYearsLeft: 'noch gut %n Jahre',
+  stYearLeft: 'noch gut %n Jahr',
   aggWeek: 'KW',
   placeAll: 'Alle',
   placeHome: 'Zuhause',

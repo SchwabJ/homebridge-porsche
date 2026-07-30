@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { readSettings, writeSettings, sanitizeSettings, mergeSettings } from '../src/settings';
+import { readSettings, writeSettings, sanitizeSettings, mergeSettings , rejectedSettings} from '../src/settings';
 
 describe('Einstellungs-Ablage', () => {
   let dir: string;
@@ -92,5 +92,28 @@ describe('mergeSettings', () => {
   it('verändert das Eingabeobjekt nicht', () => {
     mergeSettings(plugin, { priceCt: 99 });
     expect(plugin.priceCt).toBe(30);
+  });
+});
+
+describe('rejectedSettings', () => {
+  it('nennt die Schlüssel, deren Werte verworfen wurden', () => {
+    // „gesichert" zu melden, während ein Wert stillschweigend fiel, ist die
+    // schlechteste aller Rückmeldungen: Der Nutzer glaubt, es habe geklappt.
+    expect(rejectedSettings({ priceCt: 99999, bonusCt: 12 })).toEqual(['priceCt']);
+  });
+
+  it('zählt ein leeres Feld NICHT als verworfen', () => {
+    // Ein leeres Feld ist die gültige Art, einen Wert zurückzunehmen.
+    expect(rejectedSettings({ priceCt: '' })).toEqual([]);
+    expect(rejectedSettings({ priceCt: null })).toEqual([]);
+  });
+
+  it('meldet nichts, wenn alles übernommen wurde', () => {
+    expect(rejectedSettings({ priceCt: 32.67, bonusCt: 12 })).toEqual([]);
+  });
+
+  it('ignoriert unbekannte Felder', () => {
+    // Die kommen nicht vom eigenen Formular, sondern von einem fremden Aufruf.
+    expect(rejectedSettings({ gibtsNicht: 5 })).toEqual([]);
   });
 });

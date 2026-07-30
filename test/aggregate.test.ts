@@ -272,14 +272,14 @@ describe('dayBoundaryHour', () => {
 describe('efficiency', () => {
   it('computes consumption and cost per kilometre', () => {
     const e = efficiency([
-      { key: 'a', from: '', label: 'a', kwh: 20, cost: 4, costGross: 6.5, saved: 2.5, rangeAdded: 0, km: 100, samples: 1, gapMinutes: 0, spanMinutes: 60 },
+      { key: 'a', from: '', label: 'a', kwh: 20, cost: 4, costGross: 6.5, saved: 2.5, rangeAdded: 0, usedKwh: 0, unratedKm: 0, km: 100, samples: 1, gapMinutes: 0, spanMinutes: 60 },
     ]);
     expect(e.kwhPer100km).toBe(20);
     expect(e.centPerKm).toBe(4);
   });
 
   it('omits the ratios without driven distance (no division by zero)', () => {
-    const e = efficiency([{ key: 'a', from: '', label: 'a', kwh: 20, cost: 4, costGross: 6.5, saved: 2.5, rangeAdded: 0, km: 0, samples: 1, gapMinutes: 0, spanMinutes: 60 }]);
+    const e = efficiency([{ key: 'a', from: '', label: 'a', kwh: 20, cost: 4, costGross: 6.5, saved: 2.5, rangeAdded: 0, usedKwh: 0, unratedKm: 0, km: 0, samples: 1, gapMinutes: 0, spanMinutes: 60 }]);
     expect(e.kwhPer100km).toBeUndefined();
     expect(e.centPerKm).toBeUndefined();
   });
@@ -418,5 +418,111 @@ describe('Unterteilung eines Zeitraums', () => {
     for (const b of buckets) {
       expect(Number.isFinite(Date.parse(b.from))).toBe(true);
     }
+  });
+});
+
+describe('Verbrauch je Abschnitt', () => {
+  /** Messpunkt zur Stunde `h` (lokale Zeit, wie das Dashboard rechnet). */
+  const at = (h: number, over: Partial<ChargeLogSample> = {}): ChargeLogSample => {
+    const d = new Date(2026, 6, 20, h, 0, 0);
+    return { ts: d.toISOString(), ...over };
+  };
+
+  it('verteilt eine lange Fahrt über die Stunden, die sie gedauert hat', () => {
+    // Zwei Stunden, je 100 km bei 23 kWh/100 km. Wird die Energie der ganzen
+    // Fahrt dem Abschnitt ihres ENDES zugeschlagen, steht in einer Stunde ein
+    // 46-kWh-Balken und in der davor eine Null.
+    const b = aggregate(
+      [
+        at(6, { odometerKm: 1000, plugged: true, charging: true }),
+        at(7, { odometerKm: 1000, plugged: false }),
+        at(8, { odometerKm: 1100, plugged: false, tripKwh100: 23 }),
+        at(9, { odometerKm: 1200, plugged: false, tripKwh100: 23 }),
+      ],
+      'hour',
+      OPTS,
+    );
+    const byKey = new Map(b.map((x) => [x.key.slice(-2), x.usedKwh]));
+    expect(byKey.get('08')).toBeCloseTo(23, 1);
+    expect(byKey.get('09')).toBeCloseTo(23, 1);
+  });
+
+  it('summiert sich über die ganze Fahrt genau auf deren Energie', () => {
+    const b = aggregate(
+      [
+        at(6, { odometerKm: 1000, plugged: true, charging: true }),
+        at(7, { odometerKm: 1000, plugged: false }),
+        at(8, { odometerKm: 1050, plugged: false, tripKwh100: 20 }),
+        at(9, { odometerKm: 1150, plugged: false, tripKwh100: 22 }),
+        at(10, { odometerKm: 1200, plugged: false, tripKwh100: 24 }),
+      ],
+      'hour',
+      OPTS,
+    );
+    // 200 km bei zuletzt 24 kWh/100 km = 48 kWh für den ganzen Zyklus.
+    expect(b.reduce((a, x) => a + x.usedKwh, 0)).toBeCloseTo(48, 1);
+  });
+
+  it('beginnt den Zyklus mit dem Laden neu, nicht mit dem Ausstecken', () => {
+    // Wer ansteckt und den Strom nie einschaltet, hat weiterhin denselben
+    // Zähler — ein Rücksetzen dort verschöbe den Bezugspunkt still.
+    const b = aggregate(
+      [
+        at(6, { odometerKm: 1000, plugged: true, charging: true }),
+        at(7, { odometerKm: 1000, plugged: false }),
+        at(8, { odometerKm: 1100, plugged: false, tripKwh100: 20 }),
+        at(9, { odometerKm: 1100, plugged: true, charging: false }), // nur angesteckt
+        at(10, { odometerKm: 1200, plugged: false, tripKwh100: 20 }),
+      ],
+      'hour',
+      OPTS,
+    );
+    // 200 km × 20 / 100 = 40 kWh. Mit einem Reset beim Anstecken käme die
+    // zweite Hälfte doppelt heraus.
+    expect(b.reduce((a, x) => a + x.usedKwh, 0)).toBeCloseTo(40, 1);
+  });
+
+  it('zählt Strecke ohne Verbrauchsangabe als unbewertet', () => {
+    // Der Mitschrieb beginnt mitten im Zyklus: Wie viel seit dem letzten Laden
+    // gefahren wurde, steht nirgends.
+    const b = aggregate(
+      [
+        at(6, { odometerKm: 1000, plugged: false, tripKwh100: 21 }),
+        at(7, { odometerKm: 1080, plugged: false, tripKwh100: 21 }),
+      ],
+      'hour',
+      OPTS,
+    );
+    expect(b.reduce((a, x) => a + x.usedKwh, 0)).toBe(0);
+    expect(b.reduce((a, x) => a + x.unratedKm, 0)).toBe(80);
+  });
+
+  it('verwirft einen gefallenen Zählerstand, statt negativ zu rechnen', () => {
+    const b = aggregate(
+      [
+        at(6, { odometerKm: 1000, plugged: true, charging: true }),
+        at(7, { odometerKm: 1000, plugged: false }),
+        at(8, { odometerKm: 1100, plugged: false, tripKwh100: 25 }),
+        at(9, { odometerKm: 1130, plugged: false, tripKwh100: 2 }), // Reset ohne Laden
+      ],
+      'hour',
+      OPTS,
+    );
+    expect(b.every((x) => x.usedKwh >= 0)).toBe(true);
+    expect(b.reduce((a, x) => a + x.unratedKm, 0)).toBe(30);
+  });
+
+  it('bleibt bei reinem Laden ohne Fahrt bei null', () => {
+    const b = aggregate(
+      [
+        at(6, { soc: 40, odometerKm: 1000, plugged: true, charging: true }),
+        at(7, { soc: 70, odometerKm: 1000, plugged: true, charging: true }),
+      ],
+      'hour',
+      OPTS,
+    );
+    expect(b.reduce((a, x) => a + x.usedKwh, 0)).toBe(0);
+    expect(b.reduce((a, x) => a + x.unratedKm, 0)).toBe(0);
+    expect(b.reduce((a, x) => a + x.kwh, 0)).toBeCloseTo(30, 1);
   });
 });

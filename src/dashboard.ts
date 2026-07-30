@@ -571,32 +571,18 @@ function renderPage(
   // Derselbe Effektivpreis wie bei den Ladungen — Grundpreis minus Bonus.
   const allTrips = buildTrips(allSamples, { pricePerKwh: optionsFor(o).pricePerKwh });
 
-  // Verbrauch je Abschnitt des Diagramms — der Gegenbalken zum Laden.
+  // Der Gegenbalken kommt aus DERSELBEN Aggregation wie die Ladeenergie.
   //
-  // Nicht `b.km` aus der Aggregation: Das sind Kilometer, keine Energie. Für
-  // den Gegensatz zum Laden muss dieselbe Größe in derselben Einheit stehen,
-  // sonst vergleicht das Bild zwei verschiedene Dinge.
-  //
-  // Fahrten ohne belastbaren Verbrauch fehlen zwangsläufig — dann ist der
-  // Gegenbalken zu kurz. Deshalb wird die unbewertete Strecke je Abschnitt
-  // mitgezählt und im Tooltip genannt, statt sie zu verschweigen.
-  const usedKwh = new Map<string, number>();
-  const unratedKm = new Map<string, number>();
-  for (const t of allTrips) {
-    const k = keyOf(new Date(Date.parse(t.endedAt) - cfg.dayBoundaryHour * 3600000), sub);
-    if (t.energyKwh !== undefined) {
-      usedKwh.set(k, (usedKwh.get(k) ?? 0) + t.energyKwh);
-    } else {
-      unratedKm.set(k, (unratedKm.get(k) ?? 0) + t.km);
-    }
-  }
-
+  // Vorher stammte er aus den Fahrten und wurde dem Abschnitt zugeschlagen, in
+  // dem die Fahrt ENDETE. Bei einer zweistündigen Fahrt stand dann ein
+  // 46-kWh-Balken in einer Stunde, während die Stunde davor mit hundert
+  // gefahrenen Kilometern auf null blieb — zwei Maßstäbe im selben Bild.
   const barPoints: BarPoint[] = series.map((b) => {
-    const offen = unratedKm.get(b.key) ?? 0;
+    const offen = b.unratedKm;
     return {
       label: b.label,
       value: b.kwh,
-      down: Math.round((usedKwh.get(b.key) ?? 0) * 10) / 10,
+      down: Math.round(b.usedKwh * 10) / 10,
       // Stückweise zusammengesetzt und dann verbunden: Vorher entstand bei
       // fehlender Reichweite ein doppelter Trenner („0,00 € ·  · 6 km").
       detail: [

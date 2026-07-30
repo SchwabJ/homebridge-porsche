@@ -67,6 +67,31 @@ export interface Bucket {
   km: number;
   /** Geladene Reichweite in km (Zuwachs der Restreichweite am Kabel). */
   rangeAdded: number;
+  /**
+   * VERBRAUCHTE Energie in kWh — das Gegenstück zu {@link Bucket.kwh}.
+   *
+   * Je MESSPUNKT gerechnet, nicht je Fahrt: Eine zweistündige Fahrt verteilt
+   * sich damit über die Stunden, die sie tatsächlich gedauert hat. Wird die
+   * Energie einer ganzen Fahrt dem Abschnitt ihres Endes zugeschlagen, steht
+   * in der Stundenansicht ein 46-kWh-Balken in einer Stunde, während die
+   * Stunde davor mit 100 gefahrenen Kilometern auf null steht.
+   *
+   * Quelle ist `TRIP_STATISTICS_CYCLIC`: der Verbrauchsschnitt seit dem
+   * letzten Laden. Mal der Strecke seit dem Laden ergibt das die kumulierte
+   * Energie des Zyklus; der Zuwachs zwischen zwei Messpunkten ist der
+   * Verbrauch dazwischen. Über eine ganze Fahrt summiert sich das exakt auf
+   * deren Energie auf.
+   */
+  usedKwh: number;
+  /**
+   * Gefahrene Kilometer OHNE zugehörige Verbrauchsangabe.
+   *
+   * Solange das Fahrzeug nach einem Ladevorgang noch keinen Schnitt gemeldet
+   * hat — oder der Mitschrieb mitten in einem Zyklus beginnt — bleibt die
+   * Energie unbekannt. Diese Strecke wird gezählt und ausgewiesen, statt den
+   * Verbrauch stillschweigend zu kurz darzustellen.
+   */
+  unratedKm: number;
   /** Anzahl der Messpunkte — 0 bedeutet: aufgefüllte Lücke. */
   samples: number;
   /** Summe der Messlücken in Minuten (Abstände deutlich über dem Poll-Takt). */
@@ -273,7 +298,7 @@ export function aggregate(
       b.from = ts;
     }
     if (!b) {
-      b = { key, from: ts ?? '', label: labelOf(key, g, opts.labels), kwh: 0, cost: 0, costGross: 0, saved: 0, km: 0, rangeAdded: 0, samples: 0, gapMinutes: 0, spanMinutes: 0 };
+      b = { key, from: ts ?? '', label: labelOf(key, g, opts.labels), kwh: 0, cost: 0, costGross: 0, saved: 0, km: 0, rangeAdded: 0, usedKwh: 0, unratedKm: 0, samples: 0, gapMinutes: 0, spanMinutes: 0 };
       buckets.set(key, b);
     }
     return b;
@@ -298,6 +323,10 @@ export function aggregate(
   let lastSoc: ChargeLogSample | undefined;
   let lastOdo: ChargeLogSample | undefined;
   let lastRange: ChargeLogSample | undefined;
+  // Verbrauchszyklus: Kilometerstand beim letzten Laden und die dort erreichte
+  // kumulierte Energie. Der Zähler des Fahrzeugs beginnt mit jedem Laden neu.
+  let cycleStartKm: number | undefined;
+  let cycleKwh = 0;
   if (samples.length > 0) {
     if (samples[0].soc !== undefined) {
       lastSoc = samples[0];
@@ -307,6 +336,13 @@ export function aggregate(
     }
     if (samples[0].rangeKm !== undefined) {
       lastRange = samples[0];
+    }
+    // Auch der Verbrauchszyklus braucht seinen Anker aus dem ERSTEN Messpunkt.
+    // Die Schleife unten beginnt bei Index 1; stünde die Ladung genau am
+    // Anfang der Reihe, bliebe der Zyklus ohne Bezugspunkt und die ganze
+    // folgende Strecke unbewertet.
+    if (samples[0].charging === true && samples[0].odometerKm !== undefined) {
+      cycleStartKm = samples[0].odometerKm;
     }
   }
 
@@ -366,11 +402,45 @@ export function aggregate(
 
     // Kilometer: Zuwachs des Kilometerstands. Rückwärtssprünge (Zählerfehler)
     // werden ignoriert statt als negative Fahrt gewertet.
+    let gefahren = 0;
     if (cur.odometerKm !== undefined) {
       if (lastOdo?.odometerKm !== undefined && cur.odometerKm > lastOdo.odometerKm) {
-        b.km += cur.odometerKm - lastOdo.odometerKm;
+        gefahren = cur.odometerKm - lastOdo.odometerKm;
+        b.km += gefahren;
       }
       lastOdo = cur;
+    }
+
+    // Verbrauch — siehe {@link Bucket.usedKwh}.
+    //
+    // Der Zähler des Fahrzeugs beginnt mit dem LADEN neu, nicht mit dem
+    // Ein- oder Ausstecken: Wer ansteckt und den Strom nie einschaltet, hat
+    // weiterhin denselben Zähler. Am Kabel ändert sich der Kilometerstand
+    // nicht, deshalb darf jeder Lade-Messpunkt den Zyklus setzen.
+    if (cur.charging === true && cur.odometerKm !== undefined) {
+      cycleStartKm = cur.odometerKm;
+      cycleKwh = 0;
+    } else if (
+      cycleStartKm !== undefined &&
+      cur.odometerKm !== undefined &&
+      cur.tripKwh100 !== undefined &&
+      cur.tripKwh100 > 0
+    ) {
+      const jetzt = ((cur.odometerKm - cycleStartKm) * cur.tripKwh100) / 100;
+      const zuwachs = jetzt - cycleKwh;
+      if (zuwachs >= 0) {
+        b.usedKwh += zuwachs;
+        cycleKwh = jetzt;
+      } else {
+        // Gefallener Zählerstand: Das Fahrzeug hat zurückgesetzt, ohne dass
+        // ein Ladevorgang im Mitschrieb steht. Der Zyklus beginnt hier neu,
+        // und die Strecke dieses Abschnitts bleibt unbewertet.
+        cycleStartKm = cur.odometerKm;
+        cycleKwh = 0;
+        b.unratedKm += gefahren;
+      }
+    } else if (gefahren > 0) {
+      b.unratedKm += gefahren;
     }
   }
 
@@ -396,6 +466,8 @@ export function aggregate(
     b.kwh = Math.round(b.kwh * 100) / 100;
     b.km = Math.round(b.km);
     b.rangeAdded = Math.round(b.rangeAdded);
+    b.usedKwh = Math.round(b.usedKwh * 100) / 100;
+    b.unratedKm = Math.round(b.unratedKm);
     b.gapMinutes = Math.round(b.gapMinutes);
     b.spanMinutes = Math.round(b.spanMinutes);
     b.cost = opts.pricePerKwh !== undefined

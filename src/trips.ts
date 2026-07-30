@@ -148,19 +148,10 @@ interface Point {
  * „ausgesteckt" festhalten; unrepariert erzeugen sie Phantomfahrten von null
  * Kilometern.
  */
-export function buildTrips(samples: ChargeLogSample[], opts: TripOptions = {}): Trip[] {
-  const points: Point[] = samples
-    .filter((s) => s.odometerKm !== undefined)
-    .map((s) => ({
-      ts: s.ts,
-      odometerKm: s.odometerKm as number,
-      soc: s.soc,
-      rangeKm: s.rangeKm,
-      kwh100: s.tripKwh100,
-      plugged: s.plugged,
-      charging: s.charging,
-    }));
-
+export function buildTrips(
+  samples: Iterable<ChargeLogSample>,
+  opts: TripOptions = {},
+): Trip[] {
   const trips: Trip[] = [];
   /** Kilometerstand beim Beginn des laufenden Verbrauchszyklus. */
   let cycleStartKm: number | undefined;
@@ -236,8 +227,23 @@ export function buildTrips(samples: ChargeLogSample[], opts: TripOptions = {}): 
     open = undefined;
   };
 
+  // Die Messpunkte werden EINZELN verarbeitet, nicht erst zu einer Liste
+  // aufgesammelt: `samples` darf ein Generator über die Tagesdateien sein, und
+  // eine Zwischenliste hätte die ganze Historie wieder im Speicher.
   let prev: Point | undefined;
-  for (const p of points) {
+  for (const raw of samples) {
+    if (raw.odometerKm === undefined) {
+      continue;
+    }
+    const p: Point = {
+      ts: raw.ts,
+      odometerKm: raw.odometerKm,
+      soc: raw.soc,
+      rangeKm: raw.rangeKm,
+      kwh100: raw.tripKwh100,
+      plugged: raw.plugged,
+      charging: raw.charging,
+    };
     // Der Verbrauchszähler des Fahrzeugs setzt sich mit dem LADEN zurück,
     // nicht mit dem Ein- oder Ausstecken. Am Kabel zu stehen genügt nicht:
     // Wer nur ansteckt und den Strom nie einschaltet, hat weiterhin denselben

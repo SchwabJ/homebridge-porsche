@@ -160,7 +160,7 @@ const median = (sorted: number[]): number => {
  * Ein „unbekannt" (leere API-Antwort) unterbricht einen Zyklus NICHT: Solche
  * Zeilen tragen keinen Messwert und sagen nichts über den Stecker.
  */
-export function estimateCapacity(samples: ChargeLogSample[]): CapacityEstimate {
+export function estimateCapacity(samples: Iterable<ChargeLogSample>): CapacityEstimate {
   const values: number[] = [];
   const points: { at: string; kwh: number }[] = [];
   const uncertainties: number[] = [];

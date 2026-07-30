@@ -325,7 +325,7 @@ function finish(
  * Session zu beenden — ein fehlgeschlagener Poll ist kein Ausstecken.
  */
 export function buildSessions(
-  samples: ChargeLogSample[],
+  samples: Iterable<ChargeLogSample>,
   opts: BuildOptions = {},
 ): ChargeSession[] {
   const sessions: ChargeSession[] = [];

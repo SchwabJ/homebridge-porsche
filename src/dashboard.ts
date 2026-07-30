@@ -29,12 +29,18 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import { buildSessions, type ChargeSession } from './sessions';
-import { aggregate, efficiency, keyOf, SUB, type Granularity } from './aggregate';
+import { aggregate, efficiency, keyOf, SUB, type Granularity, type Bucket} from './aggregate';
 import type { ChargeLogSample } from './chargeLog';
 import { ICONS } from './icons';
 import type { Labels } from './i18n';
-import { capacityTrend, estimateCapacity, idleKwhPerDay, stateOfHealth } from './capacity';
-import { buildTrips, summarizeTrips } from './trips';
+import {
+  capacityTrend,
+  estimateCapacity,
+  idleKwhPerDay,
+  stateOfHealth,
+  type CapacityEstimate,
+} from './capacity';
+import { buildTrips, summarizeTrips, type Trip } from './trips';
 import { buildReceipt, receiptCsv, receiptMonths, type Receipt } from './receipt';
 import { readPrices, writePrice, costFrom, sanitize, type PriceStore } from './prices';
 import {
@@ -131,7 +137,32 @@ function signature(dir: string): string {
 
 let cache: { sig: string; dir: string; samples: ChargeLogSample[] } | undefined;
 
-/** Liest alle Tagesdateien (gecacht); defekte Zeilen werden übersprungen. */
+/**
+ * Grenze, ab der die Messpunkte NICHT mehr vollständig im Speicher gehalten
+ * werden — gemessen in Tagesdateien.
+ *
+ * Nachgemessen mit einem synthetischen Mitschrieb in echter Dichte: Ein Jahr
+ * (151.000 Zeilen, 32 MB Text) wird zu 52 MB Objekten, sechs Jahre zu 248 MB.
+ * Ein Raspberry Pi, auf dem neben Homebridge noch etwas anderes läuft, hat
+ * keine 250 MB frei — der Prozess stirbt dann mitten in einem Seitenaufruf,
+ * und mit ihm die Child Bridge samt HomeKit-Kacheln.
+ *
+ * Unterhalb der Grenze bleibt alles wie bisher: ein Cache, ein Parse, 1,2 ms
+ * je Aufruf. Oberhalb wird gestreamt — Datei für Datei gelesen und sofort
+ * wieder freigegeben. Das kostet Zeit und spart Speicher, und diese Richtung
+ * ist die richtige: Langsam ist unangenehm, tot ist ein Ausfall.
+ */
+const CACHE_MAX_FILES = 500;
+
+
+/**
+ * Liest alle Tagesdateien (gecacht); defekte Zeilen werden übersprungen.
+ *
+ * Bei sehr langen Historien gibt sie nur noch das Ende zurück — wer alles
+ * braucht, nimmt {@link streamSamples}. Aufrufer, die nur den aktuellen
+ * Zustand brauchen (Statuszeile, letzter Messwert), sind damit weiterhin
+ * richtig bedient.
+ */
 export function readSamples(dir: string): ChargeLogSample[] {
   const sig = signature(dir);
   if (cache && cache.dir === dir && cache.sig === sig) {
@@ -142,13 +173,177 @@ export function readSamples(dir: string): ChargeLogSample[] {
   return samples;
 }
 
-function readSamplesUncached(dir: string): ChargeLogSample[] {
-  let files: string[];
+/**
+ * Alle Messpunkte, Datei für Datei — ohne sie alle gleichzeitig zu halten.
+ *
+ * Der entscheidende Unterschied zu {@link readSamples}: Hier lebt immer nur
+ * EINE Tagesdatei als Objekte, danach gibt sie der Garbage Collector frei.
+ * Sechs Jahre Mitschrieb kosten damit statt 248 MB rund ein Tausendstel
+ * davon; bezahlt wird mit der Zeit, weil jeder Durchlauf neu parst.
+ *
+ * Die Reihenfolge ist zeitlich aufsteigend — die Dateinamen sind Datumsangaben
+ * und werden schlicht sortiert. Darauf verlassen sich alle Auswerter.
+ */
+export function* streamSamples(dir: string): Generator<ChargeLogSample> {
+  // Unter der Grenze aus dem Cache: Wer schon alles im Speicher hat, soll es
+  // nicht ein zweites Mal von der Platte lesen.
+  const files = dayFiles(dir);
+  if (files.length <= CACHE_MAX_FILES) {
+    yield* readSamples(dir);
+    return;
+  }
+  for (const f of files) {
+    let text: string;
+    try {
+      text = fs.readFileSync(path.join(dir, f), 'utf8');
+    } catch {
+      continue;
+    }
+    const rows: ChargeLogSample[] = [];
+    for (const line of text.split('\n')) {
+      if (!line.trim()) {
+        continue;
+      }
+      try {
+        rows.push(normalizeSample(JSON.parse(line) as ChargeLogSample));
+      } catch {
+        // abgeschnittene Zeile ignorieren
+      }
+    }
+    // Innerhalb einer Datei kann die Reihenfolge verrutscht sein (Neustart
+    // mitten am Tag) — sortieren, aber nur diese Datei.
+    rows.sort((a, b) => a.ts.localeCompare(b.ts));
+    yield* rows;
+  }
+}
+
+/**
+ * Ergebnisse, die über die GANZE Historie gehen und nicht am gewählten
+ * Zeitraum hängen — Kapazität, Fahrten, Abfragetakt.
+ *
+ * Ohne diesen Cache streamt ein Seitenaufruf fünfmal durch die Historie: für
+ * die Zeitreihe, ihre Unterteilung, die Datenqualität, die Kapazität und die
+ * Fahrten. Bei sechs Jahren sind das fünfmal eine halbe Sekunde nur zum
+ * Parsen — gemessen 3,5 s für eine Seite.
+ *
+ * Bewusst nur diese drei: Zeitreihe und Unterteilung hängen an Granularität
+ * und Ortsfilter, also an der Adresse. Sie zu cachen hieße, einen Schlüssel
+ * über alle Kombinationen zu führen, und der wäre bei jedem Wechsel kalt.
+ */
+let statsCache:
+  | {
+      sig: string;
+      dir: string;
+      capacityKwh: number;
+      pricePerKwh: number;
+      capacity: CapacityEstimate;
+      trips: Trip[];
+      pollMin: number;
+    }
+  | undefined;
+
+interface HistoryStats {
+  capacity: CapacityEstimate;
+  trips: Trip[];
+  pollMin: number;
+}
+
+function statsFor(o: DashboardOptions): HistoryStats {
+  const eff = optionsFor(o);
+  const sig = signature(o.logDir);
+  if (
+    statsCache &&
+    statsCache.dir === o.logDir &&
+    statsCache.sig === sig &&
+    // Die Kapazität geht in die Fahrten-Energie NICHT ein, wohl aber der Preis
+    // in ihre Kosten. Beide im Schlüssel, damit eine Änderung auf der
+    // Einstellungsseite sofort greift.
+    statsCache.capacityKwh === eff.capacityKwh &&
+    statsCache.pricePerKwh === eff.pricePerKwh
+  ) {
+    return statsCache;
+  }
+  const capacity = estimateCapacity(streamSamples(o.logDir));
+  const trips = buildTrips(streamSamples(o.logDir), { pricePerKwh: eff.pricePerKwh });
+  const pollMin = pollIntervalMinutes(streamSamples(o.logDir));
+  statsCache = {
+    sig,
+    dir: o.logDir,
+    capacityKwh: eff.capacityKwh,
+    pricePerKwh: eff.pricePerKwh,
+    capacity,
+    trips,
+    pollMin,
+  };
+  return statsCache;
+}
+
+/**
+ * Fertige Zeitreihen, nach Granularität und Ortsfilter getrennt.
+ *
+ * Die Reihe selbst ist klein — sechs Jahre ergeben 2190 Tages-Buckets, jedes
+ * ein flaches Objekt mit einem Dutzend Zahlen. Teuer ist nur ihr Aufbau, weil
+ * er die ganze Historie durchläuft. Genau das macht sie zum idealen
+ * Cache-Kandidaten: viel Rechenzeit, wenig Speicher.
+ *
+ * Der Schlüssel führt ALLES mit, was das Ergebnis verändert — auch Kapazität
+ * und Preise, denn beide sind auf der Einstellungsseite änderbar und gehen in
+ * jede Zahl der Reihe ein. Ein Cache, der eine Einstellungsänderung nicht
+ * bemerkt, ist schlimmer als keiner.
+ */
+const aggCache = new Map<string, Bucket[]>();
+
+/** Höchstzahl gehaltener Reihen: vier Granularitäten mal drei Ortsfilter. */
+const AGG_CACHE_MAX = 12;
+
+function cachedAggregate(
+  o: DashboardOptions,
+  stream: () => Iterable<ChargeLogSample>,
+  sessions: ChargeSession[],
+  g: Granularity,
+  place: Place,
+): Bucket[] {
+  const eff = optionsFor(o);
+  const key = [
+    signature(o.logDir),
+    g,
+    place,
+    eff.dayBoundaryHour,
+    eff.capacityKwh,
+    eff.pricePerKwh,
+    eff.grossPricePerKwh,
+  ].join('|');
+  const hit = aggCache.get(key);
+  if (hit) {
+    return hit;
+  }
+  const out = aggregate(streamByPlace(stream(), sessions, place), g, eff);
+  // Kein LRU, nur ein Deckel: Ändert sich der Mitschrieb, sind ohnehin alle
+  // Schlüssel kalt, und dann ist Leeren billiger als Verwalten.
+  if (aggCache.size >= AGG_CACHE_MAX) {
+    aggCache.clear();
+  }
+  aggCache.set(key, out);
+  return out;
+}
+
+/** Die Tagesdateien eines Verzeichnisses, zeitlich aufsteigend. */
+function dayFiles(dir: string): string[] {
   try {
-    files = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')).sort();
+    return fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith('.jsonl'))
+      .sort();
   } catch {
     return [];
   }
+}
+
+function readSamplesUncached(dir: string): ChargeLogSample[] {
+  // Bei sehr langer Historie nur das Ende: Ein vollständiger Cache über sechs
+  // Jahre kostet 248 MB und bringt den Pi um. Wer alles braucht, streamt.
+  const all = dayFiles(dir);
+  const files = all.length > CACHE_MAX_FILES ? all.slice(-CACHE_MAX_FILES) : all;
   const out: ChargeLogSample[] = [];
   for (const f of files) {
     let text: string;
@@ -212,8 +407,30 @@ export function filterByPlace(
   sessions: ChargeSession[],
   place: Place,
 ): ChargeLogSample[] {
+  // Ohne Filter das Original, nicht eine Kopie: Bei einem Jahr Mitschrieb wäre
+  // die Kopie ein zweites Array über 151.000 Verweise, und zwar für nichts.
   if (place === 'all') {
     return samples;
+  }
+  return [...streamByPlace(samples, sessions, place)];
+}
+
+/**
+ * Dasselbe als Strom — für Auswertungen über die ganze Historie.
+ *
+ * Die Zeitfenster der auszuschließenden Ladungen sind klein (eine Handvoll
+ * Zahlen je Ladung); die Messpunkte laufen einzeln durch und werden danach
+ * wieder freigegeben. Ohne diesen Weg müsste für einen Ortsfilter die gesamte
+ * Historie als Objekte im Speicher liegen.
+ */
+export function* streamByPlace(
+  samples: Iterable<ChargeLogSample>,
+  sessions: ChargeSession[],
+  place: Place,
+): Generator<ChargeLogSample> {
+  if (place === 'all') {
+    yield* samples;
+    return;
   }
   const want = place === 'home';
   const drop = sessions
@@ -223,12 +440,15 @@ export function filterByPlace(
       to: x.endedAt ? Date.parse(x.endedAt) : Number.MAX_SAFE_INTEGER,
     }));
   if (drop.length === 0) {
-    return samples;
+    yield* samples;
+    return;
   }
-  return samples.filter((s) => {
+  for (const s of samples) {
     const t = Date.parse(s.ts);
-    return !drop.some((d) => t >= d.from && t <= d.to);
-  });
+    if (!drop.some((d) => t >= d.from && t <= d.to)) {
+      yield s;
+    }
+  }
 }
 
 /**
@@ -464,7 +684,7 @@ function lowerBound(sorted: number[], x: number): number {
   return lo;
 }
 
-function pollIntervalMinutes(samples: ChargeLogSample[]): number {
+function pollIntervalMinutes(samples: Iterable<ChargeLogSample>): number {
   const gaps: number[] = [];
   let prev: ChargeLogSample | undefined;
   for (const s of samples) {
@@ -492,8 +712,21 @@ function renderPage(
   host: string,
   place: Place = 'all',
   picked?: string,
+  /**
+   * Alle Messpunkte als STROM, für jeden Aufruf neu.
+   *
+   * Eine Fabrik und kein Array: Was über die ganze Historie rechnet — Zeitreihe,
+   * Kapazität, Fahrten — bekommt damit einen frischen Durchlauf, ohne dass die
+   * Historie gleichzeitig im Speicher liegen muss. Ohne Fabrik (Tests, kurze
+   * Historien) dient `allSamples` als Quelle.
+   */
+  stream?: () => Iterable<ChargeLogSample>,
 ): string {
   const L = o.labels;
+  const alle = stream ?? ((): Iterable<ChargeLogSample> => allSamples);
+  // Was über die ganze Historie geht und nicht am Zeitraum hängt, kommt
+  // gecacht — sonst streamt ein Aufruf fünfmal durch sechs Jahre.
+  const stats = statsFor(o);
   const sessions =
     place === 'all'
       ? allSessions
@@ -510,7 +743,9 @@ function renderPage(
 
   // Zeitreihe aus den Rohdaten — nur so verteilt sich eine Nachtladung korrekt
   // auf beide Tage, statt komplett dem Startzeitpunkt zugeschlagen zu werden.
-  const all = aggregate(samples, gran, optionsFor(o));
+  // Die Zeitreihe über die GANZE Historie — gestreamt und gecacht, damit sechs
+  // Jahre Mitschrieb nicht als Objekte im Speicher landen.
+  const all = cachedAggregate(o, alle, allSessions, gran, place);
 
   // Welcher Zeitraum ist gewählt? Ohne Angabe der jüngste. Der Schlüssel steht
   // in der Adresse, damit ein Blättern teilbar und über „zurück" bedienbar ist.
@@ -525,7 +760,7 @@ function renderPage(
   // geladen worden war — beide lagen in derselben Woche, also im selben Balken.
   const sub = SUB[gran];
   const series = current
-    ? aggregate(samples, sub, optionsFor(o)).filter(
+    ? cachedAggregate(o, alle, allSessions, sub, place).filter(
         (b) =>
           keyOf(new Date(Date.parse(b.from) - cfg.dayBoundaryHour * 3600000), gran) ===
           current.key,
@@ -569,7 +804,7 @@ function renderPage(
   // in dem sie ENDETE — sie ist ein Ereignis mit einem Ziel.
   //
   // Derselbe Effektivpreis wie bei den Ladungen — Grundpreis minus Bonus.
-  const allTrips = buildTrips(allSamples, { pricePerKwh: optionsFor(o).pricePerKwh });
+  const allTrips = stats.trips;
 
   // Der Gegenbalken kommt aus DERSELBEN Aggregation wie die Ladeenergie.
   //
@@ -698,7 +933,7 @@ function renderPage(
 
   // Gemessene Kapazität — die empfindlichste Größe der ganzen Auswertung.
   // Aus ALLEN Fahrten: Wo geladen wurde, ändert die Batterie nicht.
-  const cap = estimateCapacity(allSamples);
+  const cap = stats.capacity;
   const soh = stateOfHealth(cap.capacityKwh, cfg.capacityKwh);
   // Verlauf über die Monate — schweigt, solange er nichts hergibt.
   const capTrend = capacityTrend(cap);
@@ -721,7 +956,7 @@ function renderPage(
   // Reihe gerechnet meldete die Warnung „69 % erfasst, 11,4 h fehlen", während
   // der Mitschrieb in Wahrheit keine einzige Lücke über 35 Minuten hatte.
   const qualitySeries =
-    place === 'all' ? all : aggregate(allSamples, gran, optionsFor(o));
+    place === 'all' ? all : cachedAggregate(o, alle, allSessions, gran, 'all');
   const qualityBucket = current
     ? qualitySeries.find((b) => b.key === current.key)
     : undefined;
@@ -771,7 +1006,7 @@ function renderPage(
   const tripSum = summarizeTrips(tripsInPeriod);
   // Wie fein ist die Auflösung überhaupt? Der typische Messabstand OHNE Kabel
   // — am Kabel läuft der Poll deutlich dichter und verzerrte den Wert.
-  const tripPollMin = pollIntervalMinutes(allSamples);
+  const tripPollMin = stats.pollMin;
   const shownTrips = [...tripsInPeriod].reverse().slice(0, LIST_LIMIT);
   const tripRows = shownTrips
     .map((t) => {
@@ -1654,8 +1889,15 @@ function lastState<K extends keyof ChargeLogSample>(
  * Der Mehrwert gegenüber der Porsche-App ist der VERLAUF: Sie zeigt den
  * aktuellen Reifendruck, aber nicht, dass er seit sechs Wochen fällt.
  */
-function renderStatus(o: DashboardOptions, samples: ChargeLogSample[], host: string): string {
+function renderStatus(
+  o: DashboardOptions,
+  samples: ChargeLogSample[],
+  host: string,
+  /** Alle Messpunkte als Strom — siehe {@link renderPage}. */
+  stream?: () => Iterable<ChargeLogSample>,
+): string {
   const L = o.labels;
+  const stats = statsFor(o);
   const st = currentStatus(samples, Date.now());
   const tyre = lastState(samples, 'tyreBar');
   const diff = lastState(samples, 'tyreDiffBar');
@@ -1813,18 +2055,18 @@ function renderStatus(o: DashboardOptions, samples: ChargeLogSample[], host: str
   //
   // Nur die JÜNGSTE abgeschlossene Ladung, und nur solange nicht wieder am
   // Kabel: Sobald die nächste läuft, ist die Warnung Geschichte.
-  const sessions = buildSessions(samples, optionsFor(o));
+  const sessions = buildSessions(stream ? stream() : samples, optionsFor(o));
   const lastDone = [...sessions].reverse().find((x) => x.complete);
   const abortedLast =
     st.last?.plugged !== true && lastDone?.aborted === true ? lastDone : undefined;
 
   // Standverbrauch: was ohne Fahren verloren geht.
-  const cap = estimateCapacity(samples);
+  const cap = stats.capacity;
   const idle = idleKwhPerDay(cap, optionsFor(o).capacityKwh);
 
   // Wie ehrlich ist die Reichweitenanzeige? Gemessen daran, wie viel Anzeige
   // ein gefahrener Kilometer kostet — nicht an einer eigenen Prognose.
-  const tripStats = summarizeTrips(buildTrips(samples));
+  const tripStats = summarizeTrips(stats.trips);
   const realOf100 =
     tripStats.rangeFactor !== undefined && tripStats.rangeFactor > 0
       ? Math.round(100 / tripStats.rangeFactor)
@@ -2266,7 +2508,7 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
     return {
       samples,
       sessions: applyExternalPrices(
-        buildSessions(samples, optionsFor(o)),
+        buildSessions(streamSamples(o.logDir), optionsFor(o)),
         readPrices(o.logDir),
         effective(o).values.externalPriceCt,
       ),
@@ -2314,6 +2556,7 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
           o,
           load().samples,
           String(req.headers.host ?? '').split(':')[0],
+          () => streamSamples(o.logDir),
         );
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         res.end(page);
@@ -2344,7 +2587,7 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
         return;
       }
       if (url.pathname === '/settings') {
-        const est = estimateCapacity(readSamples(o.logDir));
+        const est = estimateCapacity(streamSamples(o.logDir));
         const page = renderSettings(
           o,
           String(req.headers.host ?? '').split(':')[0],
@@ -2527,7 +2770,9 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
       // Host aus dem Request, damit der Einstellungen-Link auch dann stimmt,
       // wenn das Dashboard über Hostname statt IP aufgerufen wurde.
       const host = (req.headers.host ?? '').split(':')[0] || '127.0.0.1';
-      const html = renderPage(sessions, samples, gran, o, host, place, picked);
+      const html = renderPage(sessions, samples, gran, o, host, place, picked, () =>
+        streamSamples(o.logDir),
+      );
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       res.end(html);
     } catch (err) {

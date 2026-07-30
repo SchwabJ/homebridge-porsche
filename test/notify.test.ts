@@ -17,6 +17,8 @@ const bucket = (over: Partial<Bucket> = {}): Bucket => ({
   saved: 0,
   km: 0,
   rangeAdded: 0,
+  usedKwh: 0,
+  unratedKm: 0,
   samples: 1,
   gapMinutes: 0,
   spanMinutes: 60,

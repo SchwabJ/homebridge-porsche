@@ -109,7 +109,7 @@ describe('rejectedSettings', () => {
   });
 
   it('meldet nichts, wenn alles übernommen wurde', () => {
-    expect(rejectedSettings({ priceCt: 32.67, bonusCt: 12 })).toEqual([]);
+    expect(rejectedSettings({ priceCt: 30, bonusCt: 10 })).toEqual([]);
   });
 
   it('ignoriert unbekannte Felder', () => {

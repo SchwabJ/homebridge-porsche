@@ -261,3 +261,29 @@ describe('Gegenbalken: geladen nach oben, verbraucht nach unten', () => {
     expect(svg).toContain('12.0 kWh verbraucht');
   });
 });
+
+describe('Achse des Gegenbalkens', () => {
+  it('kennzeichnet die untere Beschriftung farblich statt mit einem Minus', () => {
+    // Ohne Kennzeichnung stand an der Achse zweimal dieselbe Zahl („30 · 15 ·
+    // 0 · 30") — mathematisch richtig, aber nicht lesbar. Ein Minuszeichen
+    // wäre falsch: Es ist ein Betrag in der anderen Richtung, keine negative
+    // Energie.
+    const svg = barChart([{ label: 'Mo', value: 30, down: 30 }], LABELS_DE);
+    expect(svg).toMatch(/class="ax dn"[^>]*>30</);
+    expect(svg).not.toContain('>-30<');
+    // Und oben ohne die Kennzeichnung.
+    expect(svg).toMatch(/class="ax"[^>]*>30</);
+  });
+
+  it('zieht auch unten eine Mittellinie, wenn dort Platz ist', () => {
+    const svg = barChart([{ label: 'Mo', value: 30, down: 30 }], LABELS_DE);
+    // 0, 30 oben, 15 oben, 30 unten, 15 unten
+    const werte = [...svg.matchAll(/class="ax(?: dn)?"[^>]*>([\d.]+)</g)].map((m) => m[1]);
+    expect(werte.filter((x) => x === '15')).toHaveLength(2);
+  });
+
+  it('lässt die untere Kennzeichnung weg, wenn es keinen Gegenbalken gibt', () => {
+    const svg = barChart([{ label: 'Mo', value: 30 }], LABELS_DE);
+    expect(svg).not.toContain('class="ax dn"');
+  });
+});

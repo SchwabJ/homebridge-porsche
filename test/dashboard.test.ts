@@ -1986,3 +1986,92 @@ describe('Ladekurve jenseits des Cache-Deckels', () => {
     expect(html).toContain('class="curvewrap"');
   });
 });
+
+describe('Kacheln bei fehlender Ladung im Zeitraum', () => {
+  let dir: string;
+  let server: ReturnType<typeof startDashboard>;
+  let url: string;
+
+  const heute = new Date();
+  heute.setHours(0, 0, 0, 0);
+  const t = (min: number): string => new Date(heute.getTime() + min * 60000).toISOString();
+
+  beforeEach(async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leer-'));
+    // Gestern eine Ladung, heute nur gefahren — der heutige Zeitraum hat also
+    // Kilometer, aber keine geladene Energie.
+    const gestern = new Date(heute.getTime() - 86400000);
+    const key = (d: Date): string =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+        d.getDate(),
+      ).padStart(2, '0')}`;
+    fs.writeFileSync(
+      path.join(dir, `${key(gestern)}.jsonl`),
+      [
+        { ts: new Date(gestern.getTime() + 20 * 3600000).toISOString(), soc: 40, odometerKm: 1000, plugged: true, charging: true, atHome: true },
+        { ts: new Date(gestern.getTime() + 22 * 3600000).toISOString(), soc: 80, odometerKm: 1000, plugged: true, charging: true, atHome: true },
+        { ts: new Date(gestern.getTime() + 22.5 * 3600000).toISOString(), soc: 80, odometerKm: 1000, plugged: false },
+      ]
+        .map((r) => JSON.stringify(r))
+        .join('\n') + '\n',
+    );
+    fs.writeFileSync(
+      path.join(dir, `${key(heute)}.jsonl`),
+      [
+        { ts: t(60), soc: 80, odometerKm: 1000, plugged: false, tripKwh100: 20 },
+        { ts: t(80), soc: 78, odometerKm: 1010, plugged: false, tripKwh100: 20 },
+        { ts: t(100), soc: 78, odometerKm: 1010, plugged: false, tripKwh100: 20 },
+      ]
+        .map((r) => JSON.stringify(r))
+        .join('\n') + '\n',
+    );
+    server = startDashboard({
+      port: 19800,
+      logDir: dir,
+      capacityKwh: 100,
+      pricePerKwh: 0.2,
+      priceCt: 30,
+      bonusCt: 10,
+      externalPriceCt: 0,
+      dayBoundaryHour: 0,
+      vehicleName: 'T',
+      uiPort: 8581,
+      labels: labelsFor('en'),
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server?.once('listening', r));
+    const a = server.address();
+    url = `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`;
+  });
+
+  afterEach(() => {
+    server?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('behauptet nicht, der Wagen fahre umsonst', async () => {
+    // 10 km gefahren, 0 kWh geladen: „bezahlt 0.0 kWh/100 km" und „0.0 ct/km"
+    // wären keine günstige Fahrt, sondern eine fehlende Ladung.
+    const html = await (await fetch(`${url}/?g=day`)).text();
+    expect(html).toContain('10 km');
+    expect(html).not.toContain('paid 0.0');
+    expect(html).not.toContain('0.0 ct/km');
+  });
+
+  it('zeigt die gefahrenen Kilometer auch bei konfiguriertem Bonus', async () => {
+    // Vorher stand bei Bonus die Ersparnis STATT der Strecke — wer einen Bonus
+    // hat, sah die gefahrenen Kilometer nirgends in den Kacheln.
+    const html = await (await fetch(`${url}/?g=day`)).text();
+    expect(html).toContain('<span>Driven</span>');
+  });
+
+  it('nennt dieselbe Ersparnis nicht zweimal', async () => {
+    const html = await (await fetch(`${url}/?g=week`)).text();
+    // Die ANGABE zählen, nicht das Wort: "saved" steckt auch in
+    // CSS-Klassen und Labels, die nichts mit dieser Kachel zu tun haben.
+    const stellen = (html.match(/€ saved/g) ?? []).length;
+    expect(stellen).toBeLessThanOrEqual(1);
+  });
+});

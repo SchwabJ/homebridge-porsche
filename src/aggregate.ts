@@ -126,6 +126,26 @@ export interface AggregateOptions {
  * Etwas über dem langsamsten regulären Intervall (30 min), damit normales
  * Polling nicht als Lücke zählt.
  */
+/**
+ * Höchster Reichweitenzuwachs je Minute, der noch als Ladung zählt (km/min).
+ *
+ * Die Fahrzeugantwort ist zwischengespeichert: Nach einem Poll ohne frische
+ * Daten springt die Restreichweite gelegentlich um dreistellige Kilometer,
+ * sobald der Cache aufholt. Nachgestellt: 100 → 340 km in drei Minuten, also
+ * 80 km/min. Physikalisch geht das nicht — selbst 270 kW Ladeleistung ergeben
+ * bei fünf km je kWh rund 22 km/min.
+ */
+const MAX_RANGE_GAIN_PER_MIN = 25;
+
+/**
+ * Höchste Geschwindigkeit, die ein Kilometerstands-Sprung ergeben darf (km/min).
+ *
+ * 4,5 km/min sind 270 km/h. Darüber liegt kein Fahrzeug, wohl aber ein
+ * Zählerfehler: Ein einzelner verrutschter Kilometerstand ergab in der
+ * Auswertung 998.000 gefahrene Kilometer.
+ */
+const MAX_SPEED_PER_MIN = 4.5;
+
 const GAP_THRESHOLD_MIN = 35;
 
 /** Verschiebt einen Zeitpunkt um die Tagesgrenze zurück. */
@@ -399,7 +419,13 @@ export function aggregate(
         cur.rangeKm > lastRange.rangeKm &&
         (cur.plugged || lastRange.plugged)
       ) {
-        b.rangeAdded += cur.rangeKm - lastRange.rangeKm;
+        const zuwachs = cur.rangeKm - lastRange.rangeKm;
+        const dauer = (Date.parse(cur.ts) - Date.parse(lastRange.ts)) / 60000;
+        // Ein Sprung, den keine Ladeleistung erklärt, kommt aus dem Cache und
+        // nicht aus der Steckdose — siehe {@link MAX_RANGE_GAIN_PER_MIN}.
+        if (dauer > 0 && zuwachs / dauer <= MAX_RANGE_GAIN_PER_MIN) {
+          b.rangeAdded += zuwachs;
+        }
       }
       lastRange = cur;
     }
@@ -409,8 +435,14 @@ export function aggregate(
     let gefahren = 0;
     if (cur.odometerKm !== undefined) {
       if (lastOdo?.odometerKm !== undefined && cur.odometerKm > lastOdo.odometerKm) {
-        gefahren = cur.odometerKm - lastOdo.odometerKm;
-        b.km += gefahren;
+        const sprung = cur.odometerKm - lastOdo.odometerKm;
+        const dauer = (Date.parse(cur.ts) - Date.parse(lastOdo.ts)) / 60000;
+        // Was schneller wäre als jedes Fahrzeug, ist ein Zählerfehler — siehe
+        // {@link MAX_SPEED_PER_MIN}.
+        if (dauer > 0 && sprung / dauer <= MAX_SPEED_PER_MIN) {
+          gefahren = sprung;
+          b.km += gefahren;
+        }
       }
       lastOdo = cur;
     }

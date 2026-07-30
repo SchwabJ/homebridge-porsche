@@ -53,6 +53,22 @@ export interface Receipt {
 
 const empty = (): ReceiptGroup => ({ kwh: 0, costEur: 0, count: 0 });
 
+/**
+ * Der Monat eines Zeitpunkts als `YYYY-MM` — aus LOKALEN Datumsteilen.
+ *
+ * `iso.slice(0, 7)` liefert den UTC-Monat, und der weicht ab: Eine Ladung, die
+ * am 1. August um 01:00 Ortszeit beginnt, ist in UTC noch der 31. Juli. Auf
+ * einem Beleg landet sie damit im falschen Monat — bei einer Abrechnung ist das
+ * kein Schönheitsfehler.
+ *
+ * Dieselbe Regel wie im Dashboard, das seine Zeiträume ebenfalls lokal bildet:
+ * Der Nutzer sieht den Tag, den seine Uhr zeigt.
+ */
+const monthKey = (iso: string): string => {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 /**
@@ -75,7 +91,7 @@ export function buildReceipt(sessions: ChargeSession[], month: string): Receipt 
     unknown: empty(),
   };
   for (const s of sessions) {
-    if (!s.complete || s.startedAt.slice(0, 7) !== month) {
+    if (!s.complete || monthKey(s.startedAt) !== month) {
       continue;
     }
     const kwh = s.energyKwh ?? 0;
@@ -175,7 +191,7 @@ export function receiptMonths(sessions: ChargeSession[]): string[] {
   const set = new Set<string>();
   for (const s of sessions) {
     if (s.complete && (s.energyKwh ?? 0) > 0) {
-      set.add(s.startedAt.slice(0, 7));
+      set.add(monthKey(s.startedAt));
     }
   }
   return [...set].sort().reverse();

@@ -679,7 +679,10 @@ export function currentStatus(
   if (!last) {
     return { monitorOk: false };
   }
-  const ageMinutes = (now - Date.parse(last.ts)) / 60000;
+  // Nie negativ: Die Fahrzeugantwort ist zwischengespeichert und trägt
+  // gelegentlich einen Zeitstempel, der in der Zukunft liegt. „vor -2700 min"
+  // ist keine Altersangabe, sondern ein Rechenartefakt.
+  const ageMinutes = Math.max(0, (now - Date.parse(last.ts)) / 60000);
   // Kulanz: das langsamste reguläre Intervall plus Puffer.
   return { last, ageMinutes, monitorOk: ageMinutes <= 45 };
 }
@@ -988,7 +991,15 @@ function renderPage(
       : undefined;
 
   // Fahrverbrauch laut Fahrzeug — unabhängig von unserer Rechnung.
-  const tripKwh100 = st.last?.tripKwh100;
+  // Verbrauch DES ZEITRAUMS, nicht der letzte Messwert der ganzen Historie.
+  //
+  // Vorher stand hier `st.last?.tripKwh100` — der Fahrzeugschnitt seit dem
+  // letzten Laden, also ein Momentanwert von jetzt. Er zeigte in JEDEM
+  // Zeitraum dieselbe Zahl, auch für einen Tag, dessen Strecke ausdrücklich
+  // als „ohne belastbaren Verbrauch" geführt wird.
+  const ratedKm = current ? current.km - current.unratedKm : 0;
+  const tripKwh100 =
+    current && ratedKm > 0 ? Math.round((current.usedKwh / ratedKm) * 1000) / 10 : undefined;
 
   // Datenqualität des angezeigten Zeitraums. Ohne dieses Maß sähe eine
   // Auswertung aus sechs Messpunkten genauso vertrauenswürdig aus wie eine
@@ -1024,6 +1035,12 @@ function renderPage(
   // Kilometer UND geladene Energie. Ohne Ladung im Zeitraum stand dort
   // „bezahlt 0.0" — das behauptet, der Wagen fahre umsonst.
   const trustworthy = quality === undefined && eff.km > 0 && eff.kwh > 0;
+  // Der Vergleich „laut Fahrzeug gegen bezahlt" setzt voraus, dass Laden und
+  // Fahren im selben Zeitraum liegen. Über eine Woche hinweg tun sie das
+  // ungefähr, über einen Tag nicht: 26,8 kWh nachts geladen und 22 km gefahren
+  // ergeben „bezahlt 121,7 kWh/100 km" — rechnerisch richtig, als Aussage
+  // Unsinn. Die Nachtladung deckt die Fahrten des Folgetags.
+  const payableCompare = trustworthy && gran !== 'day' && gran !== 'hour';
 
   // Vergleich mit dem Vorzeitraum. Der laufende Zeitraum ist unvollständig —
   // deshalb wird er als solcher gekennzeichnet statt schöngerechnet.
@@ -1686,18 +1703,36 @@ ${placeTabs}${nav}${
         )}</span></div>`
   }
   <div class="card"><span>${esc(L.dashConsumption)}</span>
-    <b>${tripKwh100 !== undefined ? tripKwh100.toFixed(1) : eff.kwhPer100km !== undefined ? eff.kwhPer100km.toFixed(1) : '—'}</b>
-    <span>kWh/100 km ${esc(tripKwh100 !== undefined ? L.dashPerVehicle : L.dashCalculated)}${
-      trustworthy && tripKwh100 !== undefined && eff.kwhPer100km !== undefined
+    <b>${
+      tripKwh100 !== undefined
+        ? tripKwh100.toFixed(1)
+        : // Der Ersatzweg nur, wenn er etwas hergibt: „0,0 gerechnet" ist keine
+          // sparsame Fahrt, sondern eine fehlende Verbrauchsangabe.
+          eff.kwhPer100km !== undefined && eff.kwhPer100km > 0
+          ? eff.kwhPer100km.toFixed(1)
+          : '—'
+    }</b>
+    <span>kWh/100 km ${
+      tripKwh100 !== undefined
+        ? esc(L.dashPerVehicle)
+        : eff.kwhPer100km !== undefined && eff.kwhPer100km > 0
+          ? esc(L.dashCalculated)
+          : ''
+    }${
+      payableCompare && tripKwh100 !== undefined && eff.kwhPer100km !== undefined
         ? ` · ${esc(L.dashPaid)} ${eff.kwhPer100km.toFixed(1)}`
         : ''
     }</span></div>
 
   <div class="card"><span>${esc(L.dashCharges)}</span><b>${inPeriod.length}</b>
     <span>${
-      inPeriod.length > 0
+      // „Ø 0,0 kWh" ist keine Durchschnittsangabe, sondern eine Ladung ohne
+      // Energiezuwachs — etwa reines Vorklimatisieren am Kabel.
+      inPeriod.length > 0 && avgPerCharge > 0.05
         ? `Ø ${avgPerCharge.toFixed(1)} kWh`
-        : esc(L.dashNone)
+        : inPeriod.length > 0
+          ? ''
+          : esc(L.dashNone)
     }</span></div>
 
   <!-- Die beiden Kilometer-Kacheln als PAAR, in den Farben des Diagramms:
@@ -2040,7 +2075,9 @@ function renderStatus(
 
 
   const ago = (iso: string): string => {
-    const min = (Date.now() - Date.parse(iso)) / 60000;
+    // Nie negativ — siehe {@link currentStatus}: Ein zwischengespeicherter
+    // Zeitstempel kann in der Zukunft liegen, und „vor -45 h" ist keine Angabe.
+    const min = Math.max(0, (Date.now() - Date.parse(iso)) / 60000);
     return min < 90
       ? L.stAgoMin.replace('%n', String(Math.round(min)))
       : L.stAgoHour.replace('%n', String(Math.round(min / 60)));
@@ -2670,11 +2707,17 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
         const months = receiptMonths(sessions);
         // Ohne Angabe der jüngste Monat MIT Ladungen — ein leerer Beleg für
         // einen frisch begonnenen Monat wäre die schlechtere Vorgabe.
+        // Die Form allein genügt nicht: `2026-13` passt auf das Muster, ergibt
+        // aber ein ungültiges Datum — die Seite hieß dann „Invalid Date".
         const wanted = url.searchParams.get('m');
-        const month =
-          wanted && /^\d{4}-\d{2}$/.test(wanted)
-            ? wanted
-            : (months[0] ?? new Date().toISOString().slice(0, 7));
+        const gueltig =
+          wanted !== null &&
+          /^\d{4}-\d{2}$/.test(wanted) &&
+          Number(wanted.slice(5, 7)) >= 1 &&
+          Number(wanted.slice(5, 7)) <= 12;
+        const month = gueltig
+          ? (wanted as string)
+          : (months[0] ?? new Date().toISOString().slice(0, 7));
         const receipt = buildReceipt(sessions, month);
         if (url.pathname === '/beleg.csv') {
           res.writeHead(200, {

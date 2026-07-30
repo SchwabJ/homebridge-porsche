@@ -327,6 +327,50 @@ function cachedAggregate(
   return out;
 }
 
+/**
+ * Die Messpunkte eines Zeitfensters — gezielt gelesen, nicht aus dem Cache.
+ *
+ * Die Ladekurven brauchen die Rohdaten der gezeigten Ladungen. Der Cache hält
+ * bei langer Historie nur das Ende ({@link CACHE_MAX_FILES}); wer in einen
+ * Zeitraum von vor zwei Jahren blättert, fände dort nichts. Weil die
+ * Tagesdateien nach Datum heißen, lässt sich das Fenster aber ohne jedes
+ * Parsen aus den Dateinamen bestimmen — gelesen wird nur, was gebraucht wird.
+ *
+ * `from` und `to` sind Tagesschlüssel (`YYYY-MM-DD`), beide einschließlich.
+ * Der Aufrufer sollte einen Tag Rand mitgeben: Eine Nachtladung beginnt am
+ * Vortag, und ohne ihren Anfang fehlte der Kurve das erste Stück.
+ */
+export function readSamplesRange(
+  dir: string,
+  from: string,
+  to: string,
+): ChargeLogSample[] {
+  const out: ChargeLogSample[] = [];
+  for (const f of dayFiles(dir)) {
+    const day = f.slice(0, 10);
+    if (day < from || day > to) {
+      continue;
+    }
+    let text: string;
+    try {
+      text = fs.readFileSync(path.join(dir, f), 'utf8');
+    } catch {
+      continue;
+    }
+    for (const line of text.split('\n')) {
+      if (!line.trim()) {
+        continue;
+      }
+      try {
+        out.push(normalizeSample(JSON.parse(line) as ChargeLogSample));
+      } catch {
+        // abgeschnittene Zeile ignorieren
+      }
+    }
+  }
+  return out.sort((a, b) => a.ts.localeCompare(b.ts));
+}
+
 /** Die Tagesdateien eines Verzeichnisses, zeitlich aufsteigend. */
 function dayFiles(dir: string): string[] {
   try {
@@ -994,7 +1038,29 @@ function renderPage(
 
   // Zeitstempel EINMAL in Zahlen umrechnen — die Ladekurven schneiden sich
   // ihre Messpunkte danach per Binärsuche heraus.
-  const sampleTimes = samples.map((x) => Date.parse(x.ts));
+  // Messpunkte für die Ladekurven: aus dem ZEITRAUM, nicht aus dem globalen
+  // Cache. Bei langer Historie hält der nur das Ende — eine Ladung von vor
+  // zwei Jahren hätte dort keine Kurve mehr. Ein Tag Rand nach vorn, weil eine
+  // Nachtladung am Vortag beginnt.
+  //
+  // Bei kurzer Historie ist `samples` ohnehin vollständig; dann wird nichts
+  // zusätzlich gelesen.
+  const curveSamples = ((): ChargeLogSample[] => {
+    if (recent.length === 0) {
+      return samples;
+    }
+    const ersteBekannt = samples.length > 0 ? samples[0].ts.slice(0, 10) : '9999-12-31';
+    const brauchtVon = recent[recent.length - 1].startedAt.slice(0, 10);
+    if (brauchtVon >= ersteBekannt) {
+      return samples;
+    }
+    const tagFrueher = new Date(Date.parse(`${brauchtVon}T12:00:00Z`) - 86400000)
+      .toISOString()
+      .slice(0, 10);
+    const bis = (recent[0].endedAt ?? recent[0].startedAt).slice(0, 10);
+    return readSamplesRange(o.logDir, tagFrueher, bis);
+  })();
+  const sampleTimes = curveSamples.map((x) => Date.parse(x.ts));
 
   const tripsInPeriod = current
     ? allTrips.filter(
@@ -1116,7 +1182,10 @@ function renderPage(
       // Über Binärsuche statt `filter`: Die Reihe ist zeitlich sortiert, und
       // ein Vollscan JE LADUNG kostete bei einem Jahr Mitschrieb vierzig mal
       // 151.000 `Date.parse` — gemessen der teuerste Posten der ganzen Seite.
-      const own = samples.slice(lowerBound(sampleTimes, from), lowerBound(sampleTimes, to + 1));
+      const own = curveSamples.slice(
+        lowerBound(sampleTimes, from),
+        lowerBound(sampleTimes, to + 1),
+      );
       const curve = chargeCurve(own, s.phases, {
         targetSoc: lastValue(own, (x) => x.targetSoc),
         minSoc: lastValue(own, (x) => x.minSoc),

@@ -1889,3 +1889,100 @@ describe('Verbrauch im Diagramm', () => {
     expect(html).toContain('50 km without a reliable consumption figure');
   });
 });
+
+describe('Ladekurve jenseits des Cache-Deckels', () => {
+  let dir: string;
+  let server: ReturnType<typeof startDashboard>;
+  let url: string;
+
+  /**
+   * Mitschrieb über `tage` Tage, mit einer Ladung am ERSTEN Tag.
+   *
+   * Bei mehr als 500 Tagesdateien hält der Cache nur das Ende — die
+   * Messpunkte der ersten Ladung sind dann nicht mehr darin. Ihre Kurve muss
+   * trotzdem erscheinen, weil sie gezielt nachgeladen wird.
+   */
+  const bauen = (tage: number): string => {
+    const start = new Date(2024, 0, 1, 12, 0, 0);
+    for (let d = 0; d < tage; d++) {
+      const tag = new Date(start.getTime() + d * 86400000);
+      const key = `${tag.getFullYear()}-${String(tag.getMonth() + 1).padStart(2, '0')}-${String(
+        tag.getDate(),
+      ).padStart(2, '0')}`;
+      const rows: ChargeLogSample[] = [];
+      const at = (h: number, m = 0): string =>
+        new Date(tag.getFullYear(), tag.getMonth(), tag.getDate(), h, m).toISOString();
+      if (d === 0) {
+        // Eine Ladung mit genug Messpunkten für eine Kurve.
+        for (let i = 0; i <= 8; i++) {
+          rows.push({
+            ts: at(20, i * 5),
+            soc: 40 + i * 5,
+            rangeKm: 160 + i * 20,
+            odometerKm: 50000,
+            plugged: true,
+            charging: true,
+            targetSoc: 80,
+            atHome: true,
+          });
+        }
+        rows.push({ ts: at(21, 0), soc: 80, odometerKm: 50000, plugged: false });
+      } else {
+        rows.push({ ts: at(12), soc: 60, odometerKm: 50000 + d, plugged: false });
+      }
+      fs.writeFileSync(
+        path.join(dir, `${key}.jsonl`),
+        rows.map((r) => JSON.stringify(r)).join('\n') + '\n',
+      );
+    }
+    return '2024-01-01';
+  };
+
+  const serve = async (port: number): Promise<void> => {
+    server = startDashboard({
+      port,
+      logDir: dir,
+      capacityKwh: 100,
+      pricePerKwh: 0.2,
+      priceCt: 30,
+      bonusCt: 0,
+      externalPriceCt: 0,
+      dayBoundaryHour: 0,
+      vehicleName: 'T',
+      uiPort: 8581,
+      labels: labelsFor('en'),
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server?.once('listening', r));
+    const a = server.address();
+    url = `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`;
+  };
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deckel-'));
+  });
+
+  afterEach(() => {
+    server?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('zeichnet die Kurve einer Ladung, die älter ist als der Cache', async () => {
+    // 600 Tagesdateien: Der Cache hält nur die letzten 500, die Ladung liegt
+    // am ersten Tag. Ohne gezieltes Nachladen fehlte ihre Kurve.
+    const tag = bauen(600);
+    await serve(19700);
+    const html = await (await fetch(`${url}/?g=day&d=${tag}`)).text();
+    expect(html).toContain('40 → 80 %');
+    expect(html).toContain('class="curvewrap"');
+  }, 30000);
+
+  it('liest bei kurzer Historie nichts zusätzlich, sondern nutzt den Cache', async () => {
+    const tag = bauen(5);
+    await serve(19701);
+    const html = await (await fetch(`${url}/?g=day&d=${tag}`)).text();
+    expect(html).toContain('class="curvewrap"');
+  });
+});

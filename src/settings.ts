@@ -146,3 +146,30 @@ export function mergeSettings<T extends Record<string, number>>(
   }
   return { values, source };
 }
+
+/**
+ * Die Schlüssel, deren Werte {@link sanitizeSettings} VERWORFEN hat.
+ *
+ * Nötig für eine ehrliche Rückmeldung: Wer 9999 als Arbeitspreis einträgt,
+ * bekam bisher „gesichert" zu sehen, während der Wert stillschweigend fiel.
+ * Ein leeres Feld zählt nicht als verworfen — es ist die gültige Art, einen
+ * Wert zurückzunehmen.
+ */
+export function rejectedSettings(input: unknown): (keyof DashboardSettings)[] {
+  if (!input || typeof input !== 'object') {
+    return [];
+  }
+  const src = input as Record<string, unknown>;
+  const ok = sanitizeSettings(input) ?? {};
+  const out: (keyof DashboardSettings)[] = [];
+  for (const key of Object.keys(LIMITS) as (keyof DashboardSettings)[]) {
+    const raw = src[key];
+    if (raw === undefined || raw === null || raw === '') {
+      continue;
+    }
+    if (ok[key] === undefined) {
+      out.push(key);
+    }
+  }
+  return out;
+}

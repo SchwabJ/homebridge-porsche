@@ -47,6 +47,7 @@ import {
   readSettings,
   writeSettings,
   sanitizeSettings,
+  rejectedSettings,
   mergeSettings,
   type DashboardSettings,
   type Source,
@@ -2179,10 +2180,14 @@ function renderStatus(
       // die eine Hochrechnung aus vier Wochen nicht hergibt.
       serviceEta =
         daysLeft > 550
-          ? `${L.stPerWeek.replace('%n', perWeek)} ${L.stYearsLeft.replace(
-              '%n',
-              String(Math.floor(daysLeft / 365)),
-            )}`
+          ? (() => {
+              // „noch gut 1 Jahre" — die Einzahl braucht ihre eigene Form.
+              const jahre = Math.floor(daysLeft / 365);
+              return `${L.stPerWeek.replace('%n', perWeek)} ${(jahre === 1
+                ? L.stYearLeft
+                : L.stYearsLeft
+              ).replace('%n', String(jahre))}`;
+            })()
           : `${L.stPerWeek.replace('%n', perWeek)} ${L.stAbout} ${when.toLocaleDateString(
               L.locale,
               { month: 'long', year: 'numeric' },
@@ -2842,8 +2847,25 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
             json(res, { ok: false, reason: 'bad-settings' }, 400);
             return;
           }
+          // Was verworfen wurde, gehört in die Antwort: „gesichert" zu melden,
+          // während ein Wert stillschweigend gefallen ist, ist die schlechteste
+          // aller Rückmeldungen — der Nutzer glaubt, es habe geklappt, und
+          // sucht den Fehler später woanders.
+          const rejected = rejectedSettings(parsed);
+          if (rejected.length > 0 && Object.keys(next).length === 0) {
+            json(res, { ok: false, reason: 'rejected', rejected }, 400);
+            return;
+          }
           const ok = writeSettings(o.logDir, next);
-          json(res, ok ? { ok: true } : { ok: false, reason: 'write-failed' }, ok ? 200 : 500);
+          json(
+            res,
+            ok
+              ? rejected.length > 0
+                ? { ok: true, rejected }
+                : { ok: true }
+              : { ok: false, reason: 'write-failed' },
+            ok ? 200 : 500,
+          );
         });
         return;
       }

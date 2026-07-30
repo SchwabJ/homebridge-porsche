@@ -285,7 +285,7 @@ function nextKey(key: string, g: Granularity): string {
  * Verlauf suggerieren.
  */
 export function aggregate(
-  samples: ChargeLogSample[],
+  samples: Iterable<ChargeLogSample>,
   g: Granularity,
   opts: AggregateOptions,
 ): Bucket[] {
@@ -306,9 +306,11 @@ export function aggregate(
 
   // Der erste Messpunkt liefert kein Delta, markiert aber einen Zeitraum MIT
   // Daten. Ohne diesen Anker fiele der erste Tag/die erste Woche ganz heraus.
-  if (samples.length > 0) {
-    touch(keyOf(shift(new Date(samples[0].ts), boundary), g), samples[0].ts).samples++;
-  }
+  //
+  // Alles in EINEM Durchlauf: `samples` darf ein Generator sein, der die
+  // Tagesdateien einzeln liest und wieder freigibt. Ein zweiter Zugriff auf
+  // `samples[0]` wäre dann nicht möglich — und genau daran hängt, ob sechs
+  // Jahre Mitschrieb in den Speicher eines Raspberry Pi passen.
 
   // Letzter Messpunkt MIT Ladestand bzw. MIT Kilometerstand — nicht einfach
   // der direkte Vorgänger.
@@ -327,28 +329,30 @@ export function aggregate(
   // kumulierte Energie. Der Zähler des Fahrzeugs beginnt mit jedem Laden neu.
   let cycleStartKm: number | undefined;
   let cycleKwh = 0;
-  if (samples.length > 0) {
-    if (samples[0].soc !== undefined) {
-      lastSoc = samples[0];
-    }
-    if (samples[0].odometerKm !== undefined) {
-      lastOdo = samples[0];
-    }
-    if (samples[0].rangeKm !== undefined) {
-      lastRange = samples[0];
-    }
-    // Auch der Verbrauchszyklus braucht seinen Anker aus dem ERSTEN Messpunkt.
-    // Die Schleife unten beginnt bei Index 1; stünde die Ladung genau am
-    // Anfang der Reihe, bliebe der Zyklus ohne Bezugspunkt und die ganze
-    // folgende Strecke unbewertet.
-    if (samples[0].charging === true && samples[0].odometerKm !== undefined) {
-      cycleStartKm = samples[0].odometerKm;
-    }
-  }
+  let prev: ChargeLogSample | undefined;
 
-  for (let i = 1; i < samples.length; i++) {
-    const prev = samples[i - 1];
-    const cur = samples[i];
+  for (const cur of samples) {
+    if (prev === undefined) {
+      // Der erste Messpunkt: Anker setzen, kein Delta.
+      touch(keyOf(shift(new Date(cur.ts), boundary), g), cur.ts).samples++;
+      if (cur.soc !== undefined) {
+        lastSoc = cur;
+      }
+      if (cur.odometerKm !== undefined) {
+        lastOdo = cur;
+      }
+      if (cur.rangeKm !== undefined) {
+        lastRange = cur;
+      }
+      // Stünde die Ladung genau am Anfang der Reihe, bliebe der
+      // Verbrauchszyklus ohne Bezugspunkt und die ganze folgende Strecke
+      // unbewertet.
+      if (cur.charging === true && cur.odometerKm !== undefined) {
+        cycleStartKm = cur.odometerKm;
+      }
+      prev = cur;
+      continue;
+    }
     // Zugeordnet wird nach dem SPÄTEREN der beiden Messpunkte: Ein Zuwachs
     // wird dem Zeitpunkt gutgeschrieben, an dem er festgestellt wurde. Eine
     // Nachtladung landet damit auf dem Tag ihres Endes, nicht anteilig auf
@@ -442,6 +446,8 @@ export function aggregate(
     } else if (gefahren > 0) {
       b.unratedKm += gefahren;
     }
+
+    prev = cur;
   }
 
   const keys = [...buckets.keys()].sort();

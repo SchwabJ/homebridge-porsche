@@ -1020,7 +1020,10 @@ function renderPage(
   }
   // Die Gegenüberstellung beider Verbrauchswerte lohnt nur bei belastbarer
   // Datenbasis — gemessen an Messpunkten und Lücken, nicht an der Fahrstrecke.
-  const trustworthy = quality === undefined && eff.km > 0;
+  // Der Vergleich „laut Fahrzeug gegen bezahlt" braucht BEIDE Größen: gefahrene
+  // Kilometer UND geladene Energie. Ohne Ladung im Zeitraum stand dort
+  // „bezahlt 0.0" — das behauptet, der Wagen fahre umsonst.
+  const trustworthy = quality === undefined && eff.km > 0 && eff.kwh > 0;
 
   // Vergleich mit dem Vorzeitraum. Der laufende Zeitraum ist unvollständig —
   // deshalb wird er als solcher gekennzeichnet statt schöngerechnet.
@@ -1301,6 +1304,11 @@ h1 button.cog.busy svg{animation:spin .9s linear infinite}
  line-height:1.35;margin-top:auto;text-transform:none;letter-spacing:0}
 .card span s{opacity:.75}
 .card.save b{color:#1e9e5a}
+/* Die beiden Kilometer-Kacheln tragen die Farben des Diagramms: Wer dort den
+   orangen Gegenbalken gesehen hat, findet hier dieselbe Größe in derselben
+   Farbe wieder. */
+.card.driven b{color:#e8833a}
+.card.charged b{color:var(--accent)}
 @media(prefers-color-scheme:dark){.card.save b{color:#35c77b}}
 .cap{background:var(--card);border:1px solid var(--line);border-radius:12px;
  padding:14px;margin-bottom:16px;position:relative;overflow:hidden}
@@ -1648,7 +1656,25 @@ ${placeTabs}${nav}${
       current && current.costGross > current.cost
         ? `${esc(L.dashInsteadOf)} <s>${current.costGross.toFixed(2)} €</s>`
         : `${(o.pricePerKwh * 100).toFixed(2)} ct/kWh`
-    }${eff.centPerKm !== undefined ? ` · ${eff.centPerKm.toFixed(1)} ct/km` : ''}</span></div>`
+    }${
+      // Die Ersparnis DES ZEITRAUMS, und die Gesamtsumme nur, wenn sie eine
+      // andere ist — sonst stünde dieselbe Zahl zweimal in einer Kachel.
+      hasBonus && current && current.saved > 0.005
+        ? ` · ${current.saved.toFixed(2)} € ${esc(L.dashSavedSuffix)}${
+            totalSaved > current.saved + 0.005
+              ? ` (${esc(L.dashTotal)} ${totalSaved.toFixed(2)} €)`
+              : ''
+          }`
+        : hasBonus && totalSaved > 0.005
+          ? ` · ${esc(L.dashTotal)} ${totalSaved.toFixed(2)} € ${esc(L.dashSavedSuffix)}`
+          : ''
+    }${
+      // Auch hier: ohne Kosten im Zeitraum keine Kosten je Kilometer. „0,0
+      // ct/km" ist keine günstige Fahrt, sondern eine fehlende Ladung.
+      eff.centPerKm !== undefined && eff.cost > 0
+        ? ` · ${eff.centPerKm.toFixed(1)} ct/km`
+        : ''
+    }</span></div>`
       : // Ohne Preis steht hier die tatsächliche LADEZEIT der Ladungen im
         // Zeitraum. Vorher zeigte diese Kachel `spanMinutes` — die erfasste
         // Messspanne, also wie lange überhaupt Daten vorliegen. Unter der
@@ -1659,23 +1685,6 @@ ${placeTabs}${nav}${
           inPeriod.length === 1 ? L.dashChargeOne : L.dashCharges.toLowerCase(),
         )}</span></div>`
   }
-  ${
-    hasBonus
-      ? `<div class="card save"><span>${esc(L.dashSaved)}</span>
-    <b>${current ? current.saved.toFixed(2) : '0.00'} €</b>
-    <span>${cfg.bonusCt.toFixed(2)} ct/kWh ${esc(L.dashBonus)}${
-      current && totalSaved > current.saved + 0.005 ? ` · ${esc(L.dashTotal)} ${totalSaved.toFixed(2)} €` : ''
-    }</span></div>`
-      : `<div class="card"><span>${esc(L.dashDriven)}</span><b>${eff.km.toLocaleString(L.locale)} km</b>
-         <span></span></div>`
-  }
-  <div class="card"><span>${esc(L.dashChargedRange)}</span>
-    <b>${current ? current.rangeAdded.toLocaleString(L.locale) : '0'} km</b>
-    <span>${esc(L.dashRange)}${
-      current && current.kwh > 0 && current.rangeAdded > 0
-        ? ` · ${(current.rangeAdded / current.kwh).toFixed(1)} km/kWh`
-        : ''
-    }</span></div>
   <div class="card"><span>${esc(L.dashConsumption)}</span>
     <b>${tripKwh100 !== undefined ? tripKwh100.toFixed(1) : eff.kwhPer100km !== undefined ? eff.kwhPer100km.toFixed(1) : '—'}</b>
     <span>kWh/100 km ${esc(tripKwh100 !== undefined ? L.dashPerVehicle : L.dashCalculated)}${
@@ -1689,6 +1698,31 @@ ${placeTabs}${nav}${
       inPeriod.length > 0
         ? `Ø ${avgPerCharge.toFixed(1)} kWh`
         : esc(L.dashNone)
+    }</span></div>
+
+  <!-- Die beiden Kilometer-Kacheln als PAAR, in den Farben des Diagramms:
+       gefahren orange, geladen blau. Sie stehen an den Positionen fünf und
+       sechs, weil nur dort ein Paar in BEIDEN Rastern zusammenbleibt — am
+       Telefon zwei Spalten, ab Tablet drei. An Position drei und vier würde
+       das Dreierraster sie auseinanderreißen.
+
+       Vorher zeigte die Kachel bei konfiguriertem Bonus die ERSPARNIS statt
+       der Strecke: Wer einen Bonus hatte, sah die gefahrenen Kilometer
+       nirgends. Zwei Kernzahlen dürfen sich nicht denselben Platz teilen. -->
+  <div class="card driven"><span>${esc(L.dashDriven)}</span><b>${eff.km.toLocaleString(
+    L.locale,
+  )} km</b>
+    <span>${
+      tripSum.trips > 0
+        ? `${tripSum.trips} ${esc(tripSum.trips === 1 ? L.capDrive : L.capDrives)}`
+        : ''
+    }</span></div>
+  <div class="card charged"><span>${esc(L.dashChargedRange)}</span>
+    <b>${current ? current.rangeAdded.toLocaleString(L.locale) : '0'} km</b>
+    <span>${esc(L.dashRange)}${
+      current && current.kwh > 0 && current.rangeAdded > 0
+        ? ` · ${(current.rangeAdded / current.kwh).toFixed(1)} km/kWh`
+        : ''
     }</span></div>
 </div>
 ${running ? `<div class="card" style="margin-bottom:16px"><span>${esc(L.dashRunning)}</span><b>${

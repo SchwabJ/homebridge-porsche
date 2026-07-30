@@ -278,17 +278,29 @@ export function barChart(points: BarPoint[], L: Labels, unit = 'kWh'): string {
   // Gitter: die Nulllinie immer, darüber Mitte und Spitze, darunter die
   // Spitze des Gegenbereichs. Die Beschriftung unten trägt kein Minus — es
   // ist ein Betrag in der anderen Richtung, keine negative Energie.
-  const gridLine = (v: number, zero = false): string =>
-    `<line class="${zero ? 'zl' : 'gl'}" x1="${PAD.l}" x2="${W - PAD.r}" y1="${y(v).toFixed(
+  // Die untere Beschriftung trägt KEIN Minuszeichen — es ist ein Betrag in der
+  // anderen Richtung, keine negative Energie. Ohne weitere Kennzeichnung stand
+  // damit aber zweimal dieselbe Zahl an der Achse („30 · 15 · 0 · 30"), und
+  // die war nicht mehr lesbar. Deshalb trägt sie die FARBE des Gegenbalkens:
+  // Sie sagt, wohin der Wert gehört, ohne ein falsches Vorzeichen zu behaupten.
+  const gridLine = (v: number, zero = false): string => {
+    const unten = v < 0;
+    return `<line class="${zero ? 'zl' : 'gl'}" x1="${PAD.l}" x2="${W - PAD.r}" y1="${y(v).toFixed(
       1,
-    )}" y2="${y(v).toFixed(1)}"/><text class="ax" x="${PAD.l - 5}" y="${(y(v) + 3.5).toFixed(
-      1,
-    )}" text-anchor="end">${Math.abs(v) % 1 ? Math.abs(v).toFixed(1) : Math.abs(v)}</text>`;
+    )}" y2="${y(v).toFixed(1)}"/><text class="ax${unten ? ' dn' : ''}" x="${
+      PAD.l - 5
+    }" y="${(y(v) + 3.5).toFixed(1)}" text-anchor="end">${
+      Math.abs(v) % 1 ? Math.abs(v).toFixed(1) : Math.abs(v)
+    }</text>`;
+  };
   const grid =
     gridLine(0, true) +
     gridLine(topUp) +
+    // Die Mittellinie nur, wenn oben genug Platz ist — sonst klebt sie an der
+    // Spitze und macht die Achse unruhig statt genauer.
     (upH > 34 ? gridLine(topUp / 2) : '') +
-    (topDown > 0 ? gridLine(-topDown) : '');
+    (topDown > 0 ? gridLine(-topDown) : '') +
+    (topDown > 0 && downH > 34 ? gridLine(-topDown / 2) : '');
 
   // 1 px Luft an der Nulllinie, damit sich die beiden Füllungen berühren, aber
   // nicht verschmelzen — sonst liest man einen durchgehenden Balken.
@@ -373,6 +385,10 @@ export const BARS_CSS = `
    aussehen wie eine Hilfslinie. */
 .bars .zl{stroke:var(--dim);stroke-width:1;opacity:.55}
 .bars .ax{fill:var(--dim);font-size:10px}
+/* Die Beschriftung unter der Nulllinie trägt die Farbe des Gegenbalkens.
+   Ohne sie stand dort dieselbe Zahl wie oben, ohne jeden Hinweis darauf, dass
+   sie in die andere Richtung gilt. */
+.bars .ax.dn{fill:#e8833a}
 .bars .v{fill:var(--accent);transition:opacity .12s}
 .bars .v0{fill:var(--line)}
 /* Verbrauch in Warmton: gegensätzliche Richtung, gegensätzliche Farbe. */

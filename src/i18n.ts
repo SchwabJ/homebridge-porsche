@@ -125,6 +125,8 @@ export interface Labels {
   dashSaved: string;
   dashBonus: string;
   dashTotal: string;
+  /** Zusatz in der Kosten-Kachel: das Wort fuer eine Ersparnis. */
+  dashSavedSuffix: string;
   dashChargedRange: string;
   dashRange: string;
   dashConsumption: string;
@@ -385,6 +387,7 @@ export const LABELS_EN: Labels = {
   dashSaved: 'Saved',
   dashBonus: 'bonus',
   dashTotal: 'total',
+  dashSavedSuffix: 'saved',
   dashChargedRange: 'Charged',
   dashRange: 'range',
   dashConsumption: 'Consumption',
@@ -629,6 +632,7 @@ export const LABELS_DE: Labels = {
   dashSaved: 'Gespart',
   dashBonus: 'Bonus',
   dashTotal: 'ges.',
+  dashSavedSuffix: 'gespart',
   dashChargedRange: 'Geladen',
   dashRange: 'Reichw.',
   dashConsumption: 'Verbrauch',

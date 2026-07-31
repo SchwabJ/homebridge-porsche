@@ -16,10 +16,10 @@ import { LABELS_DE } from '../src/i18n';
 
 const eff = (over: Partial<EffectiveOptions> = {}): EffectiveOptions => ({
   capacityKwh: 83.7,
-  pricePerKwh: 0.2067,
-  grossPricePerKwh: 0.3267,
+  pricePerKwh: 0.2143,
+  grossPricePerKwh: 0.3343,
   dayBoundaryHour: 4,
-  priceFor: () => ({ pricePerKwh: 0.2067, grossPricePerKwh: 0.3267 }),
+  priceFor: () => ({ pricePerKwh: 0.2143, grossPricePerKwh: 0.3343 }),
   priceSig: '[]',
   labels: LABELS_DE,
   ...over,

@@ -27,7 +27,7 @@ const session: ChargeSession = {
   endSoc: 80,
   energyKwh: 38.5,
   costEur: 7.96,
-  pricePerKwh: 0.2067,
+  pricePerKwh: 0.2143,
   socDropped: false,
   atHome: true,
   chargingType: 'AC',
@@ -62,7 +62,7 @@ describe('sessionsCsv', () => {
   it('führt Ort, Ladestand und angewandten Preis auf', () => {
     const csv = sessionsCsv([session], 'Taycan', LABELS_DE);
     expect(csv).toContain('Start;Ende;Ort;Ladestand;kWh;ct/kWh;EUR;Minuten am Kabel;davon geladen');
-    expect(csv).toContain('zuhause;34 → 80 %;38,50;20,67;7,96;600;180');
+    expect(csv).toContain('zuhause;34 → 80 %;38,50;21,43;7,96;600;180');
   });
 
   it('lässt unvollständige Ladungen weg — sie sind noch nicht abgerechnet', () => {

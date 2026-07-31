@@ -45,7 +45,7 @@ describe('Einstellungs-Ablage', () => {
 
 describe('sanitizeSettings', () => {
   it('nimmt Zahlen und Zeichenketten mit Komma', () => {
-    expect(sanitizeSettings({ priceCt: '32,67' })).toEqual({ priceCt: 32.67 });
+    expect(sanitizeSettings({ priceCt: '28,45' })).toEqual({ priceCt: 28.45 });
   });
 
   it('lässt ein leeres Feld weg, statt es auf 0 zu setzen', () => {
@@ -69,7 +69,7 @@ describe('sanitizeSettings', () => {
   });
 
   it('rundet auf die sinnvolle Stellenzahl', () => {
-    expect(sanitizeSettings({ priceCt: 32.6789 })).toEqual({ priceCt: 32.68 });
+    expect(sanitizeSettings({ priceCt: 28.4589 })).toEqual({ priceCt: 28.46 });
     expect(sanitizeSettings({ dayBoundaryHour: 4.7 })).toEqual({ dayBoundaryHour: 5 });
   });
 });
@@ -84,8 +84,8 @@ describe('mergeSettings', () => {
   });
 
   it('überschreibt mit den Dashboard-Werten', () => {
-    const { values, source } = mergeSettings(plugin, { priceCt: 32.67 });
-    expect(values.priceCt).toBe(32.67);
+    const { values, source } = mergeSettings(plugin, { priceCt: 28.45 });
+    expect(values.priceCt).toBe(28.45);
     expect(values.capacityKwh).toBe(83.7);
     expect(source.priceCt).toBe('dashboard');
     expect(source.capacityKwh).toBe('plugin');
@@ -265,7 +265,7 @@ describe('rejectedSettings', () => {
   });
 
   it('meldet nichts, wenn alles übernommen wurde', () => {
-    expect(rejectedSettings({ priceCt: 32.67, bonusCt: 12 })).toEqual([]);
+    expect(rejectedSettings({ priceCt: 28.45, bonusCt: 12 })).toEqual([]);
   });
 
   it('ignoriert unbekannte Felder', () => {

@@ -42,6 +42,9 @@ import {
 import { buildTrips, summarizeTrips, type Trip } from './trips';
 import { analyzeIdle, idleStats } from './idle';
 import { buildReceipt, receiptCsv, receiptMonths, type Receipt } from './receipt';
+import { tripsCsv, sessionsCsv } from './csv';
+import { buildTripReport, tripMonths, type TripReport } from './tripReport';
+import { monthKey } from './format';
 import { readPrices, writePrice, costFrom, sanitize, type PriceStore } from './prices';
 import {
   readSettings,
@@ -1094,6 +1097,17 @@ function renderPage(
   // Wie fein ist die Auflösung überhaupt? Der typische Messabstand OHNE Kabel
   // — am Kabel läuft der Poll deutlich dichter und verzerrte den Wert.
   const tripPollMin = stats.pollMin;
+  /**
+   * `?m=` für die Berichtslinks — der Monat, den der Nutzer gerade ansieht.
+   *
+   * Ohne ihn fielen beide Berichte auf den jüngsten Monat MIT Daten zurück:
+   * Wer in einen früheren Zeitraum geblättert war, landete in anderen Zahlen
+   * als denen, die er gerade las.
+   */
+  const berichtsMonat =
+    current && (gran === 'day' || gran === 'week' || gran === 'month')
+      ? `?m=${encodeURIComponent(monthKey(current.from))}`
+      : '';
   const shownTrips = [...tripsInPeriod].reverse().slice(0, LIST_LIMIT);
   const tripRows = shownTrips
     .map((t) => {
@@ -1480,6 +1494,12 @@ td small{display:block;color:var(--dim);font-size:12px}
 .tag.home{background:transparent;color:var(--dim);border:1px solid var(--line)}
 .tag.away{background:#3a6ea5;color:#fff}
 
+/* Aktionszeile unter JEDER Liste — gleiche Form, gleiche Stelle, gleiche
+   Beschriftung für Ladungen und Fahrten. Dahinter liegt jeweils der
+   Monatsbericht, und darin der CSV-Knopf: EIN Weg zum selben Ziel. */
+.acts{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px 18px;margin:8px 0 4px}
+.act{color:var(--accent);text-decoration:none;font-size:13.5px;min-height:30px;
+ display:inline-flex;align-items:center}
 .empty{background:var(--card);border:1px solid var(--line);border-radius:12px;
  padding:26px;text-align:center;color:var(--dim)}
 ${CHART_CSS}${BARS_CSS}${SPARK_CSS}
@@ -1801,9 +1821,7 @@ ${
 }
 ${
   allSessions.some((x) => x.complete && (x.energyKwh ?? 0) > 0)
-    ? `<p class="note"><a href="/beleg" style="color:var(--accent);text-decoration:none">${esc(
-        L.dashReceiptLink,
-      )}</a></p>`
+    ? `<p class="acts"><a class="act" href="/beleg${berichtsMonat}">${esc(L.dashReport)} ›</a></p>`
     : ''
 }
 ${
@@ -1822,25 +1840,19 @@ ${
          hasPrice ? esc(L.dashCost) : ''
        }</th></tr></thead>
        <tbody>${tripRows}</tbody></table></div>
-      <p class="note">${
+      ${
         tripsInPeriod.length > LIST_LIMIT
-          ? esc(
+          ? `<p class="note">${esc(
               L.dashTripsCapped.replace('%n', String(LIST_LIMIT)).replace(
                 '%t',
                 String(tripsInPeriod.length),
               ),
-            )
+            )}</p>`
           : ''
-      }${esc(L.dashTripsNote.replace('%n', String(tripPollMin)))}${
-        tripSum.ratedKm < tripSum.km
-          ? esc(
-              L.dashTripsUnrated.replace('%r', tripSum.ratedKm.toLocaleString(L.locale)).replace(
-                '%k',
-                tripSum.km.toLocaleString(L.locale),
-              ),
-            )
-          : ''
-      }</p>`
+      }
+      <p class="acts"><a class="act" href="/fahrtenbericht${berichtsMonat}">${esc(
+        L.dashReport,
+      )} ›</a></p>`
     : ''
 }
 <script>
@@ -1982,6 +1994,38 @@ ${
  * Ausgelagert, damit die Einstellungen nicht wie ein fremdes Werkzeug wirken:
  * gleiche Farben, gleiche Kopfzeile, gleiche Kartenfläche.
  */
+/**
+ * Das Aussehen der BERICHTE — Ladebeleg wie Fahrtenbericht.
+ *
+ * Eine Quelle für beide: Sie sind dieselbe Art Seite (Monatswahl, Tabelle,
+ * Werkzeugzeile, Druckansicht) und müssen deshalb identisch aussehen.
+ */
+const REPORT_CSS = `
+.wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;min-width:480px;border-collapse:collapse;margin:14px 0}
+th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;
+ font-size:13.5px;white-space:nowrap}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+tr.sum td{font-weight:600;border-top:2px solid var(--line);border-bottom:0;padding-top:10px}
+.months{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px}
+.months a{padding:6px 11px;border-radius:9px;border:1px solid var(--line);
+ color:var(--fg);text-decoration:none;font-size:13px}
+.months a.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.tools{display:flex;gap:14px;align-items:center;margin:10px 0 4px}
+.tools a{color:var(--accent);text-decoration:none;font-size:13.5px}
+.foot{color:var(--dim);font-size:12px;line-height:1.6;margin-top:18px}
+.back{display:inline-flex;align-items:center;gap:6px;color:var(--dim);
+ text-decoration:none;font-size:14px;min-height:44px}
+@media print{
+  /* Auf Papier stört jede Bedienung — und Weiß auf Schwarz kostet Toner. */
+  :root{--bg:#fff;--card:#fff;--fg:#000;--dim:#444;--line:#bbb}
+  .months,.tools,.back{display:none}
+  body{max-width:none}
+  .wrap{overflow:visible}
+  table{min-width:0}
+}`;
+
 const BASE_CSS = `
 :root{--bg:#f6f6f7;--card:#fff;--fg:#16171a;--dim:#6b6f76;--line:#e3e4e8;--accent:#0a84ff}
 @media(prefers-color-scheme:dark){:root{--bg:#111214;--card:#1c1d21;--fg:#f2f3f5;--dim:#9aa0a8;--line:#2c2e33}}
@@ -2417,6 +2461,93 @@ const ADOPT_MIN_CYCLES = 10;
  * dem CSV-Verweis: Was auf Papier landet, soll aussehen wie eine Abrechnung
  * und nicht wie eine App.
  */
+
+/**
+ * Der Fahrtenbericht — bewusst als SPIEGEL des Ladebelegs.
+ *
+ * Gleiche Monatswahl, gleiche Tabellenform, gleiche Werkzeugzeile mit CSV
+ * und Drucken, gleiche Druckregeln. Beides sind Monatsaufstellungen über
+ * dieselbe Historie; zwei verschiedene Bedienmuster dafür wären Willkür.
+ */
+function renderTripReport(o: DashboardOptions, r: TripReport, months: string[]): string {
+  const L = o.labels;
+  const fmtMonth = (m: string): string =>
+    new Date(`${m}-01T12:00:00Z`).toLocaleDateString(L.locale, {
+      month: 'long',
+      year: 'numeric',
+    });
+  const num = (n: number | undefined, d = 2): string =>
+    n === undefined
+      ? ''
+      : n.toLocaleString(L.locale, { minimumFractionDigits: d, maximumFractionDigits: d });
+  const fmtStampLocal = (iso: string): string =>
+    new Date(iso).toLocaleString(L.locale, {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+  const rows = r.lines
+    .map(
+      (l) => `<tr>
+        <td>${esc(fmtStampLocal(l.endedAt))}</td>
+        <td class="num">${l.km.toLocaleString(L.locale)}</td>
+        <td class="num">${l.minutes}</td>
+        <td class="num">${num(l.energyKwh)}</td>
+        <td class="num">${num(l.kwhPer100km, 1)}</td>
+        <td class="num">${num(l.costEur)}</td>
+      </tr>`,
+    )
+    .join('');
+
+  return `<!doctype html>
+<html lang="${L.locale.slice(0, 2)}"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>${esc(o.vehicleName)} — ${esc(L.trTitle)} ${esc(fmtMonth(r.month))}</title>
+<style>${BASE_CSS}
+${REPORT_CSS}
+</style></head><body>
+<h1><span>${esc(L.trTitle)}</span><em><a class="back" href="/?g=month">‹ ${esc(
+    L.setBack,
+  )}</a></em></h1>
+<div class="months">${months
+    .map(
+      (m) =>
+        `<a href="/fahrtenbericht?m=${encodeURIComponent(m)}"${
+          m === r.month ? ' class="on"' : ''
+        }>${esc(fmtMonth(m))}</a>`,
+    )
+    .join('')}</div>
+<div class="tools">
+  <a href="/fahrten.csv?m=${encodeURIComponent(r.month)}">${esc(L.rcCsv)}</a>
+  <a href="#" onclick="window.print();return false">${esc(L.rcPrint)}</a>
+</div>
+${
+  r.lines.length
+    ? `<div class="wrap"><table>
+        <thead><tr><th>${esc(L.csvEnd)}</th><th class="num">km</th><th class="num">${esc(
+          L.csvMinutes,
+        )}</th>
+        <th class="num">kWh</th><th class="num">kWh/100 km</th><th class="num">EUR</th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr class="sum">
+          <td>${r.lines.length} ${esc(r.lines.length === 1 ? L.trTrip : L.trTrips)}</td>
+          <td class="num">${r.km.toLocaleString(L.locale)}</td>
+          <td></td>
+          <td class="num">${r.energyKwh > 0 ? num(r.energyKwh) : ''}</td>
+          <td class="num">${num(r.kwhPer100km, 1)}</td>
+          <td class="num">${r.costEur > 0 ? num(r.costEur) : ''}</td>
+        </tr></tfoot>
+      </table></div>`
+    : `<div class="empty">${esc(L.trEmpty)}</div>`
+}
+<p class="foot">${esc(o.vehicleName)} · ${esc(fmtMonth(r.month))}</p>
+</body></html>`;
+}
+
 function renderReceipt(
   o: DashboardOptions,
   r: Receipt,
@@ -2473,30 +2604,7 @@ function renderReceipt(
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>${esc(o.vehicleName)} — ${esc(L.rcTitle)} ${esc(fmtMonth(r.month))}</title>
 <style>${BASE_CSS}
-.wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
-table{width:100%;min-width:480px;border-collapse:collapse;margin:14px 0}
-th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;
- font-size:13.5px;white-space:nowrap}
-th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim)}
-td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
-tr.sum td{font-weight:600;border-top:2px solid var(--line);border-bottom:0;padding-top:10px}
-.months{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px}
-.months a{padding:6px 11px;border-radius:9px;border:1px solid var(--line);
- color:var(--fg);text-decoration:none;font-size:13px}
-.months a.on{background:var(--accent);border-color:var(--accent);color:#fff}
-.tools{display:flex;gap:14px;align-items:center;margin:10px 0 4px}
-.tools a{color:var(--accent);text-decoration:none;font-size:13.5px}
-.foot{color:var(--dim);font-size:12px;line-height:1.6;margin-top:18px}
-.back{display:inline-flex;align-items:center;gap:6px;color:var(--dim);
- text-decoration:none;font-size:14px;min-height:44px}
-@media print{
-  /* Auf Papier stört jede Bedienung — und Weiß auf Schwarz kostet Toner. */
-  :root{--bg:#fff;--card:#fff;--fg:#000;--dim:#444;--line:#bbb}
-  .months,.tools,.back{display:none}
-  body{max-width:none}
-  .wrap{overflow:visible}
-  table{min-width:0}
-}
+${REPORT_CSS}
 </style></head><body>
 <h1><span>${esc(L.rcTitle)}</span><em><a class="back" href="/?g=month">‹ ${esc(L.setBack)}</a></em></h1>
 <div class="months">${months
@@ -2660,6 +2768,20 @@ function renderSettings(
  * Fehler beim Binden werden geloggt, aber nie geworfen: Ein belegter Port darf
  * das Plugin nicht am Starten hindern.
  */
+/**
+ * Der gewünschte Monat aus `?m=`, geprüft — sonst der jüngste mit Daten.
+ *
+ * Ein leerer Bericht für einen frisch begonnenen Monat wäre die schlechtere
+ * Vorgabe. Die Form allein genügt nicht: `2026-13` passt auf das Muster,
+ * ergibt aber ein ungültiges Datum. Gemeinsam für Ladebeleg und
+ * Fahrtenbericht: Zwei Berichte, die sich bei derselben Adresse verschieden
+ * verhalten, sind ein Fehler mit Ansage.
+ */
+function monatAusAnfrage(wanted: string | null, months: string[]): string {
+  const gueltig = wanted !== null && /^\d{4}-(0[1-9]|1[0-2])$/.test(wanted);
+  return gueltig ? wanted : (months[0] ?? new Date().toISOString().slice(0, 7));
+}
+
 export function startDashboard(o: DashboardOptions): http.Server | undefined {
   if (!o.port) {
     return undefined;
@@ -2674,6 +2796,21 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
         effective(o).values.externalPriceCt,
       ),
     };
+  };
+
+  /**
+   * Eine CSV-Antwort — mit BOM und Download-Kopf.
+   *
+   * Das BOM ist keine Kür: Ohne es zeigt ein deutsch eingestelltes Excel
+   * jedes Nicht-ASCII-Zeichen als Kauderwelsch, und die Ladungsliste trägt
+   * einen Pfeil in der Ladestand-Spalte.
+   */
+  const csvAntwort = (res: http.ServerResponse, dateiname: string, csv: string): void => {
+    res.writeHead(200, {
+      'content-type': 'text/csv; charset=utf-8',
+      'content-disposition': `attachment; filename="${dateiname}"`,
+    });
+    res.end('\ufeff' + csv);
   };
 
   const json = (res: http.ServerResponse, data: unknown, status = 200): void => {
@@ -2723,6 +2860,36 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
         res.end(page);
         return;
       }
+      // Vollständige Listen als CSV — anders als der Monatsbeleg über ALLE
+      // Monate; mit `?m=` auf einen Monat begrenzt.
+      if (url.pathname === '/fahrten.csv') {
+        const trips = statsFor(o).trips;
+        const wanted = url.searchParams.get('m');
+        const gefiltert =
+          wanted !== null && /^\d{4}-(0[1-9]|1[0-2])$/.test(wanted)
+            ? trips.filter((t) => monthKey(t.endedAt) === wanted)
+            : trips;
+        csvAntwort(
+          res,
+          `trips${wanted && gefiltert !== trips ? `-${wanted}` : ''}.csv`,
+          tripsCsv(gefiltert, o.vehicleName, o.labels),
+        );
+        return;
+      }
+      if (url.pathname === '/ladungen.csv') {
+        csvAntwort(res, 'charges.csv', sessionsCsv(load().sessions, o.vehicleName, o.labels));
+        return;
+      }
+      // Der Fahrtenbericht — dieselbe Form wie der Ladebeleg.
+      if (url.pathname === '/fahrtenbericht') {
+        const trips = statsFor(o).trips;
+        const months = tripMonths(trips);
+        const month = monatAusAnfrage(url.searchParams.get('m'), months);
+        const page = renderTripReport(o, buildTripReport(trips, month), months);
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end(page);
+        return;
+      }
       if (url.pathname === '/beleg' || url.pathname === '/beleg.csv') {
         const { sessions } = load();
         const months = receiptMonths(sessions);
@@ -2730,23 +2897,14 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
         // einen frisch begonnenen Monat wäre die schlechtere Vorgabe.
         // Die Form allein genügt nicht: `2026-13` passt auf das Muster, ergibt
         // aber ein ungültiges Datum — die Seite hieß dann „Invalid Date".
-        const wanted = url.searchParams.get('m');
-        const gueltig =
-          wanted !== null &&
-          /^\d{4}-\d{2}$/.test(wanted) &&
-          Number(wanted.slice(5, 7)) >= 1 &&
-          Number(wanted.slice(5, 7)) <= 12;
-        const month = gueltig
-          ? (wanted as string)
-          : (months[0] ?? new Date().toISOString().slice(0, 7));
+        const month = monatAusAnfrage(url.searchParams.get('m'), months);
         const receipt = buildReceipt(sessions, month);
         if (url.pathname === '/beleg.csv') {
-          res.writeHead(200, {
-            'content-type': 'text/csv; charset=utf-8',
-            'content-disposition': `attachment; filename="charging-receipt-${month}.csv"`,
-          });
-          // BOM voran: Ohne ihn zeigt Excel Umlaute als Kauderwelsch.
-          res.end('\ufeff' + receiptCsv(receipt, o.vehicleName, o.labels));
+          csvAntwort(
+            res,
+            `charging-receipt-${month}.csv`,
+            receiptCsv(receipt, o.vehicleName, o.labels),
+          );
           return;
         }
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });

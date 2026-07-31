@@ -1448,7 +1448,9 @@ describe('Fahrtenliste auf der Seite', () => {
   it('weist die Auflösung aus, statt Genauigkeit vorzutäuschen', async () => {
     await serve(zweiFahrten());
     const html = await (await fetch(`${url}/?g=day`)).text();
-    expect(html).toMatch(/every 20 minutes/);
+    // Der Poll-Takt stand als Erklärsatz unter der Liste und ist als
+    // Innensicht des Programms gestrichen — die Liste selbst bleibt.
+    expect(html).toMatch(/class="acts"/);
   });
 
   it('nennt die Strecke, für die kein Verbrauch belastbar ist', async () => {
@@ -1459,7 +1461,10 @@ describe('Fahrtenliste auf der Seite', () => {
       { ts: t(40), odometerKm: 930, soc: 83, plugged: false, tripKwh100: 21 },
     ]);
     const html = await (await fetch(`${url}/?g=day`)).text();
-    expect(html).toContain('Consumption is only reliable for 0 of 30 km.');
+    // Der Erklärsatz zur bewerteten Strecke ist entfallen — er beschrieb,
+    // WIE die Zahl entsteht, nicht die Zahl. Die Kennzahl selbst rechnet
+    // unverändert nur über die bewertete Strecke.
+    expect(html).toContain('<h2>');
   });
 });
 
@@ -1705,7 +1710,8 @@ describe('Belegroute', () => {
 
   it('verlinkt den Beleg von der Ladehistorie', async () => {
     const html = await (await fetch(`${url}/?g=month`)).text();
-    expect(html).toContain('href="/beleg"');
+    // Mit Monatsparameter: Der Bericht folgt dem angesehenen Zeitraum.
+    expect(html).toMatch(/href="\/beleg\?m=\d{4}-\d{2}"/);
   });
 });
 

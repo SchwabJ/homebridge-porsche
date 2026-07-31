@@ -226,6 +226,18 @@ no external assets — and installs to your home screen as a web app.
 | 🏠 **Home vs. away** | Every charge is tagged and the whole view filters by location |
 | 🔋 **Measured battery capacity** | Estimated from driving data, so you can sanity-check `capacityKwh` |
 | ⚠️ **Data-quality warnings** | Says so when polls were missed, instead of quietly understating |
+| 📄 **Monthly reports** | One per list — charging receipt and trip report, both printable, each with a CSV download |
+| 📊 **Idle drain** | What the car loses standing still, excluding preconditioning and the hour after a drive |
+| 🕰️ **Tariff history** | A price change applies from a date you pick; older charges keep their old price |
+
+**Reports and exports.** Under both lists — charges and trips — the same link leads to a monthly
+report: the charging receipt and the trip report share their layout, month picker and print rules,
+and each carries its own CSV download. Separators and decimal marks follow your `language` setting,
+so a spreadsheet opens them without asking.
+
+**Tariff history.** When you change the working price you can say from which day it applies. Charges
+before that date keep the old price — otherwise a single price change would silently rewrite every
+past receipt, which matters if you hand them in for reimbursement.
 
 **One session = one cable connection.** The boundary is *plugged in → unplugged*, not
 *charging → not charging*. If your tariff switches the car on and off in 15-minute windows (Octopus,

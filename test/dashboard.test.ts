@@ -7,6 +7,7 @@ import {
   startDashboard,
   optionsFor,
   currentStatus,
+  chargeEta,
 } from '../src/dashboard';
 import type { ChargeSession } from '../src/sessions';
 import { labelsFor } from '../src/i18n';
@@ -1200,7 +1201,14 @@ describe('Zeitraum wählen und blättern', () => {
     // Drei Tage, je eine Ladung.
     const rows: ChargeLogSample[] = [];
     for (let d = 3; d >= 1; d--) {
-      const base = Date.now() - d * 86400000;
+      // Mittags verankern, nicht zur Laufzeit-Uhrzeit. Sonst erbt die
+      // Testladung die Tageszeit des Testlaufs: Ab etwa 22:50 Ortszeit reicht
+      // sie über Mitternacht, erscheint an zwei Tagen, und die Tagesansicht
+      // zählt zwei Ladungen statt einer. Der Test war damit 22 von 24 Stunden
+      // grün — die unangenehmste Sorte Flake.
+      const tag = new Date(Date.now() - d * 86400000);
+      tag.setHours(12, 0, 0, 0);
+      const base = tag.getTime();
       const t = (m: number): string => new Date(base + m * 60000).toISOString();
       rows.push(
         { ts: t(0), soc: 40, rangeKm: 160, odometerKm: 50000, plugged: true, charging: true, atHome: true },
@@ -2248,7 +2256,7 @@ describe('currentStatus with partial API responses', () => {
 describe('rendering with partial API responses', () => {
   let dir: string;
   // Port 0 means "dashboard off" in the config, so the tests need real ones.
-  let nextPartialPort = 18500;
+  let nextPartialPort = 19950;
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'partial-'));
@@ -2314,5 +2322,140 @@ describe('rendering with partial API responses', () => {
     // The tile's own wording — a bare "236 km" also appears in the header.
     expect(html).toContain('236 km of range');
     expect(html).toContain('Charge level');
+  });
+});
+
+describe('chargeEta', () => {
+  const now = Date.parse('2026-07-30T22:00:00.000Z');
+
+  it('derives the remaining time from target, level and average power', () => {
+    // 60 → 80 % of 100 kWh is 20 kWh; at 10 kW that is two hours.
+    const eta = chargeEta(
+      session({
+        complete: false,
+        startSoc: 40,
+        endSoc: 60,
+        targetSoc: 80,
+        avgPowerKw: 10,
+        durationMin: 120,
+        chargingMin: 118,
+      }),
+      100,
+      now,
+    );
+    expect(eta).toBeDefined();
+    expect(eta?.restMin).toBe(120);
+    // Uninterrupted so far — the clock time is an honest forecast.
+    expect(eta?.doneBy).toBe(now + 120 * 60000);
+    expect(eta?.pureChargeTime).toBe(false);
+  });
+
+  it('gives only the pure charging time for slot-based charging, no clock time', () => {
+    // Tariff-driven: more than half the plugged time drew no power. Where the
+    // future slots fall is the provider's business — a clock time would be a guess.
+    const eta = chargeEta(
+      session({
+        complete: false,
+        endSoc: 60,
+        targetSoc: 80,
+        avgPowerKw: 10,
+        durationMin: 300,
+        chargingMin: 100,
+      }),
+      100,
+      now,
+    );
+    expect(eta?.restMin).toBe(120);
+    expect(eta?.doneBy).toBeUndefined();
+    expect(eta?.pureChargeTime).toBe(true);
+  });
+
+  it('stays silent without a target, without power, or at the target', () => {
+    const base = {
+      complete: false,
+      endSoc: 60,
+      targetSoc: 80,
+      avgPowerKw: 10,
+      durationMin: 60,
+      chargingMin: 60,
+    };
+    expect(chargeEta(session({ ...base, targetSoc: undefined }), 100, now)).toBeUndefined();
+    expect(chargeEta(session({ ...base, avgPowerKw: undefined }), 100, now)).toBeUndefined();
+    expect(chargeEta(session({ ...base, endSoc: 82 }), 100, now)).toBeUndefined();
+  });
+});
+
+describe('rendering the running charge', () => {
+  // Der Rechenkern von chargeEta ist eigens getestet; hier geht es darum, dass
+  // die Prognose auch auf der Seite landet. Zwischen beidem lag im lokalen
+  // Zweig monatelang nichts — die Funktion war portiert, die Anzeige nicht.
+  let dir: string;
+  let nextEtaPort = 19970;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eta-'));
+    const tag = new Date();
+    tag.setHours(12, 0, 0, 0);
+    const t = (m: number): string => new Date(tag.getTime() + m * 60000).toISOString();
+    const zeile = (m: number, soc: number): ChargeLogSample => ({
+      ts: t(m),
+      soc,
+      rangeKm: soc * 4,
+      odometerKm: 50000,
+      plugged: true,
+      charging: true,
+      powerKw: 10,
+      targetSoc: 80,
+      atHome: true,
+    });
+    // 60 → noch offen. Bei 10 kW und 100 kWh sind bis 80 % genau zwei Stunden.
+    const rows = [zeile(0, 50), zeile(60, 55), zeile(120, 60)];
+    fs.writeFileSync(
+      path.join(dir, `${t(0).slice(0, 10)}.jsonl`),
+      rows.map((r) => JSON.stringify(r)).join('\n') + '\n',
+      'utf8',
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const seite = async (sprache: 'en' | 'de'): Promise<string> => {
+    const server = startDashboard({
+      port: nextEtaPort++,
+      logDir: dir,
+      capacityKwh: 100,
+      pricePerKwh: 0.2,
+      priceCt: 30,
+      bonusCt: 0,
+      externalPriceCt: 0,
+      dayBoundaryHour: 0,
+      vehicleName: 'T',
+      uiPort: 8581,
+      labels: labelsFor(sprache),
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server.once('listening', r));
+    const a = server.address();
+    const html = await (
+      await fetch(`http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}/`)
+    ).text();
+    server.close();
+    return html;
+  };
+
+  it('shows the forecast next to the running charge', async () => {
+    const html = await seite('en');
+    expect(html).toContain('Running now');
+    // Ziel und Fertig-Zeitpunkt — vorher stand dort nur "since <Zeit>".
+    expect(html).toMatch(/target 80 % · done ~\d{1,2}[:.]\d{2}/);
+  });
+
+  it('translates the forecast', async () => {
+    const html = await seite('de');
+    expect(html).toMatch(/Ziel 80 % · fertig ~\d{1,2}[:.]\d{2}/);
   });
 });

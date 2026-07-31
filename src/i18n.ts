@@ -101,6 +101,12 @@ export interface Labels {
   dashSettings: string;
   dashInstantTo: string;
   dashTarget: string;
+  /** Prognose der laufenden Ladung: „done ~21:40". */
+  dashDoneAbout: string;
+  /** Reine Ladezeit ohne Uhrzeit — bei tarifgesteuertem Laden. */
+  dashChargingLeft: string;
+  /** Warnung statt Prognose, wenn die Ladung hängt. */
+  dashStalled: string;
   dashNotPlugged: string;
   dashPluggedWaiting: string;
   dashCharging: string;
@@ -400,6 +406,9 @@ export const LABELS_EN: Labels = {
   dashSettings: 'Settings',
   dashInstantTo: 'instant to',
   dashTarget: 'target',
+  dashDoneAbout: 'done ~',
+  dashChargingLeft: 'of charging left',
+  dashStalled: 'stalled — no power for hours',
   dashNotPlugged: 'Not plugged in',
   dashPluggedWaiting: 'Plugged in, waiting',
   dashCharging: 'Charging',
@@ -666,6 +675,9 @@ export const LABELS_DE: Labels = {
   dashSettings: 'Einstellungen',
   dashInstantTo: 'sofort bis',
   dashTarget: 'Ziel',
+  dashDoneAbout: 'fertig ~',
+  dashChargingLeft: 'reine Ladezeit',
+  dashStalled: 'hängt — seit Stunden kein Strom',
   dashNotPlugged: 'Nicht eingesteckt',
   dashPluggedWaiting: 'Eingesteckt, wartet',
   dashCharging: 'Lädt',

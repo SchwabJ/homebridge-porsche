@@ -1301,7 +1301,7 @@ function renderPage(
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="${esc(o.vehicleName)}">
-<meta name="theme-color" content="#0b0c0e">
+${THEME_META}
 <meta name="format-detection" content="telephone=no">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-180.png">
@@ -1516,9 +1516,7 @@ td small{display:block;color:var(--dim);font-size:12px}
 .acts{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px 18px;margin:8px 0 4px}
 .act{color:var(--accent);text-decoration:none;font-size:13.5px;min-height:30px;
  display:inline-flex;align-items:center}
-.empty{background:var(--card);border:1px solid var(--line);border-radius:12px;
- padding:26px;text-align:center;color:var(--dim)}
-${CHART_CSS}${BARS_CSS}${SPARK_CSS}
+${CHART_CSS}${BARS_CSS}${SPARK_CSS}${REFRESH_CSS}
 /* Legende des Gegenbalkens: Ohne sie ist die zweite Farbe eine Behauptung,
    die nur der Tooltip auflöst. */
 .legend{display:flex;gap:14px;justify-content:center;margin:2px 0 6px;
@@ -1692,6 +1690,7 @@ ${
       </div>`
     : ''
 }
+${REFRESH_NOTE}
 <nav class="tabs">${tabs}</nav>
 ${placeTabs}${nav}${
   place === 'away' && !awayPriced
@@ -1992,26 +1991,20 @@ ${
       lvl(b.dataset.i, 'lvl2', b.classList.toggle('open'));
     });
   });
-  var rf=document.getElementById('rf');
-  if(rf) rf.addEventListener('click',function(){
-    // Als Symbol gibt es keinen Text mehr für Rückmeldungen — deshalb dreht
-    // es sich während des Abrufs, und die Sperre wird im Titel erklärt.
-    rf.disabled=true; rf.classList.add('busy');
-    var back=function(ms){ setTimeout(function(){
-      rf.classList.remove('busy'); rf.disabled=false; rf.title=${JSON.stringify(L.dashRefresh)};
-    }, ms); };
-    fetch('/api/refresh',{method:'POST'}).then(function(r){return r.json();}).then(function(j){
-      if(j.ok){ location.reload(); return; }
-      rf.classList.remove('busy');
-      rf.title = j.reason==='cooldown'
-        ? ${JSON.stringify(L.dashWaitSeconds)}.replace('%n', String(Math.ceil((j.retryInMs||0)/1000)))
-        : ${JSON.stringify(L.dashRefreshFailed)};
-      back(j.reason==='cooldown' ? (j.retryInMs||3000) : 3000);
-    }).catch(function(){
-      rf.classList.remove('busy'); rf.title=${JSON.stringify(L.dashRefreshFailed)}; back(3000);
-    });
-  });
-  var t=setInterval(function(){ if(!document.hidden) location.reload(); },60000);
+  ${refreshScript(L)}
+  // Reload nur, wenn er niemanden unterbricht: kein fokussiertes Feld (ein
+  // halb ausgefülltes Preisformular wäre weg), keine offene Ladungszeile
+  // (die Kurve, die gerade jemand studiert, klappte zu), kein offener
+  // Balken-Tooltip. Der nächste Tick holt den Reload nach.
+  function busy(){
+    var a=document.activeElement;
+    if(a && (a.tagName==='INPUT'||a.tagName==='TEXTAREA'||a.tagName==='SELECT')) return true;
+    if(document.querySelector('tr.sess.open')) return true;
+    var tip=document.getElementById('bartip');
+    if(tip && !tip.hidden) return true;
+    return false;
+  }
+  var t=setInterval(function(){ if(!document.hidden && !busy()) location.reload(); },60000);
   var hidden=false;
   document.addEventListener('visibilitychange',function(){
     if(document.hidden){ hidden=true; }
@@ -2061,7 +2054,72 @@ tr.sum td{font-weight:600;border-top:2px solid var(--line);border-bottom:0;paddi
   table{min-width:0}
 }`;
 
-const BASE_CSS = `
+/**
+ * Farbschema-Angaben für JEDE Seite.
+ *
+ * Das CSS rendert hell als Voreinstellung und dunkel per Media-Query. Ein
+ * festes `content="dark"` widersprach dem: Im Light Mode standen dunkle
+ * UA-Formularfelder und ein dunkler Overscroll-Hintergrund auf heller Seite,
+ * und die Safari-Leiste blieb dunkel. Beide Schemata deklarieren und die
+ * Themenfarbe je Modus liefern.
+ */
+/**
+ * Der Abruf-Knopf — Rückmeldezeile, CSS und Verhalten, für Dashboard wie
+ * Statusseite.
+ *
+ * Die Rückmeldung ist SICHTBAR, nicht im title-Attribut: Auf dem Telefon
+ * gibt es dafür keine Anzeige. Schlug der Abruf fehl oder griff die Sperre,
+ * hörte das Symbol dort einfach auf zu drehen — keine Erklärung, kein
+ * Hinweis, ob überhaupt etwas passiert ist.
+ */
+const REFRESH_NOTE = '<div id="rfnote" class="rfnote" hidden></div>';
+
+const REFRESH_CSS = `
+.rfnote{margin:-4px 0 8px;padding:7px 11px;border-radius:9px;background:var(--card);
+ border:1px solid var(--line);color:var(--dim);font-size:12.5px}
+.rfnote.bad{color:#c0392b;border-color:#e0a99f}
+@media(prefers-color-scheme:dark){.rfnote.bad{color:#e07a68;border-color:#5a3a34}}`;
+
+/** Das Verhalten des Knopfs — Labels kommen je Seite herein. */
+const refreshScript = (L: Labels): string => `
+  var rf=document.getElementById('rf');
+  var rfn=document.getElementById('rfnote');
+  var sagen=function(text,schlecht){
+    if(!rfn) return;
+    if(!text){ rfn.hidden=true; return; }
+    rfn.textContent=text; rfn.hidden=false;
+    rfn.classList.toggle('bad', !!schlecht);
+  };
+  if(rf) rf.addEventListener('click',function(){
+    rf.disabled=true; rf.classList.add('busy'); sagen('');
+    var zurueck=function(ms){ setTimeout(function(){
+      rf.classList.remove('busy'); rf.disabled=false; sagen('');
+    }, ms); };
+    fetch('/api/refresh',{method:'POST'}).then(function(r){return r.json();}).then(function(j){
+      if(j.ok){ location.reload(); return; }
+      rf.classList.remove('busy');
+      var warten = j.reason==='cooldown';
+      sagen(warten
+        ? ${JSON.stringify('%n')}.replace('%n', ${JSON.stringify(L.dashWaitSeconds)}.replace('%n', String(Math.ceil((j.retryInMs||0)/1000))))
+        : ${JSON.stringify(L.dashRefreshFailed)}, !warten);
+      zurueck(warten ? (j.retryInMs||3000) : 4000);
+    }).catch(function(){
+      rf.classList.remove('busy');
+      sagen(${JSON.stringify(L.dashRefreshFailed)}, true);
+      zurueck(4000);
+    });
+  });`;
+
+const THEME_META =
+  '<meta name="color-scheme" content="light dark">' +
+  '<meta name="theme-color" content="#f6f6f7" media="(prefers-color-scheme: light)">' +
+  '<meta name="theme-color" content="#111214" media="(prefers-color-scheme: dark)">';
+
+const BASE_CSS = `${REFRESH_CSS}
+
+.empty{background:var(--card);border:1px solid var(--line);border-radius:12px;
+ padding:26px;text-align:center;color:var(--dim)}
+
 :root{--bg:#f6f6f7;--card:#fff;--fg:#16171a;--dim:#6b6f76;--line:#e3e4e8;--accent:#0a84ff}
 @media(prefers-color-scheme:dark){:root{--bg:#111214;--card:#1c1d21;--fg:#f2f3f5;--dim:#9aa0a8;--line:#2c2e33}}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -2306,7 +2364,7 @@ function renderStatus(
 <html lang="${esc(L.locale)}"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="color-scheme" content="dark">
+${THEME_META}
 <title>${esc(o.vehicleName)} — ${esc(L.stTitle)}</title>
 <style>${BASE_CSS}${SPARK_CSS}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
@@ -2352,6 +2410,7 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim)
        ><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>`
     : ''
 }<a class="back" href="/">‹ ${esc(L.stBackToCharging)}</a></em></h1>
+${REFRESH_NOTE}
 ${
   tyre
     ? `<h2>${esc(L.stTyrePressure)} · ${esc(ago(tyre.at))}</h2><div class="wheels">${tyreRows}</div>`
@@ -2450,23 +2509,7 @@ ${
 (function(){
   // Derselbe Abruf wie im Dashboard: Wer nachsieht, ob das Auto verriegelt
   // ist, will nicht den Stand von vor einer Viertelstunde.
-  var rf=document.getElementById('rf');
-  if(!rf) return;
-  var back=function(ms){ setTimeout(function(){ rf.disabled=false;
-    rf.title=${JSON.stringify(L.dashRefresh)}; }, ms); };
-  rf.addEventListener('click',function(){
-    rf.disabled=true; rf.classList.add('busy');
-    fetch('/api/refresh',{method:'POST'}).then(function(r){return r.json();}).then(function(j){
-      if(j.ok){ location.reload(); return; }
-      rf.classList.remove('busy');
-      rf.title = j.reason==='cooldown'
-        ? ${JSON.stringify(L.dashWaitSeconds)}.replace('%n', String(Math.ceil((j.retryInMs||0)/1000)))
-        : ${JSON.stringify(L.dashRefreshFailed)};
-      back(j.reason==='cooldown' ? (j.retryInMs||3000) : 3000);
-    }).catch(function(){
-      rf.classList.remove('busy'); rf.title=${JSON.stringify(L.dashRefreshFailed)}; back(3000);
-    });
-  });
+  ${refreshScript(L)}
 })();
 </script>
 </body></html>`;
@@ -2714,7 +2757,7 @@ function renderSettings(
 <html lang="${esc(L.locale)}"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="color-scheme" content="dark">
+${THEME_META}
 <title>${esc(o.vehicleName)} — ${esc(L.setTitle)}</title>
 <style>${BASE_CSS}
 .srow{display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center;

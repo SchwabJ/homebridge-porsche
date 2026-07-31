@@ -178,6 +178,20 @@ export interface Labels {
   rcMonth: string;
   rcPlace: string;
   rcUnknownPlace: string;
+  /** Spaltenköpfe der Fahrten-CSV und des Fahrtenberichts. */
+  csvEnd: string;
+  csvMinutes: string;
+  csvOdometer: string;
+  csvType: string;
+  csvPluggedMinutes: string;
+  csvChargingMinutes: string;
+  /** Überschrift und Leerzustand des Fahrtenberichts. */
+  trTitle: string;
+  trEmpty: string;
+  trTrip: string;
+  trTrips: string;
+  /** Aktionszeile unter beiden Listen. */
+  dashReport: string;
   rcSumHome: string;
   rcSumAway: string;
   rcSumUnknown: string;
@@ -442,6 +456,17 @@ export const LABELS_EN: Labels = {
   rcMonth: 'Month',
   rcPlace: 'Place',
   rcUnknownPlace: 'unknown',
+  csvEnd: 'End',
+  csvMinutes: 'Minutes',
+  csvOdometer: 'Odometer',
+  csvType: 'Type',
+  csvPluggedMinutes: 'Minutes plugged in',
+  csvChargingMinutes: 'of which charging',
+  trTitle: 'Trip report',
+  trEmpty: 'No trips in this month.',
+  trTrip: 'trip',
+  trTrips: 'trips',
+  dashReport: 'Report',
   rcSumHome: 'Total at home',
   rcSumAway: 'Total away',
   rcSumUnknown: 'Total without location',
@@ -691,6 +716,17 @@ export const LABELS_DE: Labels = {
   rcMonth: 'Monat',
   rcPlace: 'Ort',
   rcUnknownPlace: 'unbekannt',
+  csvEnd: 'Ende',
+  csvMinutes: 'Minuten',
+  csvOdometer: 'Kilometerstand',
+  csvType: 'Typ',
+  csvPluggedMinutes: 'Minuten am Kabel',
+  csvChargingMinutes: 'davon geladen',
+  trTitle: 'Fahrtenbericht',
+  trEmpty: 'In diesem Monat wurde nicht gefahren.',
+  trTrip: 'Fahrt',
+  trTrips: 'Fahrten',
+  dashReport: 'Bericht',
   rcSumHome: 'Summe zuhause',
   rcSumAway: 'Summe unterwegs',
   rcSumUnknown: 'Summe ohne Ortsangabe',

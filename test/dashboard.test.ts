@@ -2311,6 +2311,8 @@ describe('rendering with partial API responses', () => {
 
   it('keeps the charge-level tile on the status page', async () => {
     const html = await get('/status');
-    expect(html).toContain('236 km');
+    // The tile's own wording — a bare "236 km" also appears in the header.
+    expect(html).toContain('236 km of range');
+    expect(html).toContain('Charge level');
   });
 });

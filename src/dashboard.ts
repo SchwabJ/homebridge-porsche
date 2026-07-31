@@ -1063,17 +1063,29 @@ function renderPage(
   // und „auswärts" zu behaupten wäre dann schlicht falsch.
   const where =
     st.last?.atHome === true ? ` · ${esc(L.dashAtHome)}` : st.last?.atHome === false ? ` · ${esc(L.dashAway)}` : '';
-  const plugText = !st.last?.plugged
-    ? esc(L.dashNotPlugged)
-    : st.last.charging
-      ? `${esc(L.dashCharging)}${
-          st.last.powerKw !== undefined
-            ? ` · ${st.last.powerKw.toFixed(1)} kW${
-                st.last.rateKmMin !== undefined ? ` · ${st.last.rateKmMin.toFixed(1)} km/min` : ''
-              }`
-            : ''
-        }${where}`
-      : `${esc(L.dashPluggedWaiting)}${where}`;
+  // Unbekannt ist nicht ausgesteckt. `!undefined` ist `true`, deshalb behauptete
+  // die Zeile „nicht eingesteckt", wo die Schnittstelle gar nichts geliefert
+  // hatte — an 14 Messpunkten einer Woche nachweislich am ladenden Auto, mit
+  // 10 kW über die Lücke hinweg. Fortschreiben verbietet sich hier, aus dem
+  // Grund, der über {@link CARRY_FIELDS} steht: Es tauschte diese Falschaussage
+  // gegen die umgekehrte. Die Plakette bleibt grau — das Projekt trägt
+  // Unbekanntes im Wort, nicht in der Farbe.
+  const plugText =
+    st.last?.plugged === undefined
+      ? esc(L.dashPlugUnknown)
+      : !st.last.plugged
+        ? esc(L.dashNotPlugged)
+        : st.last.charging
+          ? `${esc(L.dashCharging)}${
+              st.last.powerKw !== undefined
+                ? ` · ${st.last.powerKw.toFixed(1)} kW${
+                    st.last.rateKmMin !== undefined
+                      ? ` · ${st.last.rateKmMin.toFixed(1)} km/min`
+                      : ''
+                  }`
+                : ''
+            }${where}`
+          : `${esc(L.dashPluggedWaiting)}${where}`;
   const plugClass = !st.last?.plugged ? 'off' : st.last.charging ? 'ok' : 'wait';
 
   // Gemessene Kapazität — die empfindlichste Größe der ganzen Auswertung.

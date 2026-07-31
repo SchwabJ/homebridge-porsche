@@ -4,6 +4,31 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.2] — 2026-07-31
+
+### Added
+- **Estimated finish time for the running charge.** Computed from the state of
+  charge left times capacity, divided by the *average* power of the charging
+  phases so far — not the instantaneous reading, which is zero during every
+  slot pause. A clock time appears only when charging has run essentially
+  without pauses; under a time-of-use tariff the future slots belong to the
+  provider, and a guessed time would be worse than none. Then it states the
+  pure charging time and says so. A stalled charge gets the warning instead of
+  a forecast.
+
+### Fixed
+- **An unknown plug state was claimed to be "not plugged in."** `!undefined`
+  is `true`, so a poll the API answered without any readings read as unplugged.
+  Measured over a week of logs: at 14 samples the cable was demonstrably
+  connected — they sit between two `plugged: true` readings, and across two of
+  them about 10 kW kept flowing. The badge now says the state is unknown and
+  stays grey; carrying the last known value forward was rejected because it
+  only trades this false claim for the opposite one. The same branch also
+  covers the state before the first sample ever arrives.
+- **A navigation test was green only during the day.** It anchored its test
+  charge to the wall-clock time of the run, so from about 22:50 local it
+  spanned midnight and the daily view counted two charges instead of one.
+
 ## [0.8.1] — 2026-07-31
 
 ### Fixed

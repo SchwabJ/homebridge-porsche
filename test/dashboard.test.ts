@@ -2459,3 +2459,88 @@ describe('rendering the running charge', () => {
     expect(html).toMatch(/Ziel 80 % · fertig ~\d{1,2}[:.]\d{2}/);
   });
 });
+
+describe('plug state in the status line', () => {
+  // Die Schnittstelle beantwortet einen Teil der Abfragen ohne Messwerte, und
+  // normalizeSample verwirft aus diesen Leerantworten absichtlich das
+  // `plugged: false` — sonst zerschnitten sie jede Nachtladung. Danach ist der
+  // Steckerzustand unbekannt. `!undefined` ist `true`, deshalb behauptete die
+  // Zeile dort „nicht eingesteckt": über eine Woche gemessen an 14 Messpunkten
+  // am nachweislich ladenden Auto, mit 10 kW über die Lücke hinweg.
+  let dir: string;
+  let nextPlugPort = 19980;
+
+  const schreibe = (letzte: Record<string, unknown>): void => {
+    const tag = new Date();
+    tag.setHours(12, 0, 0, 0);
+    const t = (m: number): string => new Date(tag.getTime() + m * 60000).toISOString();
+    fs.writeFileSync(
+      path.join(dir, `${t(0).slice(0, 10)}.jsonl`),
+      [
+        JSON.stringify({ ts: t(0), soc: 60, rangeKm: 240, odometerKm: 50000, plugged: true, charging: true, powerKw: 10 }),
+        JSON.stringify({ ts: t(3), ...letzte }),
+      ].join('\n') + '\n',
+      'utf8',
+    );
+  };
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plug-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const seite = async (sprache: 'en' | 'de'): Promise<string> => {
+    const server = startDashboard({
+      port: nextPlugPort++,
+      logDir: dir,
+      capacityKwh: 100,
+      pricePerKwh: 0.2,
+      priceCt: 30,
+      bonusCt: 0,
+      externalPriceCt: 0,
+      dayBoundaryHour: 0,
+      vehicleName: 'T',
+      uiPort: 8581,
+      labels: labelsFor(sprache),
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server.once('listening', r));
+    const a = server.address();
+    const html = await (
+      await fetch(`http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}/`)
+    ).text();
+    server.close();
+    return html;
+  };
+
+  it('says the plug state is unknown instead of claiming it is unplugged', async () => {
+    // Letzter Messpunkt: eine Teilantwort ohne jeden Messwert.
+    schreibe({ charging: false });
+    const html = await seite('en');
+    expect(html).toContain('Plug state unknown');
+    expect(html).not.toContain('Not plugged in');
+  });
+
+  it('keeps the badge grey — a non-statement needs no colour of its own', async () => {
+    schreibe({ charging: false });
+    const html = await seite('en');
+    expect(html).toContain('<span class="pill off">Plug state unknown</span>');
+  });
+
+  it('still says unplugged when the car reports being unplugged', async () => {
+    schreibe({ soc: 60, rangeKm: 240, odometerKm: 50000, plugged: false, charging: false });
+    const html = await seite('en');
+    expect(html).toContain('Not plugged in');
+    expect(html).not.toContain('Plug state unknown');
+  });
+
+  it('translates the unknown state', async () => {
+    schreibe({ charging: false });
+    expect(await seite('de')).toContain('Steckerzustand unbekannt');
+  });
+});

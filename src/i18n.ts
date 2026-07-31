@@ -108,6 +108,8 @@ export interface Labels {
   /** Warnung statt Prognose, wenn die Ladung hängt. */
   dashStalled: string;
   dashNotPlugged: string;
+  /** Die Schnittstelle hat den Steckerzustand nicht geliefert. */
+  dashPlugUnknown: string;
   dashPluggedWaiting: string;
   dashCharging: string;
   dashAtHome: string;
@@ -410,6 +412,7 @@ export const LABELS_EN: Labels = {
   dashChargingLeft: 'of charging left',
   dashStalled: 'stalled — no power for hours',
   dashNotPlugged: 'Not plugged in',
+  dashPlugUnknown: 'Plug state unknown',
   dashPluggedWaiting: 'Plugged in, waiting',
   dashCharging: 'Charging',
   dashAtHome: 'at home',
@@ -679,6 +682,7 @@ export const LABELS_DE: Labels = {
   dashChargingLeft: 'reine Ladezeit',
   dashStalled: 'hängt — seit Stunden kein Strom',
   dashNotPlugged: 'Nicht eingesteckt',
+  dashPlugUnknown: 'Steckerzustand unbekannt',
   dashPluggedWaiting: 'Eingesteckt, wartet',
   dashCharging: 'Lädt',
   dashAtHome: 'zuhause',

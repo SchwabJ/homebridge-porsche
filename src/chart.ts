@@ -57,10 +57,36 @@ export function chargeCurve(
   // Etwas Rand, damit die Linie nicht am Bildrand klebt.
   const pad = Math.max(3 * 60000, (end - all[0].t) * 0.04);
 
-  const pts = all.filter((p) => p.t <= end + pad);
-  if (pts.length < 3) {
+  const roh = all.filter((p) => p.t <= end + pad);
+  if (roh.length < 3) {
     return '';
   }
+
+  // Punktdichte deckeln.
+  //
+  // Eine Nachtladung im Drei-Minuten-Takt liefert an die zweihundert
+  // Messpunkte. Bei 720 px Diagrammbreite ist das ein Punkt alle vier Pixel
+  // — feiner, als ein Bildschirm zeigen kann, aber jeder wandert doppelt ins
+  // HTML: einmal in den Pfad, einmal ins Datenattribut fürs Crosshair.
+  // Gemessen an einem Jahr Mitschrieb machte das 121 kB allein an Rohdaten
+  // auf einer Seite von 360 kB.
+  //
+  // Gleichmäßig ausgedünnt, Anfang und Ende bleiben exakt: Eine Ladekurve
+  // ist glatt, und eine Auflösung von rund zehn Minuten je Punkt zeigt jede
+  // Ladepause, die es zu sehen gibt.
+  const MAX_POINTS = 80;
+  const pts =
+    roh.length <= MAX_POINTS
+      ? roh
+      : (() => {
+          const schritt = (roh.length - 1) / (MAX_POINTS - 1);
+          const out: typeof roh = [];
+          for (let i = 0; i < MAX_POINTS - 1; i++) {
+            out.push(roh[Math.round(i * schritt)]);
+          }
+          out.push(roh[roh.length - 1]);
+          return out;
+        })();
 
   const W = 720;
   const H = 170;
@@ -98,14 +124,20 @@ export function chargeCurve(
     `<line class="mark" x1="${PAD.l}" x2="${W - PAD.r}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(
       1,
     )}"/><text class="ax mk" x="${PAD.l + 4}" y="${(y(v) - 4).toFixed(1)}">${esc(label)}</text>`;
+  // Fallen Sofortgrenze und Ziel zusammen, gilt „Ziel".
+  //
+  // „Sofort" beschreibt, WIE geladen wird — ohne auf ein günstiges
+  // Tarif-Fenster zu warten. Die Frage an einer Ladekurve ist aber, WOHIN
+  // sie läuft. Bei minSoc === targetSoc stand vorher nur „80 % sofort" da,
+  // und das Ladeziel, das die Kurve tatsächlich begrenzt, fehlte ganz.
+  const gleich = opts.minSoc !== undefined && opts.minSoc === opts.targetSoc;
+  const imBild = (v: number | undefined): v is number =>
+    v !== undefined && v >= lo && v <= hi;
   const marks = [
-    opts.minSoc !== undefined && opts.minSoc >= lo && opts.minSoc <= hi
+    !gleich && imBild(opts.minSoc)
       ? markLine(opts.minSoc, `${opts.minSoc}% ${opts.labels.chartInstantTo}`)
       : '',
-    opts.targetSoc !== undefined &&
-    opts.targetSoc >= lo &&
-    opts.targetSoc <= hi &&
-    opts.targetSoc !== opts.minSoc
+    imBild(opts.targetSoc)
       ? markLine(opts.targetSoc, `${opts.targetSoc}% ${opts.labels.chartTargetMark}`)
       : '',
   ].join('');
@@ -150,6 +182,18 @@ export function chargeCurve(
     <circle class="cd" r="4"/>
   </g>`;
 
+  // Zeitachse als HTML unter dem Diagramm, nicht als SVG-Text: Das SVG wird
+  // in der Breite gestreckt, und gestreckter Text verzerrt und schneidet ab.
+  // Nur Anfang, Dauer und Ende — sie sagen, wie lange die Kurve überhaupt
+  // dauert, und mehr Zahlen stellen sie zu.
+  const uhr = (t: number): string =>
+    new Date(t).toLocaleTimeString(opts.labels.locale, { hour: '2-digit', minute: '2-digit' });
+  const dauerMin = Math.round((t1 - t0) / 60000);
+  const dauer =
+    dauerMin >= 60
+      ? `${Math.floor(dauerMin / 60)} h ${dauerMin % 60} min`
+      : `${dauerMin} min`;
+
   return `<div class="curvewrap" data-pts="${esc(data)}" data-w="${W}" data-h="${H}">
 <div class="curvetip" hidden><b></b><span></span></div>
 <svg class="curve" viewBox="0 0 ${W} ${H}" role="img"
@@ -162,7 +206,11 @@ export function chargeCurve(
   <path class="fill" d="${area}"/>
   <path class="ln" d="${line}"/>
   ${axis}${hover}
-</svg></div>`;
+</svg>
+<div class="curvetime"><span>${esc(uhr(t0))}</span><em>${esc(dauer)}</em><span>${esc(
+    uhr(t1),
+  )}</span></div>
+</div>`;
 }
 
 /** CSS des Ladeverlaufs — einmal pro Seite eingebunden. */
@@ -181,6 +229,9 @@ export const CHART_CSS = `
 .curve .ax{fill:var(--dim);font-size:10px}
 .curve .ax.mk{font-size:9.5px;opacity:.85}
 .curvewrap{position:relative;touch-action:pan-y}
+.curvetime{display:flex;justify-content:space-between;align-items:baseline;
+ margin:-2px 2px 6px;color:var(--dim);font-size:11.5px}
+.curvetime em{font-style:normal;opacity:.8}
 .curve .cross{opacity:0;transition:opacity .12s}
 .curvewrap.on .cross{opacity:1}
 .curve .cl{stroke:var(--dim);stroke-width:1;stroke-dasharray:2 2;
@@ -212,6 +263,13 @@ export interface BarPoint {
   detail?: string;
   /** Zusatzzeile für den Tooltip des Gegenbalkens. */
   downDetail?: string;
+  /**
+   * Ziel für den Drilldown — der Unterzeitraum dieses Balkens.
+   *
+   * Ohne ihn ist der Balken reine Grafik: Der Sprung in einen alten Zeitraum
+   * kostet dann viele Einzelschritte, obwohl die Adresse ihn längst kennt.
+   */
+  href?: string;
   /** Hebt den laufenden Zeitraum hervor. */
   current?: boolean;
 }
@@ -325,7 +383,9 @@ export function barChart(points: BarPoint[], L: Labels, unit = 'kWh'): string {
       const hUp = Math.max(2, zeroY - GAP - y(p.value));
       const hDown = Math.max(2, y(-down) - zeroY - GAP);
       return `<g class="${cls}">
-        <rect class="hit" x="${(cx - slot / 2).toFixed(1)}" y="${PAD.t}" width="${slot.toFixed(
+        <rect class="hit" data-tip="${esc(zeilen.join('\n'))}"${
+          p.href ? ` data-href="${esc(p.href)}"` : ''
+        } x="${(cx - slot / 2).toFixed(1)}" y="${PAD.t}" width="${slot.toFixed(
           1,
         )}" height="${plotH}"><title>${esc(zeilen.join('\n'))}</title></rect>
         ${

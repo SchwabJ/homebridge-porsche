@@ -4,6 +4,19 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.1] — 2026-07-31
+
+### Fixed
+- **State of charge and range disappeared from the header**, showing `—` with
+  the bar at zero, and the charge-level tile vanished from the status page —
+  while the value was minutes old. The API answers part of the polls with the
+  charging state only; measured over five days, 7 % of samples carry no state
+  of charge. A missing field there means *not sent*, not *not present*, but
+  the header read the last sample verbatim. Whether you saw a number depended
+  on which kind of sample happened to be last.
+- **"As of HH:MM" now names the time of the reading**, not of the poll. How
+  fresh the poll is already stands next to it.
+
 ## [0.8.0] — 2026-07-31
 
 Charging history release: monthly reports, CSV exports, tariff history — and a

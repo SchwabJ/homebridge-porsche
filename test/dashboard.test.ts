@@ -1,7 +1,13 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { readSamples, summarize, startDashboard, optionsFor } from '../src/dashboard';
+import {
+  readSamples,
+  summarize,
+  startDashboard,
+  optionsFor,
+  currentStatus,
+} from '../src/dashboard';
 import type { ChargeSession } from '../src/sessions';
 import { labelsFor } from '../src/i18n';
 import { filterByPlace } from '../src/dashboard';
@@ -2174,5 +2180,137 @@ describe('Riegel des Abruf-Knopfs', () => {
     expect(html).toContain("fetch('/api/refresh',{method:'POST'})");
     expect(html).not.toContain("fetch('/api/refresh').");
     stop();
+  });
+});
+
+describe('currentStatus with partial API responses', () => {
+  // Observed 2026-07-31: after a complete sample, the API answered two polls
+  // with the charging state only. The header then showed "—" instead of the
+  // state of charge, and the charge-level tile vanished from /status — even
+  // though the value was three minutes old. Roughly 7 % of all samples are
+  // such partial responses.
+  const at = (day: number, hour = 12, min = 0): string =>
+    new Date(Date.UTC(2026, 6, day, hour, min)).toISOString();
+
+  const gap: ChargeLogSample[] = [
+    { ts: at(31, 20, 46), soc: 55, rangeKm: 236, odometerKm: 52670, powerKw: 10, charging: true },
+    { ts: at(31, 20, 49), charging: false, climateOn: false },
+    { ts: at(31, 20, 52), charging: false },
+  ];
+  const now = Date.parse(at(31, 20, 53));
+
+  it('carries forward state of charge, range and odometer', () => {
+    const st = currentStatus(gap, now);
+    expect(st.state?.soc).toBe(55);
+    expect(st.state?.rangeKm).toBe(236);
+    expect(st.state?.odometerKm).toBe(52670);
+  });
+
+  it('never carries forward instantaneous values — 10 kW ago is not now', () => {
+    const st = currentStatus(gap, now);
+    expect(st.state?.powerKw).toBeUndefined();
+    expect(st.state?.charging).toBe(false);
+  });
+
+  it('reports when the reading was taken, not when it was polled', () => {
+    const st = currentStatus(gap, now);
+    expect(st.stateAt).toBe(at(31, 20, 46));
+    expect(st.last?.ts).toBe(at(31, 20, 52));
+  });
+
+  it('does not let a rarely sent field make the timestamp look stale', () => {
+    // The car reports charge target and instant-charge threshold only while
+    // plugged in. Standing still they are days old, while state of charge and
+    // odometer arrive every few minutes. The timestamp belongs to the most
+    // recent reading — otherwise a fresh display was headed "as of 05:12".
+    const st = currentStatus(
+      [
+        { ts: at(29, 5, 12), targetSoc: 80, minSoc: 40 },
+        { ts: at(31, 21, 11), soc: 55, rangeKm: 243, odometerKm: 52670 },
+      ],
+      Date.parse(at(31, 21, 15)),
+    );
+    expect(st.stateAt).toBe(at(31, 21, 11));
+    expect(st.state?.targetSoc).toBe(80);
+  });
+
+  it('leaves the raw last sample untouched', () => {
+    expect(currentStatus(gap, now).last?.soc).toBeUndefined();
+  });
+
+  it('reports no state when none was ever recorded', () => {
+    const st = currentStatus([{ ts: at(31, 20, 52), charging: false }], now);
+    expect(st.state?.soc).toBeUndefined();
+    expect(st.stateAt).toBeUndefined();
+  });
+});
+
+describe('rendering with partial API responses', () => {
+  let dir: string;
+  // Port 0 means "dashboard off" in the config, so the tests need real ones.
+  let nextPartialPort = 18500;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'partial-'));
+    const t = (min: number): string => new Date(Date.now() - min * 60000).toISOString();
+    const day = new Date().toISOString().slice(0, 10);
+    fs.writeFileSync(
+      path.join(dir, `${day}.jsonl`),
+      [
+        JSON.stringify({
+          ts: t(7),
+          soc: 55,
+          rangeKm: 236,
+          odometerKm: 52670,
+          charging: false,
+          plugged: false,
+        }),
+        JSON.stringify({ ts: t(4), charging: false, climateOn: false }),
+        JSON.stringify({ ts: t(1), charging: false }),
+      ].join('\n') + '\n',
+      'utf8',
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const get = async (route: string): Promise<string> => {
+    const server = startDashboard({
+      port: nextPartialPort++,
+      logDir: dir,
+      capacityKwh: 83.7,
+      pricePerKwh: 0.2,
+      priceCt: 32,
+      bonusCt: 12,
+      externalPriceCt: 0,
+      dayBoundaryHour: 0,
+      vehicleName: 'Taycan',
+      uiPort: 8581,
+      labels: labelsFor('en'),
+    });
+    if (!server) {
+      throw new Error('server not started');
+    }
+    await new Promise((r) => server.once('listening', r));
+    const addr = server.address();
+    const port = typeof addr === 'object' && addr ? addr.port : 0;
+    const html = await (await fetch(`http://127.0.0.1:${port}${route}`)).text();
+    server.close();
+    return html;
+  };
+
+  it('shows state of charge and range in the header', async () => {
+    const html = await get('/');
+    expect(html).toContain('<b>55 %</b>');
+    expect(html).toContain('236 km');
+    // The bar too, not just the number — it sat at 0 %.
+    expect(html).toContain('width:55%');
+  });
+
+  it('keeps the charge-level tile on the status page', async () => {
+    const html = await get('/status');
+    expect(html).toContain('236 km');
   });
 });

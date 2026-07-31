@@ -674,24 +674,69 @@ export function optionsFor(o: DashboardOptions): {
  * Stunden scheitern, wäre sonst als „aktiv" ausgewiesen, obwohl die Anzeige
  * längst eingefroren ist.
  */
-export function currentStatus(
-  samples: ChargeLogSample[],
-  now: number,
-): {
+/**
+ * Messwerte, die zwischen zwei Abfragen gültig bleiben.
+ *
+ * Rund 7 % der Messpunkte tragen keinen Ladestand: Die Schnittstelle
+ * beantwortet einen Teil der Abfragen nur mit dem Ladezustand, und ein
+ * fehlendes Feld heißt dort „nicht geliefert", nicht „nicht vorhanden". Für
+ * die Anzeige des JETZIGEN Zustands ist der letzte bekannte Wert die richtige
+ * Antwort — ein Kilometerstand von vor drei Minuten IST der Kilometerstand.
+ *
+ * Momentanwerte stehen bewusst nicht hier. 10 kW Ladeleistung von vorhin sind
+ * keine Aussage über jetzt, und `plugged` erst recht nicht: Beim Ausstecken
+ * verwirft {@link ./store#normalizeSample} die Leerantwort-Zeilen, ein
+ * fortgeschriebenes „eingesteckt" behauptete also ein Kabel am längst
+ * abgefahrenen Auto.
+ */
+const CARRY_FIELDS = ['soc', 'rangeKm', 'odometerKm', 'minSoc', 'targetSoc'] as const;
+
+export interface CurrentStatus {
+  /** Roher letzter Messpunkt: Abfragezeitpunkt und Momentanwerte. */
   last?: ChargeLogSample;
+  /** Derselbe Punkt, ergänzt um die zuletzt bekannten {@link CARRY_FIELDS}. */
+  state?: ChargeLogSample;
+  /** Zeitpunkt, aus dem die ergänzten Messwerte stammen. */
+  stateAt?: string;
   ageMinutes?: number;
   monitorOk: boolean;
-} {
+}
+
+export function currentStatus(samples: ChargeLogSample[], now: number): CurrentStatus {
   const last = samples[samples.length - 1];
   if (!last) {
     return { monitorOk: false };
+  }
+  const state: ChargeLogSample = { ...last };
+  for (const f of CARRY_FIELDS) {
+    if (state[f] !== undefined) {
+      continue;
+    }
+    for (let i = samples.length - 1; i >= 0; i--) {
+      const v = samples[i][f];
+      if (v !== undefined) {
+        state[f] = v;
+        break;
+      }
+    }
+  }
+  // Der Zeitpunkt der Anzeige ist der jüngste Messpunkt, der überhaupt einen
+  // Messwert trug — nicht der jüngste je Feld. Ladeziel und Sofortlade-
+  // Schwelle liefert das Fahrzeug nur am Kabel; sie am stehenden Auto
+  // mitzählen zu lassen schrieb über eine taufrische Anzeige „Stand 05:12".
+  let stateAt: string | undefined;
+  for (let i = samples.length - 1; i >= 0; i--) {
+    if (CARRY_FIELDS.some((f) => samples[i][f] !== undefined)) {
+      stateAt = samples[i].ts;
+      break;
+    }
   }
   // Nie negativ: Die Fahrzeugantwort ist zwischengespeichert und trägt
   // gelegentlich einen Zeitstempel, der in der Zukunft liegt. „vor -2700 min"
   // ist keine Altersangabe, sondern ein Rechenartefakt.
   const ageMinutes = Math.max(0, (now - Date.parse(last.ts)) / 60000);
   // Kulanz: das langsamste reguläre Intervall plus Puffer.
-  return { last, ageMinutes, monitorOk: ageMinutes <= 45 };
+  return { last, state, stateAt, ageMinutes, monitorOk: ageMinutes <= 45 };
 }
 
 /**
@@ -1603,7 +1648,10 @@ ${CHART_CSS}${BARS_CSS}${SPARK_CSS}${REFRESH_CSS}
 <h1><span>${esc(o.vehicleName)}</span><em>${
   st.last
     ? `${esc(L.dashAsOf)} ${esc(
-        new Date(st.last.ts).toLocaleTimeString(L.locale, { hour: '2-digit', minute: '2-digit' }),
+        new Date(st.stateAt ?? st.last.ts).toLocaleTimeString(L.locale, {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
       )}`
     : ''
 }${
@@ -1619,11 +1667,11 @@ ${CHART_CSS}${BARS_CSS}${SPARK_CSS}${REFRESH_CSS}
  ><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 8.9 19a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 5 8.9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9.5a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></a></em></h1>
 <div class="status">
   <div class="soc">
-    <div class="socbar"><i style="width:${st.last?.soc ?? 0}%"></i></div>
-    <b>${st.last?.soc !== undefined ? `${st.last.soc} %` : '—'}</b>
-    <span>${st.last?.rangeKm !== undefined ? `${st.last.rangeKm} km` : ''}${
-      st.last?.minSoc !== undefined ? ` · ${esc(L.dashInstantTo)} ${st.last.minSoc} %` : ''
-    }${st.last?.targetSoc !== undefined ? ` · ${esc(L.dashTarget)} ${st.last.targetSoc} %` : ''}</span>
+    <div class="socbar"><i style="width:${st.state?.soc ?? 0}%"></i></div>
+    <b>${st.state?.soc !== undefined ? `${st.state.soc} %` : '—'}</b>
+    <span>${st.state?.rangeKm !== undefined ? `${st.state.rangeKm} km` : ''}${
+      st.state?.minSoc !== undefined ? ` · ${esc(L.dashInstantTo)} ${st.state.minSoc} %` : ''
+    }${st.state?.targetSoc !== undefined ? ` · ${esc(L.dashTarget)} ${st.state.targetSoc} %` : ''}</span>
   </div>
   <div class="pills">
     <span class="pill ${plugClass}">${plugText}</span>
@@ -2398,7 +2446,10 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim)
 <h1><span>${esc(o.vehicleName)}</span><em>${
   st.last
     ? `${esc(L.dashAsOf)} ${esc(
-        new Date(st.last.ts).toLocaleTimeString(L.locale, { hour: '2-digit', minute: '2-digit' }),
+        new Date(st.stateAt ?? st.last.ts).toLocaleTimeString(L.locale, {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
       )}`
     : ''
 }${
@@ -2472,8 +2523,8 @@ ${
         )
   }
   ${weekKm !== undefined ? card(L.stLast7Days, `${weekKm}<i>km</i>`) : ''}
-  ${st.last?.soc !== undefined ? card(L.stChargeLevel, `${st.last.soc}<i>%</i>`,
-      st.last.rangeKm !== undefined ? `${st.last.rangeKm} ${esc(L.stRangeSuffix)}` : '') : ''}
+  ${st.state?.soc !== undefined ? card(L.stChargeLevel, `${st.state.soc}<i>%</i>`,
+      st.state.rangeKm !== undefined ? `${st.state.rangeKm} ${esc(L.stRangeSuffix)}` : '') : ''}
 </div>
 <h2>${esc(L.stSecurity)}</h2>
 <div class="grid">

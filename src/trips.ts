@@ -25,8 +25,8 @@
  * ## Woher der Verbrauch kommt — und warum NICHT aus dem Ladestand
  *
  * Der naheliegende Weg wäre `SoC-Abfall × Kapazität`. Der Ladestand kommt aber
- * ganzzahlig: ±0,5 Prozentpunkte sind bei einer 80-kWh-Batterie schon ±0,4 kWh.
- * Auf einer Fahrt von fünf Kilometern ist das die halbe verbrauchte Energie.
+ * ganzzahlig: ±0,5 Prozentpunkte sind bei 83,7 kWh schon ±0,42 kWh. Auf einer
+ * Fahrt von fünf Kilometern ist das die halbe verbrauchte Energie.
  *
  * Das Fahrzeug meldet stattdessen `TRIP_STATISTICS_CYCLIC` — den Verbrauch
  * SEIT DEM LETZTEN LADEN, in kWh/100 km. Mit der seither gefahrenen Strecke
@@ -38,10 +38,10 @@
  * solcher Stände — `E(k) − E(k−1)`. **Kein Ladestand, keine Kapazität, keine
  * Annahme über die Batterie: Das ist die Angabe des Fahrzeugs selbst.**
  *
- * An einem echten Mitschrieb nachgerechnet ergibt das durchweg plausible Werte:
- * niedrige auf langen Überlandstrecken, deutlich höhere auf Kurzstrecken von
- * ein bis drei Kilometern. Genau das erwartet man; der Ladestand-Weg lieferte
- * auf denselben Fahrten Unsinn.
+ * Nachgerechnet an drei Tagen echtem Mitschrieb ergibt das lauter plausible
+ * Werte — 15 kWh/100 km auf der Landstraße, 31 auf einer Kurzstrecke von einem
+ * Kilometer. Genau das erwartet man; der Ladestand-Weg lieferte auf denselben
+ * Fahrten Unsinn.
  *
  * ## Wo diese Rechnung ihre Grenze hat
  *
@@ -121,6 +121,13 @@ export interface Trip {
 export interface TripOptions {
   /** Effektiver Arbeitspreis in EUR/kWh. Ohne Angabe bleiben die Kosten leer. */
   pricePerKwh?: number;
+  /**
+   * Preis je STARTZEITPUNKT einer Fahrt — hat Vorrang vor `pricePerKwh`.
+   *
+   * Dieselbe Regel wie bei den Ladungen: Nach einem Tarifwechsel behalten
+   * alte Fahrten ihre alten Kosten, statt rückwirkend neu bewertet zu werden.
+   */
+  priceFor?: (startedAt: string) => { pricePerKwh: number; grossPricePerKwh: number };
 }
 
 /**
@@ -206,7 +213,16 @@ export function buildTrips(
       // die Differenz bedeutungslos — die Fahrt bleibt ohne Verbrauchszahl,
       // und der Zyklus beginnt hier neu.
       if (energy < 0) {
-        cycleStartKm = first.odometerKm;
+        // Anker auf das ENDE dieser Fahrt, nicht auf ihren Anfang.
+        //
+        // Die Fahrt selbst bleibt zu Recht unbewertet — ihr Zählerstand ist
+        // unbrauchbar. Setzte man den Anker aber auf ihren Anfang, rechnete
+        // die NÄCHSTE Fahrt ihre Energie über eine Strecke, die diese hier
+        // mit enthält, und zog nichts davon ab: nachgemessen 40 statt 20
+        // kWh/100 km. Die Fehlerschranke fängt das nicht, weil sie mit der
+        // aufgeblähten Energie mitwächst. Genau davor warnt der Zweig
+        // darunter — im Rücksetzer-Pfad passierte es trotzdem.
+        cycleStartKm = last.odometerKm;
         prevCycleKwh = undefined;
       } else {
         if (energy > 0) {
@@ -214,12 +230,38 @@ export function buildTrips(
           if (err / energy <= MAX_REL_ERROR) {
             trip.energyKwh = Math.round(energy * 100) / 100;
             trip.kwhPer100km = Math.round((energy / km) * 1000) / 10;
-            if (opts.pricePerKwh !== undefined && opts.pricePerKwh > 0) {
-              trip.costEur = Math.round(energy * opts.pricePerKwh * 100) / 100;
+            const price = opts.priceFor
+              ? opts.priceFor(trip.startedAt).pricePerKwh
+              : opts.pricePerKwh;
+            if (price !== undefined && price > 0) {
+              trip.costEur = Math.round(energy * price * 100) / 100;
             }
           }
         }
         prevCycleKwh = cycleKwh;
+      }
+    } else if (cycleStartKm !== undefined) {
+      // Der Endpunkt trägt keinen Verbrauchswert — `tripKwh100` kommt aus
+      // einem eigenen Messschlüssel und kann allein fehlen. Ohne
+      // Fortschreibung bliebe `prevCycleKwh` auf dem Stand der VORVORIGEN
+      // Fahrt stehen, und die nächste bekäme die Energie dieser hier mit
+      // aufgebürdet (nachgemessen 60 statt 30 kWh/100 km).
+      const mitWert = [...open].reverse().find((p) => p.kwh100 !== undefined && p.kwh100 > 0);
+      if (mitWert) {
+        // Ein früherer Messpunkt DERSELBEN Fahrt trägt den Zählerstand. Für
+        // die Reststrecke bis zum Fahrtende gilt sein Verbrauchsschnitt
+        // weiter: Der Schnitt ist ein Mittel über den ganzen Zyklus und
+        // ändert sich über wenige Kilometer kaum. Die Alternative — die
+        // Reststrecke gar nicht zu buchen — wäre keine Enthaltung, sondern
+        // ein Geschenk an die nächste Fahrt (nachgemessen 45 statt 30).
+        prevCycleKwh = ((last.odometerKm - cycleStartKm) * (mitWert.kwh100 as number)) / 100;
+      } else {
+        // Kein einziger Messpunkt dieser Fahrt trägt einen Wert: Der
+        // Zyklusstand ist verloren. Dann bleiben die folgenden Fahrten
+        // unbewertet, bis das nächste Laden den Zyklus neu setzt — lieber
+        // keine Zahl als eine, die fremde Energie enthält.
+        cycleStartKm = undefined;
+        prevCycleKwh = undefined;
       }
     }
 
@@ -233,6 +275,16 @@ export function buildTrips(
   let prev: Point | undefined;
   for (const raw of samples) {
     if (raw.odometerKm === undefined) {
+      // Ein LADE-Messpunkt schneidet den Verbrauchszyklus auch ohne
+      // Kilometerstand: Am Kabel ändert sich der Stand nicht, der letzte
+      // bekannte gilt also weiter. Ihn hier zu übergehen ließ den Anker auf
+      // der vorherigen Ladung stehen, und die erste Fahrt danach bekam einen
+      // viel zu niedrigen Verbrauch zugeschrieben (3,3 statt 20 kWh/100 km).
+      if (raw.charging === true && prev !== undefined) {
+        close();
+        cycleStartKm = prev.odometerKm;
+        prevCycleKwh = undefined;
+      }
       continue;
     }
     const p: Point = {

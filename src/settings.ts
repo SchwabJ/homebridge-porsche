@@ -43,12 +43,59 @@ export interface DashboardSettings {
   capacityKwh?: number;
   /** Stunde, zu der ein neuer Tag beginnt. */
   dayBoundaryHour?: number;
+  /**
+   * Kapazität aus der laufenden Messung übernehmen, sobald sie trägt.
+   *
+   * Der eingetragene Wert bleibt der Startwert, bis genug Zyklen vorliegen —
+   * siehe `resolveCapacity` in {@link ./capacity}.
+   */
+  autoCapacity?: boolean;
+  /**
+   * Ansicht, mit der das Dashboard ohne `?g=`-Parameter öffnet.
+   *
+   * Wer täglich die Tagesansicht will, soll sie nicht bei jedem Öffnen neu
+   * antippen müssen. Ohne Angabe bleibt es beim Monat.
+   */
+  defaultView?: DefaultView;
+  /**
+   * Frühere Haustarife, chronologisch aufsteigend nach `until`.
+   *
+   * Ohne diese Liste gälte der aktuelle Arbeitspreis rückwirkend für die
+   * gesamte Historie: Nach einer Preiserhöhung wären alle alten Monatsbelege
+   * und Kostenkacheln falsch — und der Beleg ist ausdrücklich zum
+   * Weiterreichen gebaut. Gepflegt wird die Liste nicht von Hand, sondern
+   * von der Einstellungsseite beim Preiswechsel (siehe {@link archivePrice}).
+   */
+  priceHistory?: TariffPeriod[];
+}
+
+/**
+ * Ein abgelöster Haustarif: Er galt für alle Zeitpunkte VOR `until`.
+ *
+ * `until` ist ein lokaler Kalendertag (`YYYY-MM-DD`) und exklusiv — am Tag des
+ * Wechsels gilt bereits der Nachfolger. Der Bonus wird mit eingefroren: Er ist
+ * Teil des Effektivpreises, und ein Tarifwechsel wechselt oft beides.
+ */
+export interface TariffPeriod {
+  until: string;
+  priceCt: number;
+  bonusCt: number;
 }
 
 const FILE = 'dashboard-settings.json';
 
+/** Die wählbaren Standardansichten — dieselben Werte wie der `g`-Parameter. */
+export const DEFAULT_VIEWS = ['day', 'week', 'month', 'year'] as const;
+export type DefaultView = (typeof DEFAULT_VIEWS)[number];
+
+/** Die Zahlenfelder — alles außer Tarifhistorie und Standardansicht. */
+type NumericKey = Exclude<
+  keyof DashboardSettings,
+  'priceHistory' | 'defaultView' | 'autoCapacity'
+>;
+
 /** Grenzen je Feld — fangen Tippfehler ab, ohne zu bevormunden. */
-const LIMITS: Record<keyof DashboardSettings, { min: number; max: number; decimals: number }> = {
+const LIMITS: Record<NumericKey, { min: number; max: number; decimals: number }> = {
   priceCt: { min: 0, max: 300, decimals: 2 },
   bonusCt: { min: 0, max: 300, decimals: 2 },
   externalPriceCt: { min: 0, max: 300, decimals: 2 },
@@ -104,7 +151,7 @@ export function sanitizeSettings(input: unknown): DashboardSettings | undefined 
   }
   const src = input as Record<string, unknown>;
   const out: DashboardSettings = {};
-  for (const key of Object.keys(LIMITS) as (keyof DashboardSettings)[]) {
+  for (const key of Object.keys(LIMITS) as NumericKey[]) {
     const raw = src[key];
     if (raw === undefined || raw === null || raw === '') {
       continue;
@@ -116,6 +163,139 @@ export function sanitizeSettings(input: unknown): DashboardSettings | undefined 
     }
     const f = 10 ** lim.decimals;
     out[key] = Math.round(n * f) / f;
+  }
+  const history = sanitizeHistory(src.priceHistory);
+  if (history.length > 0) {
+    out.priceHistory = history;
+  }
+  // Whitelist statt Durchreichen: Der Wert landet später im g-Parameter der
+  // Oberfläche — Unsinn wird hier verworfen, nicht dort interpretiert.
+  if (DEFAULT_VIEWS.includes(src.defaultView as DefaultView)) {
+    out.defaultView = src.defaultView as DefaultView;
+  }
+  // Ein Häkchen kommt aus dem Formular als 'true'/'false' oder als echter
+  // Boolean aus einem JSON-Aufruf — beides muss ankommen.
+  if (src.autoCapacity !== undefined && src.autoCapacity !== '') {
+    out.autoCapacity = src.autoCapacity === true || src.autoCapacity === 'true';
+  }
+  return out;
+}
+
+/** Ein gültiger lokaler Kalendertag: vier Stellen Jahr, Monat 01–12, Tag 01–31. */
+export const dayOk = (v: unknown): v is string =>
+  typeof v === 'string' &&
+  /^\d{4}-\d{2}-\d{2}$/.test(v) &&
+  Number(v.slice(5, 7)) >= 1 &&
+  Number(v.slice(5, 7)) <= 12 &&
+  Number(v.slice(8, 10)) >= 1 &&
+  Number(v.slice(8, 10)) <= 31;
+
+/**
+ * Prüft eine gelesene Tarifhistorie Eintrag für Eintrag.
+ *
+ * Kaputte Einträge fallen einzeln, statt die ganze Liste zu kosten: Die Datei
+ * liegt auf der Platte und kann von Hand angefasst worden sein — ein Tippfehler
+ * darf nicht alle übrigen Perioden mitreißen. Sortiert wird immer, denn der
+ * Lookup ({@link tariffAt}) verlässt sich auf die Reihenfolge.
+ */
+function sanitizeHistory(raw: unknown): TariffPeriod[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: TariffPeriod[] = [];
+  for (const e of raw) {
+    if (!e || typeof e !== 'object') {
+      continue;
+    }
+    const { until, priceCt, bonusCt } = e as Record<string, unknown>;
+    const price = typeof priceCt === 'number' ? priceCt : NaN;
+    const bonus = bonusCt === undefined ? 0 : typeof bonusCt === 'number' ? bonusCt : NaN;
+    const lim = LIMITS.priceCt;
+    if (
+      !dayOk(until) ||
+      !Number.isFinite(price) ||
+      price < lim.min ||
+      price > lim.max ||
+      !Number.isFinite(bonus) ||
+      bonus < lim.min ||
+      bonus > lim.max
+    ) {
+      continue;
+    }
+    out.push({ until, priceCt: price, bonusCt: bonus });
+  }
+  return out.sort((a, b) => a.until.localeCompare(b.until));
+}
+
+/** Der lokale Kalendertag eines Zeitpunkts als `YYYY-MM-DD`. */
+export function localDay(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
+ * Der zu einem Zeitpunkt gültige Haustarif.
+ *
+ * Verglichen wird nach LOKALEM Kalendertag — dieselbe Regel wie beim
+ * Monatsbeleg: Eine Ladung um 01:00 Ortszeit am Tag des Tarifwechsels ist in
+ * UTC noch der Vortag, gehört aber zum neuen Preis.
+ */
+export function tariffAt(
+  history: TariffPeriod[] | undefined,
+  current: { priceCt: number; bonusCt: number },
+  iso: string,
+): { priceCt: number; bonusCt: number } {
+  if (!history || history.length === 0) {
+    return current;
+  }
+  const day = localDay(iso);
+  // Chronologisch aufsteigend: Der erste Eintrag, dessen Ende NACH dem Tag
+  // liegt, ist die Periode, in die der Tag fällt.
+  for (const p of history) {
+    if (day < p.until) {
+      return { priceCt: p.priceCt, bonusCt: p.bonusCt };
+    }
+  }
+  return current;
+}
+
+/**
+ * Schreibt die Tarifhistorie bei einem Preiswechsel fort.
+ *
+ * `fromDay` ist der Tag, ab dem der NEUE Tarif gilt. Die Regeln:
+ *
+ * 1. Einträge, deren `until` nach `fromDay` liegt, beschreiben eine Zukunft,
+ *    die diese Änderung ersetzt — sie fallen weg.
+ * 2. Existiert bereits ein Eintrag mit `until == fromDay`, bleibt er: Er
+ *    beschreibt die Zeit VOR dem Wechsel, und die ändert sich nicht dadurch,
+ *    dass der Preis AB dem Tag neu festgelegt wird.
+ * 3. Sonst wird der bisherige Tarif mit `until = fromDay` archiviert.
+ * 4. Ist der letzte Eintrag danach identisch mit dem neuen Tarif, fällt er
+ *    weg: So räumt sich ein zurückgenommener Tippfehler von selbst auf,
+ *    statt als falsche Periode in der Historie zu stehen.
+ */
+export function archivePrice(
+  history: TariffPeriod[] | undefined,
+  old: { priceCt: number; bonusCt: number },
+  neu: { priceCt: number; bonusCt: number },
+  fromDay: string,
+): TariffPeriod[] {
+  const same = (a: { priceCt: number; bonusCt: number }, b: { priceCt: number; bonusCt: number }): boolean =>
+    a.priceCt === b.priceCt && a.bonusCt === b.bonusCt;
+  const base = (history ?? []).slice().sort((a, b) => a.until.localeCompare(b.until));
+  if (same(old, neu)) {
+    return base;
+  }
+  const out = base.filter((p) => p.until < fromDay);
+  const hatGrenze = base.some((p) => p.until === fromDay);
+  if (hatGrenze) {
+    out.push(base.find((p) => p.until === fromDay) as TariffPeriod);
+  } else {
+    out.push({ until: fromDay, priceCt: old.priceCt, bonusCt: old.bonusCt });
+  }
+  while (out.length > 0 && same(out[out.length - 1], neu)) {
+    out.pop();
   }
   return out;
 }
@@ -161,8 +341,8 @@ export function rejectedSettings(input: unknown): (keyof DashboardSettings)[] {
   }
   const src = input as Record<string, unknown>;
   const ok = sanitizeSettings(input) ?? {};
-  const out: (keyof DashboardSettings)[] = [];
-  for (const key of Object.keys(LIMITS) as (keyof DashboardSettings)[]) {
+  const out: NumericKey[] = [];
+  for (const key of Object.keys(LIMITS) as NumericKey[]) {
     const raw = src[key];
     if (raw === undefined || raw === null || raw === '') {
       continue;

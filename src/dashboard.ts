@@ -764,6 +764,44 @@ const GRAN_LABEL: Record<Granularity, string> = {
  * Wert beschreibt, wie fein die Fahrterkennung überhaupt auflösen kann.
  */
 /**
+ * Prognose für die laufende Ladung: Wie lange noch bis zum Ziel?
+ *
+ * Gerechnet aus dem SoC-Rest mal Kapazität durch die MITTLERE Leistung der
+ * bisherigen Ladephasen — nicht aus dem Momentanwert, der bei jeder
+ * Slot-Pause null wäre.
+ *
+ * Eine UHRZEIT gibt es nur, wenn die Ladung bisher praktisch pausenfrei lief:
+ * Bei tarifgesteuertem Laden (Octopus & Co.) hängen die künftigen Slots am
+ * Anbieter, und eine geratene Uhrzeit wäre schlechter als keine. Dann bleibt
+ * es bei der REINEN Ladezeit, als solche gekennzeichnet.
+ */
+export function chargeEta(
+  running: ChargeSession,
+  capacityKwh: number,
+  now: number,
+): { restMin: number; doneBy?: number; pureChargeTime: boolean } | undefined {
+  const { endSoc, targetSoc, avgPowerKw } = running;
+  if (
+    endSoc === undefined ||
+    targetSoc === undefined ||
+    avgPowerKw === undefined ||
+    avgPowerKw <= 0 ||
+    endSoc >= targetSoc
+  ) {
+    return undefined;
+  }
+  const restKwh = ((targetSoc - endSoc) / 100) * capacityKwh;
+  const restMin = Math.round((restKwh / avgPowerKw) * 60);
+  // „Pausenfrei" mit Toleranz: Die Phasensummen sind gerundet, und die erste
+  // Minute nach dem Einstecken lädt oft noch nicht.
+  const pausenfrei = running.durationMin <= 0 || running.chargingMin >= running.durationMin * 0.9;
+  if (pausenfrei) {
+    return { restMin, doneBy: now + restMin * 60000, pureChargeTime: false };
+  }
+  return { restMin, pureChargeTime: true };
+}
+
+/**
  * Erster Index, dessen Wert nicht kleiner als `x` ist — klassische Binärsuche.
  *
  * Setzt eine aufsteigend sortierte Reihe voraus; `readSamples` liefert genau
@@ -1115,6 +1153,22 @@ function renderPage(
 
   const fmtClock = (iso: string): string =>
     new Date(iso).toLocaleTimeString(L.locale, { hour: '2-digit', minute: '2-digit' });
+
+  // Fertig-um-Prognose — die Frage, die man während einer Ladung hat.
+  // Hängt die Ladung (stundenlang stromlos, Ziel verfehlt), wäre eine
+  // Prognose eine Lüge: Dann steht dort die Warnung.
+  let etaText = '';
+  if (running) {
+    const ziel = `${esc(L.dashTarget)} ${running.targetSoc} %`;
+    const eta = running.stalled ? undefined : chargeEta(running, o.capacityKwh, Date.now());
+    etaText = running.stalled
+      ? `⚠︎ ${ziel} — ${L.dashStalled}`
+      : eta
+        ? eta.doneBy !== undefined
+          ? `${ziel} · ${L.dashDoneAbout}${fmtClock(new Date(eta.doneBy).toISOString())}`
+          : `${ziel} · ~${fmtDur(eta.restMin)} ${L.dashChargingLeft}`
+        : '';
+  }
 
   // Zeitstempel EINMAL in Zahlen umrechnen — die Ladekurven schneiden sich
   // ihre Messpunkte danach per Binärsuche heraus.
@@ -1846,7 +1900,9 @@ ${placeTabs}${nav}${
 </div>
 ${running ? `<div class="card" style="margin-bottom:16px"><span>${esc(L.dashRunning)}</span><b>${
     running.startSoc !== undefined ? `${esc(L.dashFrom)} ${running.startSoc} %` : esc(L.dashActive)
-  }</b><span>${esc(L.dashSince)} ${esc(fmtDate(running.startedAt, L.locale))}</span></div>` : ''}
+  }</b><span>${esc(L.dashSince)} ${esc(fmtDate(running.startedAt, L.locale))}${
+    etaText ? ` · ${esc(etaText)}` : ''
+  }</span></div>` : ''}
 ${
   quality
     ? `<div class="quality ${quality.level}">${esc(quality.text)}</div>`

@@ -25,9 +25,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   stays grey; carrying the last known value forward was rejected because it
   only trades this false claim for the opposite one. The same branch also
   covers the state before the first sample ever arrives.
-- **A navigation test was green only during the day.** It anchored its test
-  charge to the wall-clock time of the run, so from about 22:50 local it
-  spanned midnight and the daily view counted two charges instead of one.
 
 ## [0.8.1] — 2026-07-31
 

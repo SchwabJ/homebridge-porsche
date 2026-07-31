@@ -66,6 +66,72 @@ describe('buildSessions', () => {
     expect(s[0].pricePerKwh).toBe(0.3);
   });
 
+  it('wählt den Preis je Ladung nach ihrem Startzeitpunkt', () => {
+    // Tarifwechsel zwischen zwei Ladungen: Die alte rechnet mit dem alten
+    // Preis, die neue mit dem neuen — nicht beide mit dem heutigen.
+    const s = buildSessions(
+      [
+        at(0, { plugged: true, soc: 50 }),
+        at(60, { plugged: false, soc: 60 }),
+        at(2 * 24 * 60, { plugged: true, soc: 50 }),
+        at(2 * 24 * 60 + 60, { plugged: false, soc: 60 }),
+      ],
+      {
+        capacityKwh: 100,
+        pricePerKwh: 0.99, // wird durch priceFor verdrängt
+        priceFor: (startedAt) =>
+          startedAt < at(24 * 60).ts
+            ? { pricePerKwh: 0.3, grossPricePerKwh: 0.3 }
+            : { pricePerKwh: 0.35, grossPricePerKwh: 0.4 },
+      },
+    );
+    expect(s).toHaveLength(2);
+    expect(s[0].costEur).toBe(3);
+    expect(s[0].pricePerKwh).toBe(0.3);
+    expect(s[1].costEur).toBe(3.5);
+    expect(s[1].costGrossEur).toBe(4);
+    expect(s[1].savedEur).toBe(0.5);
+    expect(s[1].pricePerKwh).toBe(0.35);
+  });
+
+  it('markiert eine hängende LAUFENDE Ladung als stalled', () => {
+    // Noch am Kabel, Ziel 80 % weit verfehlt, seit über zwei Stunden kein
+    // Strom: Die Wallbox ist ausgestiegen — das will man nachts wissen,
+    // nicht morgens.
+    const s = buildSessions([
+      at(0, { plugged: true, charging: true, soc: 40, targetSoc: 80 }),
+      at(30, { plugged: true, charging: true, soc: 55, targetSoc: 80 }),
+      at(60, { plugged: true, charging: false, soc: 55 }),
+      at(200, { plugged: true, charging: false, soc: 55 }),
+    ]);
+    expect(s[0].complete).toBe(false);
+    expect(s[0].stalled).toBe(true);
+  });
+
+  it('hält eine Slot-Pause unter zwei Stunden NICHT für einen Abbruch', () => {
+    // Tarifgesteuertes Laden pausiert real bis ~94 Minuten. Eine Warnung, die
+    // bei jeder Nachtladung grundlos kommt, wird ignoriert — und nützt dann
+    // nichts mehr, wenn die Wallbox wirklich aussteigt.
+    const s = buildSessions([
+      at(0, { plugged: true, charging: true, soc: 40, targetSoc: 80 }),
+      at(30, { plugged: true, charging: true, soc: 55, targetSoc: 80 }),
+      at(60, { plugged: true, charging: false, soc: 55 }),
+      at(140, { plugged: true, charging: false, soc: 55 }),
+    ]);
+    expect(s[0].stalled).toBeUndefined();
+  });
+
+  it('markiert eine fertige oder zielnahe Ladung nicht als stalled', () => {
+    // 78 statt 80 ist Ladeschlusskennlinie, kein Abbruch.
+    const s = buildSessions([
+      at(0, { plugged: true, charging: true, soc: 40, targetSoc: 80 }),
+      at(30, { plugged: true, charging: true, soc: 78, targetSoc: 80 }),
+      at(60, { plugged: true, charging: false, soc: 78 }),
+      at(200, { plugged: true, charging: false, soc: 78 }),
+    ]);
+    expect(s[0].stalled).toBeUndefined();
+  });
+
   it('leaves cost empty when no price is configured', () => {
     const s = buildSessions([at(0, { plugged: true, soc: 50 }), at(60, { plugged: false, soc: 60 })]);
     expect(s[0].costEur).toBeUndefined();
@@ -144,9 +210,12 @@ describe('buildSessions', () => {
   it('reports the average km per minute over the CHARGING time only', () => {
     // 120 km in 60 minutes of charging = 2 km/min, even though the cable
     // stayed connected for 70 minutes.
+    //
+    // Mit Leistungsangabe: Die Rate wird an ihr geprüft, und ohne sie bleibt
+    // sie bewusst leer — 150 kW erlauben 12,5 km/min, also reichlich Raum.
     const s = buildSessions([
-      at(0, { plugged: true, charging: true, rangeKm: 180 }),
-      at(60, { plugged: true, charging: true, rangeKm: 300 }),
+      at(0, { plugged: true, charging: true, rangeKm: 180, powerKw: 150 }),
+      at(60, { plugged: true, charging: true, rangeKm: 300, powerKw: 150 }),
       at(70, { plugged: false, rangeKm: 300 }),
     ]);
     expect(s[0].avgKmPerMin).toBe(2);

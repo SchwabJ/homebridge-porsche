@@ -7,7 +7,7 @@
  *
  * ## Warum die Sessiongrenze am Stecker hängt, nicht am Laden
  *
- * Bei preisgesteuertem Laden (dynamische Tarife wie Octopus, Tibber u. a.) schaltet der Tarif in 15-Minuten-
+ * Bei preisgesteuertem Laden (Octopus & Co.) schaltet der Tarif in 15-Minuten-
  * Slots ein und aus. Eine Nachtladung zerfiele über `charging` in ein Dutzend
  * Fragmente. `plugged` bleibt dagegen über die gesamte Standzeit true – von
  * Einstecken bis Ausstecken – und liefert damit genau eine Session pro Nacht.
@@ -111,6 +111,17 @@ export interface ChargeSession {
    * die Ladung beendet, und man merkt es erst am nächsten Morgen.
    */
   aborted?: boolean;
+  /**
+   * Die LAUFENDE Ladung hängt: noch am Kabel, Ziel deutlich verfehlt, und
+   * seit {@link STALL_IDLE_MIN} Minuten fließt kein Strom mehr.
+   *
+   * Das Gegenstück zu {@link ChargeSession.aborted}, aber VOR dem Ausstecken —
+   * nur so kann eine Warnung noch in der Nacht kommen statt am Morgen. Die
+   * Schwelle ist bewusst doppelt so hoch wie beim rückblickenden Abbruch:
+   * Tarifgesteuertes Laden pausiert real bis ~94 Minuten, und eine Warnung,
+   * die bei normalen Slot-Pausen kommt, wird ignoriert.
+   */
+  stalled?: boolean;
   /** false, wenn das Ausstecken nie beobachtet wurde (Session läuft noch / Daten enden). */
   complete: boolean;
   /** Anzahl der zugrunde liegenden Messpunkte. */
@@ -126,6 +137,16 @@ export interface BuildOptions {
   pricePerKwh?: number;
   /** Grundpreis ohne Bonus. Fehlt er, gilt der Effektivpreis (Ersparnis = 0). */
   grossPricePerKwh?: number;
+  /**
+   * Preis je STARTZEITPUNKT einer Ladung — hat Vorrang vor den festen Preisen.
+   *
+   * Der Haustarif ändert sich über die Jahre; eine Ladung wird aber zu dem
+   * Preis bezahlt, der bei ihr galt. Ein fester `pricePerKwh` bewertete nach
+   * einer Preiserhöhung rückwirkend die gesamte Historie neu — sichtbar bis in
+   * den Monatsbeleg. Bewertet wird die GANZE Ladung zum Preis ihres Beginns:
+   * Sie wird als Ganzes abgerechnet, wie beim Beleg.
+   */
+  priceFor?: (startedAt: string) => { pricePerKwh: number; grossPricePerKwh: number };
 }
 
 const minutesBetween = (a: string, b: string): number =>
@@ -155,6 +176,14 @@ const TARGET_TOLERANCE = 5;
  * nichts mehr, wenn die Wallbox wirklich einmal aussteigt.
  */
 const ABORT_IDLE_MIN = 60;
+
+/**
+ * Stromlose Zeit, ab der eine LAUFENDE Ladung als hängend gilt — siehe
+ * {@link ChargeSession.stalled}. Höher als {@link ABORT_IDLE_MIN}, weil hier
+ * noch niemand ausgesteckt hat: Beobachtete Octopus-Slot-Pausen von 94 Minuten
+ * dürfen keine Warnung auslösen.
+ */
+const STALL_IDLE_MIN = 120;
 
 /**
  * Grobe Reichweite je Kilowattstunde, für die Plausibilitätsprüfung der
@@ -334,14 +363,27 @@ function finish(
   ) {
     session.aborted = true;
   }
+  // Hängende LAUFENDE Ladung — siehe {@link ChargeSession.stalled}.
+  if (
+    !complete &&
+    lastCharge !== undefined &&
+    open.targetSoc !== undefined &&
+    endSoc !== undefined &&
+    endSoc <= open.targetSoc - TARGET_TOLERANCE &&
+    minutesBetween(lastCharge.ts, open.last.ts) >= STALL_IDLE_MIN
+  ) {
+    session.stalled = true;
+  }
   if (energyKwh !== undefined) {
     session.energyKwh = energyKwh;
-    if (opts.pricePerKwh !== undefined) {
-      const gross = opts.grossPricePerKwh ?? opts.pricePerKwh;
-      session.costEur = Math.round(energyKwh * opts.pricePerKwh * 100) / 100;
+    const tarif = opts.priceFor ? opts.priceFor(open.first.ts) : undefined;
+    const price = tarif?.pricePerKwh ?? opts.pricePerKwh;
+    if (price !== undefined) {
+      const gross = tarif?.grossPricePerKwh ?? opts.grossPricePerKwh ?? price;
+      session.costEur = Math.round(energyKwh * price * 100) / 100;
       session.costGrossEur = Math.round(energyKwh * gross * 100) / 100;
       session.savedEur = Math.round((session.costGrossEur - session.costEur) * 100) / 100;
-      session.pricePerKwh = opts.pricePerKwh;
+      session.pricePerKwh = price;
     }
   }
   // Geladene Reichweite: Zuwachs von Anfang zu Ende, nie negativ (die

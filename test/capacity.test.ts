@@ -1,4 +1,4 @@
-import { capacityTrend, estimateCapacity, idleKwhPerDay, stateOfHealth } from '../src/capacity';
+import { capacityTrend, estimateCapacity, resolveCapacity, stateOfHealth } from '../src/capacity';
 import type { ChargeLogSample } from '../src/chargeLog';
 
 const at = (min: number, over: Partial<ChargeLogSample> = {}): ChargeLogSample => ({
@@ -192,71 +192,6 @@ describe('stateOfHealth', () => {
   });
 });
 
-describe('Standverbrauch', () => {
-  /** `hours` Stunden Stillstand mit `drop` Prozentpunkten Verlust. */
-  const stehen = (hours: number, drop: number): ChargeLogSample[] => {
-    const rows: ChargeLogSample[] = [];
-    const steps = hours; // ein Messpunkt je Stunde
-    for (let i = 0; i <= steps; i++) {
-      rows.push(
-        at(i * 60, {
-          soc: Math.round(80 - (drop * i) / steps),
-          odometerKm: 50000,
-          plugged: false,
-        }),
-      );
-    }
-    return rows;
-  };
-
-  it('schweigt unter einem Tag beobachteter Standzeit', () => {
-    // Der Ladestand ist ganzzahlig — über wenige Stunden entscheidet allein
-    // die Rundung, ob 0 oder 10 kWh am Tag herauskämen.
-    expect(idleKwhPerDay(estimateCapacity(stehen(12, 2)), 83.7)).toBeUndefined();
-  });
-
-  it('rechnet den Verlust auf einen Tag hoch', () => {
-    // 48 h, 4 Punkte → 2 Punkte je Tag → 2 % von 100 kWh = 2,0 kWh/Tag.
-    expect(idleKwhPerDay(estimateCapacity(stehen(48, 4)), 100)).toBeCloseTo(2, 1);
-  });
-
-  it('hängt linear an der Kapazität', () => {
-    const est = estimateCapacity(stehen(48, 4));
-    expect(idleKwhPerDay(est, 50)).toBeCloseTo(1, 1);
-  });
-
-  it('zählt eine lange Datenlücke NICHT als beobachtete Standzeit', () => {
-    // Sonst verdünnte jeder Plugin-Ausfall den Wert beliebig — was in der
-    // Lücke geschah, weiß niemand.
-    const mit = estimateCapacity([
-      at(0, { soc: 80, odometerKm: 50000, plugged: false }),
-      at(60, { soc: 79, odometerKm: 50000, plugged: false }),
-      at(60 + 600, { soc: 78, odometerKm: 50000, plugged: false }), // 10 h Lücke
-    ]);
-    expect(mit.idleMinutes).toBe(60);
-    expect(mit.idleSocDrop).toBe(1);
-  });
-
-  it('zählt Zeit mit Streckenzuwachs nicht mit', () => {
-    const est = estimateCapacity([
-      at(0, { soc: 80, odometerKm: 50000, plugged: false }),
-      at(60, { soc: 79, odometerKm: 50000, plugged: false }),
-      at(120, { soc: 70, odometerKm: 50060, plugged: false }),
-    ]);
-    expect(est.idleMinutes).toBe(60);
-    expect(est.idleSocDrop).toBe(1);
-  });
-
-  it('sammelt auch aus Zyklen, die für die Kapazität zu kurz sind', () => {
-    // 30 h Stehen ohne einen einzigen Kilometer: als Entladezyklus wertlos,
-    // für den Standverbrauch die beste Datenquelle, die es gibt.
-    const est = estimateCapacity(stehen(30, 3));
-    expect(est.samples).toBe(0);
-    expect(est.idleMinutes).toBe(30 * 60);
-    expect(idleKwhPerDay(est, 100)).toBeCloseTo(2.4, 1);
-  });
-});
-
 describe('Kapazitätsverlauf', () => {
   /**
    * Ein verwertbarer Entladezyklus im Monat `month`, Tag `day`, mit einer
@@ -332,5 +267,137 @@ describe('Kapazitätsverlauf', () => {
     }
     const t = capacityTrend(estimateCapacity(rows));
     expect(t[0].kwh).toBeCloseTo(80, 0);
+  });
+});
+
+describe('resolveCapacity', () => {
+  it('nimmt den Messwert, sobald genug Zyklen vorliegen', () => {
+    expect(resolveCapacity({ configured: 83.7, auto: true, measured: 79.4, cycles: 12 })).toEqual({
+      capacityKwh: 79.4,
+      source: 'gemessen',
+    });
+  });
+
+  it('bleibt beim Startwert, solange die Analyse zu dünn ist', () => {
+    // Genau der Punkt: 83,7 ist ein Startwert, bis die Messung trägt.
+    expect(resolveCapacity({ configured: 83.7, auto: true, measured: 79.4, cycles: 3 })).toEqual({
+      capacityKwh: 83.7,
+      source: 'eingestellt',
+    });
+  });
+
+  it('rührt den eingestellten Wert ohne Automatik nicht an', () => {
+    expect(resolveCapacity({ configured: 83.7, auto: false, measured: 79.4, cycles: 99 })).toEqual({
+      capacityKwh: 83.7,
+      source: 'eingestellt',
+    });
+  });
+
+  it('kommt ohne Messwert zurecht', () => {
+    expect(resolveCapacity({ configured: 83.7, auto: true, cycles: 0 })).toEqual({
+      capacityKwh: 83.7,
+      source: 'eingestellt',
+    });
+  });
+
+  it('verwirft einen unsinnigen Messwert, statt die Historie zu zerrechnen', () => {
+    // Eine Messung von 8 kWh oder 300 kWh ist ein Auswertungsfehler, kein
+    // Akku — sie würde jede kWh-Zahl der Historie mitreißen.
+    expect(
+      resolveCapacity({ configured: 83.7, auto: true, measured: 8, cycles: 20 }).source,
+    ).toBe('eingestellt');
+    expect(
+      resolveCapacity({ configured: 83.7, auto: true, measured: 300, cycles: 20 }).source,
+    ).toBe('eingestellt');
+  });
+});
+
+describe('Zeilen mit unbekanntem Steckerzustand', () => {
+  it('lässt eine Ladezeile ohne plugged den Zyklus nicht verfälschen', () => {
+    // `plugged` fehlt genau dann, wenn CHARGING_SUMMARY in der Antwort fehlt
+    // — unabhängig von BATTERY_LEVEL und MILEAGE. Die Zeile trägt dann
+    // weiter Ladestand und Kilometerstand. Fällt sie in eine laufende
+    // Ladung, ginge ein STEIGENDER Ladestand als Zyklusende in die Rechnung
+    // und die geschätzte Kapazität fiele zu hoch aus (nachgestellt: 74,1
+    // statt 66,7 kWh, also +11 %) — und die Automatik übernähme das.
+    const iso = (h: number): string =>
+      new Date(Date.UTC(2026, 6, 28, h, 0)).toISOString();
+    const sauber: ChargeLogSample[] = [
+      { ts: iso(6), soc: 80, odometerKm: 1000, plugged: false },
+      { ts: iso(7), soc: 50, odometerKm: 1100, plugged: false, tripKwh100: 20 },
+      { ts: iso(8), soc: 50, odometerKm: 1100, plugged: true, charging: true },
+    ];
+    const mitKabelzeile: ChargeLogSample[] = [
+      sauber[0],
+      sauber[1],
+      // Lädt bereits, aber CHARGING_SUMMARY fehlt → plugged undefined
+      { ts: iso(7.5), soc: 53, odometerKm: 1100, tripKwh100: 20 },
+      sauber[2],
+    ];
+    const a = estimateCapacity(sauber).capacityKwh;
+    const b = estimateCapacity(mitKabelzeile).capacityKwh;
+    expect(a).toBeDefined();
+    expect(b).toBe(a);
+  });
+});
+
+describe('Zyklusende ohne Verbrauchsangabe', () => {
+  it('nutzt den letzten Messpunkt MIT Verbrauchswert, statt den Zyklus zu verwerfen', () => {
+    // `tripKwh100` kommt aus einem eigenen Messschlüssel und kann auf dem
+    // letzten Messpunkt fehlen. Bisher fiel dann der ganze Zyklus heraus —
+    // die Zyklenzahl blieb zu niedrig, und die 10er-Schwelle der
+    // Kapazitäts-Automatik wurde später oder nie erreicht.
+    const iso = (h: number): string => new Date(Date.UTC(2026, 6, 28, h, 0)).toISOString();
+    const mitWertAmEnde: ChargeLogSample[] = [
+      { ts: iso(6), soc: 80, odometerKm: 1000, plugged: false },
+      { ts: iso(9), soc: 50, odometerKm: 1100, plugged: false, tripKwh100: 20 },
+      { ts: iso(10), soc: 50, odometerKm: 1100, plugged: true, charging: true },
+    ];
+    const ohneWertAmEnde: ChargeLogSample[] = [
+      { ts: iso(6), soc: 80, odometerKm: 1000, plugged: false },
+      { ts: iso(9), soc: 50, odometerKm: 1100, plugged: false, tripKwh100: 20 },
+      // Letzter Messpunkt des Zyklus, gleicher Kilometerstand, kein Wert
+      { ts: iso(9.5), soc: 50, odometerKm: 1100, plugged: false },
+      { ts: iso(10), soc: 50, odometerKm: 1100, plugged: true, charging: true },
+    ];
+    const a = estimateCapacity(mitWertAmEnde);
+    const b = estimateCapacity(ohneWertAmEnde);
+    expect(a.samples).toBe(1);
+    expect(b.samples).toBe(1);
+    expect(b.capacityKwh).toBe(a.capacityKwh);
+  });
+});
+
+describe('Standanteil und Messrahmen', () => {
+  it('rechnet den Standanteil nur innerhalb des Messrahmens heraus', () => {
+    // Der Rahmen endet beim letzten Messpunkt MIT Verbrauchswert. Die
+    // Standverbrauchs-Schleife lief dagegen bis zum allerletzten Punkt des
+    // Zyklus. Fällt `tripKwh100` auf den letzten Zeilen aus — genau der
+    // Fall, für den der Rahmen eingeführt wurde —, wird ein Standanteil
+    // abgezogen, der außerhalb liegt: Der Fahranteil fällt zu klein aus und
+    // die Kapazität damit zu HOCH.
+    const iso = (h: number): string => new Date(Date.UTC(2026, 6, 28, h, 0)).toISOString();
+    const bis = (h: number, soc: number, odo: number, kwh100?: number): ChargeLogSample => ({
+      ts: iso(h), soc, odometerKm: odo, plugged: false,
+      ...(kwh100 === undefined ? {} : { tripKwh100: kwh100 }),
+    });
+    // Zyklus: 90 % → 60 % über 150 km bei 20 kWh/100 km → 30 kWh / 30 % = 100 kWh
+    const sauber = [
+      bis(6, 90, 1000, 20),
+      bis(9, 60, 1150, 20),
+      { ts: iso(10), soc: 60, odometerKm: 1150, plugged: true, charging: true },
+    ];
+    // Dasselbe, aber danach eine Standzeile OHNE Verbrauchswert, in der der
+    // Ladestand weiter fällt.
+    const mitStand = [
+      bis(6, 90, 1000, 20),
+      bis(9, 60, 1150, 20),
+      bis(10, 58, 1150),
+      { ts: iso(11), soc: 58, odometerKm: 1150, plugged: true, charging: true },
+    ];
+    const a = estimateCapacity(sauber).capacityKwh;
+    const b = estimateCapacity(mitStand).capacityKwh;
+    expect(a).toBeDefined();
+    expect(b).toBe(a);
   });
 });

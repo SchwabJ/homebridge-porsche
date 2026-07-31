@@ -114,19 +114,6 @@ export interface CapacityEstimate {
   spreadKwh?: number;
   /** Zurückgelegte Strecke aller verwerteten Abschnitte. */
   km: number;
-  /**
-   * Ladestand, der im STAND verloren ging — in Prozentpunkten, über alle
-   * Zyklen summiert.
-   *
-   * Fällt in der Kapazitätsrechnung ohnehin an (er muss dort herausgerechnet
-   * werden, siehe {@link estimateCapacity}); ihn wegzuwerfen hieße, die
-   * Antwort auf „was zieht mein Standklima" zu verschenken. Gezählt wird über
-   * ALLE Zyklen, auch die für die Kapazität verworfenen — für diese Frage
-   * taugt jeder.
-   */
-  idleSocDrop: number;
-  /** Zeit, über die dieser Verlust entstand, in Minuten. */
-  idleMinutes: number;
   /** Einzelschätzungen, aufsteigend — für Diagnose und Diagramme. */
   values: number[];
   /**
@@ -166,8 +153,6 @@ export function estimateCapacity(samples: Iterable<ChargeLogSample>): CapacityEs
   const uncertainties: number[] = [];
   let km = 0;
   let cyclesSeen = 0;
-  let idleSocDrop = 0;
-  let idleMinutes = 0;
 
   /** Messpunkte des laufenden Zyklus, oder undefined außerhalb. */
   let cycle: ChargeLogSample[] | undefined;
@@ -176,48 +161,57 @@ export function estimateCapacity(samples: Iterable<ChargeLogSample>): CapacityEs
     if (!cycle) {
       return;
     }
-    const usable = cycle.filter((s) => s.soc !== undefined && s.odometerKm !== undefined);
+    // Hintere Kante bereinigen: Zeilen ohne `plugged` am ENDE des Zyklus
+    // abschneiden.
+    //
+    // In der Mitte sind sie harmlos und sollen den Zyklus ausdrücklich nicht
+    // unterbrechen — ein fehlgeschlagener Poll ist kein Einstecken. Am Ende
+    // sind sie es nicht: `plugged` fehlt genau dann, wenn CHARGING_SUMMARY
+    // in der Antwort fehlt, während Ladestand und Kilometerstand weiter
+    // ankommen. Fällt so eine Zeile in eine bereits laufende Ladung, geht
+    // ein STEIGENDER Ladestand als Zyklusende in die Rechnung — nachgemessen
+    // 74,1 statt 66,7 kWh, also elf Prozent zu hoch. Über die automatische
+    // Übernahme (siehe {@link resolveCapacity}) schriebe das die Historie um.
+    let ende = cycle.length;
+    while (ende > 0 && cycle[ende - 1].plugged === undefined) {
+      ende--;
+    }
+    const usable = cycle
+      .slice(0, ende)
+      .filter((s) => s.soc !== undefined && s.odometerKm !== undefined);
     cycle = undefined;
     if (usable.length < 2) {
       return;
     }
     cyclesSeen++;
 
-    // Standanteil zuerst, VOR allen Abbruchbedingungen: Für die Frage „was
-    // zieht das Auto im Stehen" ist auch ein Zyklus brauchbar, der für die
-    // Kapazitätsschätzung zu kurz ist.
-    //
-    // Nur zwischen Messpunkten OHNE Streckenzuwachs — nur dort ist der
-    // Verlust sicher nicht gefahren worden. Messpunkte am Kabel kommen hier
-    // gar nicht erst an: Ein Zyklus ist per Definition die Zeit ohne Stecker,
-    // und was am Kabel verbraucht wird, lädt sofort nach.
-    for (let i = 1; i < usable.length; i++) {
-      const a = usable[i - 1];
-      const b = usable[i];
-      if ((b.odometerKm as number) !== (a.odometerKm as number)) {
-        continue;
-      }
-      const minutes = (Date.parse(b.ts) - Date.parse(a.ts)) / 60000;
-      if (minutes <= 0 || minutes > IDLE_MAX_GAP_MIN) {
-        continue;
-      }
-      idleMinutes += minutes;
-      const d = (a.soc as number) - (b.soc as number);
-      if (d > 0) {
-        idleSocDrop += d;
-      }
-    }
-
     const first = usable[0];
     const last = usable[usable.length - 1];
     // Verbrauch vom ENDE des Zyklus: Dort steht der Durchschnitt über genau
     // die Strecke, die zwischen den beiden Punkten liegt.
-    const kwh100 = last.tripKwh100;
+    //
+    // Fehlt der Wert auf dem allerletzten Messpunkt — `tripKwh100` kommt aus
+    // einem eigenen Messschlüssel und kann allein ausfallen —, gilt der
+    // letzte Punkt MIT Wert als Zyklusende. Sonst fiele der ganze Zyklus
+    // heraus, die Zyklenzahl bliebe zu niedrig, und die Zehner-Schwelle der
+    // Kapazitäts-Automatik würde später oder nie erreicht. Der Verzicht auf
+    // die letzten Meter kostet nichts: Am Zyklusende steht das Fahrzeug
+    // längst, dort kommt weder Strecke noch Ladestand-Abfall dazu.
+    const wertPunkt = ((): ChargeLogSample => {
+      for (let i = usable.length - 1; i >= 0; i--) {
+        const k = usable[i].tripKwh100;
+        if (k !== undefined && k > 0) {
+          return usable[i];
+        }
+      }
+      return last;
+    })();
+    const kwh100 = wertPunkt.tripKwh100;
     if (kwh100 === undefined || kwh100 <= 0) {
       return;
     }
-    const drivenKm = (last.odometerKm as number) - (first.odometerKm as number);
-    const socDrop = (first.soc as number) - (last.soc as number);
+    const drivenKm = (wertPunkt.odometerKm as number) - (first.odometerKm as number);
+    const socDrop = (first.soc as number) - (wertPunkt.soc as number);
     if (drivenKm < MIN_KM || socDrop < MIN_SOC_DROP) {
       return;
     }
@@ -234,8 +228,19 @@ export function estimateCapacity(samples: Iterable<ChargeLogSample>): CapacityEs
     // Anteil zu niedrig geschätzt — bei viel Standklima sind das zweistellige
     // Prozente. Deshalb zählt nur der Ladestand-Abfall, der zwischen zwei
     // Messpunkten MIT zurückgelegter Strecke entstand.
+    // Nur INNERHALB des Messrahmens.
+    //
+    // Der Rahmen endet bei `wertPunkt` — dem letzten Messpunkt mit
+    // Verbrauchswert; `drivenKm` und `socDrop` beziehen sich auf ihn. Lief
+    // die Schleife bis zum Zyklusende weiter, zog sie einen Standanteil ab,
+    // der außerhalb des Rahmens liegt und in `socDrop` gar nicht enthalten
+    // ist. Der Fahranteil fiel dadurch zu klein und die Kapazität zu HOCH
+    // aus — nachgemessen 107,1 statt 100 kWh bei einer einzigen Standzeile
+    // hinter dem letzten Wertpunkt. Und das trifft genau den Fall, für den
+    // der Rahmen überhaupt eingeführt wurde.
+    const rahmenEnde = usable.indexOf(wertPunkt);
     let idleDrop = 0;
-    for (let i = 1; i < usable.length; i++) {
+    for (let i = 1; i <= (rahmenEnde >= 0 ? rahmenEnde : usable.length - 1); i++) {
       const a = usable[i - 1];
       const b = usable[i];
       const km = (b.odometerKm as number) - (a.odometerKm as number);
@@ -279,8 +284,6 @@ export function estimateCapacity(samples: Iterable<ChargeLogSample>): CapacityEs
     samples: values.length,
     cyclesSeen,
     km,
-    idleSocDrop: Math.round(idleSocDrop * 10) / 10,
-    idleMinutes: Math.round(idleMinutes),
     points,
     values: [...values].sort((a, b) => a - b),
   };
@@ -325,35 +328,49 @@ export function stateOfHealth(
 }
 
 /**
- * Mindest-Standzeit, bevor ein Standverbrauch ausgewiesen wird, in Stunden.
+ * Ab wie vielen Zyklen die Messung den eingestellten Wert ablösen darf.
  *
- * Der Ladestand kommt ganzzahlig: Über zwei Stunden gemessen entscheidet die
- * Rundung allein, ob 0 oder 1 Prozentpunkt herauskommt — hochgerechnet auf
- * einen Tag wären das 0 oder 10 kWh. Erst über einen ganzen Tag gesammelter
- * Standzeit trägt die Zahl.
+ * Vorher schwankt die Schätzung zu stark: Jeder Zyklus bringt eine eigene
+ * Fehlerquelle (Rundung des Ladestands, Standverbrauch, Verbrauchszähler des
+ * Fahrzeugs), und erst über zehn mittelt sich das zu etwas, an dem eine
+ * ganze Historie hängen darf. Dieselbe Schwelle, ab der die Einstellungsseite
+ * den Messwert zur Übernahme anbietet.
  */
-const IDLE_MIN_HOURS = 24;
+export const ADOPT_MIN_CYCLES = 10;
+
+/** Grenzen, in denen ein gemessener Kapazitätswert überhaupt plausibel ist. */
+const PLAUSIBLE_KWH = { min: 20, max: 200 };
 
 /**
- * Standverbrauch in kWh je Tag — was das Auto verliert, ohne zu fahren.
+ * Welche Kapazität die Auswertung benutzt — eingestellter Wert oder Messung.
  *
- * Vorklimatisieren, eingeschaltete Zündung, Wachbleiben der Steuergeräte: All
- * das senkt den Ladestand, ohne einen Kilometer zu erzeugen. In der
- * Kapazitätsschätzung ist es eine Störgröße, die herausgerechnet wird — für
- * sich genommen ist es die Antwort auf eine ganz eigene Frage.
+ * Der eingestellte Wert (Datenblatt, z. B. 83,7) ist ein STARTWERT: Er trägt
+ * die Auswertung, solange zu wenig gemessen wurde. Ist die Automatik an und
+ * die Messung reif ({@link ADOPT_MIN_CYCLES}), übernimmt sie — dann rechnet
+ * die Historie mit der Batterie, die das Auto wirklich hat, statt mit der,
+ * die es einmal hatte.
  *
- * Gibt `undefined` zurück, solange zu wenig Standzeit beobachtet wurde.
+ * Ein unsinniger Messwert wird verworfen statt übernommen: An der Kapazität
+ * hängt JEDE kWh- und Kostenzahl: Ein Auswertungsfehler dürfte niemals
+ * stillschweigend die ganze Historie umschreiben.
  */
-export function idleKwhPerDay(
-  est: CapacityEstimate,
-  capacityKwh: number,
-): number | undefined {
-  if (est.idleMinutes < IDLE_MIN_HOURS * 60 || capacityKwh <= 0) {
-    return undefined;
+export function resolveCapacity(opts: {
+  configured: number;
+  auto?: boolean;
+  measured?: number;
+  cycles: number;
+}): { capacityKwh: number; source: 'gemessen' | 'eingestellt' } {
+  const { configured, auto, measured, cycles } = opts;
+  if (
+    auto &&
+    measured !== undefined &&
+    cycles >= ADOPT_MIN_CYCLES &&
+    measured >= PLAUSIBLE_KWH.min &&
+    measured <= PLAUSIBLE_KWH.max
+  ) {
+    return { capacityKwh: measured, source: 'gemessen' };
   }
-  const kwh = (est.idleSocDrop * capacityKwh) / 100;
-  const days = est.idleMinutes / 1440;
-  return Math.round((kwh / days) * 100) / 100;
+  return { capacityKwh: configured, source: 'eingestellt' };
 }
 
 /**

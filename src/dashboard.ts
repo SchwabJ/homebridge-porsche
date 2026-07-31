@@ -36,11 +36,11 @@ import type { Labels } from './i18n';
 import {
   capacityTrend,
   estimateCapacity,
-  idleKwhPerDay,
   stateOfHealth,
   type CapacityEstimate,
 } from './capacity';
 import { buildTrips, summarizeTrips, type Trip } from './trips';
+import { analyzeIdle, idleStats } from './idle';
 import { buildReceipt, receiptCsv, receiptMonths, type Receipt } from './receipt';
 import { readPrices, writePrice, costFrom, sanitize, type PriceStore } from './prices';
 import {
@@ -2207,7 +2207,8 @@ function renderStatus(
 
   // Standverbrauch: was ohne Fahren verloren geht.
   const cap = stats.capacity;
-  const idle = idleKwhPerDay(cap, optionsFor(o).capacityKwh);
+  const idleRoh = analyzeIdle(stream ? stream() : samples, { maxGapMin: stats.pollMin * 2 + 5 });
+  const idle = idleStats(idleRoh, optionsFor(o).capacityKwh);
 
   // Wie ehrlich ist die Reichweitenanzeige? Gemessen daran, wie viel Anzeige
   // ein gefahrener Kilometer kostet — nicht an einer eigenen Prognose.
@@ -2312,10 +2313,25 @@ ${
     idle !== undefined
       ? card(
           L.stIdleDrain,
-          `${idle.toFixed(1)}<i>${esc(L.stIdleDrainUnit)}</i>`,
-          esc(L.stIdleDrainDetail.replace('%n', String(Math.round(cap.idleMinutes / 60)))),
+          // „unter", wenn der Ladestand über die ganze Beobachtung kaum
+          // gefallen ist: Dann ist die Zahl eine Obergrenze, keine Messung.
+          `${idle.obergrenze ? esc(L.stIdleDrainAtMost) : ''}${idle.kwhPerDay.toFixed(1)}<i>${esc(
+            L.stIdleDrainUnit,
+          )}</i>`,
+          esc(L.stIdleDrainDetail.replace('%n', String(Math.round(idleRoh.idleMinutes / 60)))),
         )
-      : ''
+      : // Sichtbar bleiben, auch ohne Ergebnis: Eine Kachel, die verschwindet,
+        // ist von „kaputt" nicht zu unterscheiden.
+        card(
+          L.stIdleDrain,
+          `<i>${esc(L.stIdleDrainCollecting)}</i>`,
+          esc(
+            L.stIdleDrainProgress.replace('%n', String(Math.round(idleRoh.idleMinutes / 60))).replace(
+              '%m',
+              '48',
+            ),
+          ),
+        )
   }
   ${weekKm !== undefined ? card(L.stLast7Days, `${weekKm}<i>km</i>`) : ''}
   ${st.last?.soc !== undefined ? card(L.stChargeLevel, `${st.last.soc}<i>%</i>`,

@@ -201,6 +201,12 @@ export interface Labels {
   stIdleDrainUnit: string;
   /** Detail des Standverbrauchs. `%n` = beobachtete Standzeit in Stunden. */
   stIdleDrainDetail: string;
+  /** Vorsatz, wenn der Wert eine Obergrenze ist statt einer Messung. */
+  stIdleDrainAtMost: string;
+  /** Kachelwert, solange noch zu wenig Ruhezeit beobachtet wurde. */
+  stIdleDrainCollecting: string;
+  /** Fortschritt: „%n von %m h Ruhe gesammelt". */
+  stIdleDrainProgress: string;
   stAborted: string;
   /** Einheit der Abbruch-Kachel. `%t` = Ziel-Ladestand. */
   stAbortedUnit: string;
@@ -452,7 +458,10 @@ export const LABELS_EN: Labels = {
   stRealRangeDetail: 'from %n km of driving',
   stIdleDrain: 'Idle drain',
   stIdleDrainUnit: 'kWh/day',
-  stIdleDrainDetail: 'from %n h of observed idle time while unplugged',
+  stIdleDrainDetail: 'from %n h of true idle time',
+  stIdleDrainAtMost: 'under ',
+  stIdleDrainCollecting: 'collecting',
+  stIdleDrainProgress: '%n of %m h idle time collected',
   stAborted: 'Charge aborted',
   stAbortedUnit: '% instead of %t %',
   stAbortedDetail: '%d — still plugged in, but without power for over an hour',
@@ -698,7 +707,10 @@ export const LABELS_DE: Labels = {
   stRealRangeDetail: 'aus %n km Fahrt',
   stIdleDrain: 'Standverbrauch',
   stIdleDrainUnit: 'kWh/Tag',
-  stIdleDrainDetail: 'aus %n h beobachteter Standzeit ohne Kabel',
+  stIdleDrainDetail: 'aus %n h echter Ruhezeit',
+  stIdleDrainAtMost: 'unter ',
+  stIdleDrainCollecting: 'sammelt',
+  stIdleDrainProgress: '%n von %m h Ruhe gesammelt',
   stAborted: 'Ladung abgebrochen',
   stAbortedUnit: '% statt %t %',
   stAbortedDetail: '%d — am Kabel, aber seit über einer Stunde ohne Strom',

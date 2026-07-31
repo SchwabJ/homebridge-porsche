@@ -94,6 +94,32 @@ describe('Verbrauch je Fahrt', () => {
     expect(trips[1].costEur).toBeCloseTo(3.4, 2);
   });
 
+  it('wählt den Preis je Fahrt nach ihrem Startzeitpunkt', () => {
+    // Tarifwechsel zwischen zwei Fahrten desselben Verbrauchszyklus: Jede
+    // Fahrt rechnet mit dem Preis, der bei ihrem Beginn galt.
+    const trips = buildTrips(
+      [
+        at(0, { charging: true, odometerKm: 1000 }),
+        at(10, { odometerKm: 1000, tripKwh100: 0, soc: 80 }),
+        at(30, { odometerKm: 1040, tripKwh100: 20, soc: 71 }),
+        at(50, { odometerKm: 1040, tripKwh100: 20, soc: 71 }),
+        at(1500, { odometerKm: 1040, tripKwh100: 20, soc: 71 }),
+        at(1520, { odometerKm: 1100, tripKwh100: 25, soc: 51 }),
+        at(1540, { odometerKm: 1100, tripKwh100: 25, soc: 51 }),
+      ],
+      {
+        pricePerKwh: 0.99, // wird durch priceFor verdrängt
+        priceFor: (startedAt) =>
+          startedAt < at(1000).ts
+            ? { pricePerKwh: 0.2, grossPricePerKwh: 0.2 }
+            : { pricePerKwh: 0.3, grossPricePerKwh: 0.3 },
+      },
+    );
+    expect(trips).toHaveLength(2);
+    expect(trips[0].costEur).toBeCloseTo(1.6, 2); // 8 kWh × 0,20
+    expect(trips[1].costEur).toBeCloseTo(5.1, 2); // 17 kWh × 0,30
+  });
+
   it('lässt die Kosten ohne Arbeitspreis leer, statt null zu behaupten', () => {
     const trips = buildTrips(zyklus());
     expect(trips[0].costEur).toBeUndefined();
@@ -262,5 +288,109 @@ describe('Reichweiten-Ehrlichkeit', () => {
     expect(s.km).toBe(140);
     expect(s.rangeKm).toBe(80);
     expect(s.rangeFactor).toBeUndefined();
+  });
+});
+
+describe('Fahrt ohne Verbrauchsangabe am Endpunkt', () => {
+  it('bürdet ihre Energie nicht der nächsten Fahrt auf', () => {
+    // `tripKwh100` kommt aus TRIP_STATISTICS_CYCLIC, `odometerKm` aus
+    // MILEAGE — getrennte Schlüssel, der eine kann ohne den anderen fehlen.
+    // Trägt der letzte Messpunkt einer Fahrt keinen Verbrauch, blieb der
+    // Zyklusstand bisher auf dem der VORVORIGEN Fahrt stehen, und die
+    // folgende Fahrt bekam die Energie beider aufgebürdet (nachgestellt:
+    // 58 statt 30 kWh/100 km).
+    const iso = (h: number, m = 0): string =>
+      new Date(Date.UTC(2026, 6, 28, h, m)).toISOString();
+    const rows: ChargeLogSample[] = [
+      { ts: iso(5), odometerKm: 1000, soc: 90, plugged: true, charging: true },
+      { ts: iso(6), odometerKm: 1000, soc: 90, plugged: false },
+      // Fahrt 1: 40 km bei 30 kWh/100 km
+      { ts: iso(7), odometerKm: 1040, soc: 76, tripKwh100: 30 },
+      { ts: iso(7, 30), odometerKm: 1040, soc: 76, tripKwh100: 30 },
+      // Fahrt 2: 40 km. Ein Zwischenpunkt trägt den Zählerstand, die
+      // Endpunkte nicht — der typische Fall, weil eine Fahrt mehrere Polls
+      // hat und nur einzelne Antworten den Verbrauchsschlüssel verlieren.
+      { ts: iso(8, 30), odometerKm: 1060, soc: 69, tripKwh100: 30 },
+      { ts: iso(9), odometerKm: 1080, soc: 62 },
+      { ts: iso(9, 30), odometerKm: 1080, soc: 62 },
+      // Fahrt 3: 40 km, wieder mit Wert
+      { ts: iso(11), odometerKm: 1120, soc: 48, tripKwh100: 30 },
+      { ts: iso(11, 30), odometerKm: 1120, soc: 48, tripKwh100: 30 },
+    ];
+    const trips = buildTrips(rows);
+    const letzte = trips[trips.length - 1];
+    // 40 km bei 30 kWh/100 km = 12 kWh — nicht 24 (zwei Fahrten).
+    expect(letzte.kwhPer100km).toBeLessThan(40);
+    expect(letzte.energyKwh).toBeLessThan(20);
+  });
+
+  it('lässt die nächste Fahrt unbewertet, wenn der Zyklusstand ganz fehlt', () => {
+    // Trägt KEIN Messpunkt einer Fahrt einen Verbrauchswert, ist der
+    // Zählerstand verloren. Dann ist „keine Zahl" die einzige ehrliche
+    // Ausgabe — eine berechnete enthielte fremde Energie.
+    const iso = (h: number, m = 0): string =>
+      new Date(Date.UTC(2026, 6, 28, h, m)).toISOString();
+    const trips = buildTrips([
+      { ts: iso(5), odometerKm: 1000, soc: 90, plugged: true, charging: true },
+      { ts: iso(6), odometerKm: 1000, soc: 90, plugged: false },
+      { ts: iso(7), odometerKm: 1040, soc: 76 },
+      { ts: iso(7, 30), odometerKm: 1040, soc: 76 },
+      { ts: iso(9), odometerKm: 1080, soc: 62, tripKwh100: 30 },
+      { ts: iso(9, 30), odometerKm: 1080, soc: 62, tripKwh100: 30 },
+    ]);
+    expect(trips[trips.length - 1].energyKwh).toBeUndefined();
+  });
+});
+
+describe('Lade-Messpunkt ohne Kilometerstand', () => {
+  it('schneidet den Verbrauchszyklus trotzdem', () => {
+    // Am Kabel ändert sich der Kilometerstand nicht — fehlt MILEAGE in der
+    // Antwort, wurde der Lade-Messpunkt bisher ganz übersprungen und der
+    // Zyklus-Anker blieb stehen. Die erste Fahrt danach bekam dadurch einen
+    // viel zu niedrigen Verbrauch (3,3 statt 20 kWh/100 km).
+    const iso = (h: number): string => new Date(Date.UTC(2026, 6, 28, h, 0)).toISOString();
+    const trips = buildTrips([
+      { ts: iso(5), odometerKm: 1000, soc: 90, plugged: true, charging: true },
+      { ts: iso(6), odometerKm: 1000, soc: 90, plugged: false },
+      { ts: iso(7), odometerKm: 1100, soc: 65, tripKwh100: 25 },
+      { ts: iso(7.5), odometerKm: 1100, soc: 65, tripKwh100: 25 },
+      // Zweite Ladung — Antwort ohne Kilometerstand
+      { ts: iso(8), soc: 90, plugged: true, charging: true },
+      { ts: iso(9), odometerKm: 1100, soc: 90, plugged: false },
+      { ts: iso(10), odometerKm: 1130, soc: 82, tripKwh100: 20 },
+      { ts: iso(10.5), odometerKm: 1130, soc: 82, tripKwh100: 20 },
+    ]);
+    const letzte = trips[trips.length - 1];
+    expect(letzte.kwhPer100km).toBeCloseTo(20, 0);
+  });
+});
+
+describe('Stiller Zählerrücksetzer', () => {
+  it('bürdet der nächsten Fahrt nicht die Strecke der verworfenen auf', () => {
+    // Fällt der Verbrauchszähler ohne erkennbaren Ladevorgang zurück, bleibt
+    // die betroffene Fahrt zu Recht unbewertet. Der Zyklusanker wanderte
+    // dabei aber auf den ANFANG dieser Fahrt: Die nächste rechnete ihre
+    // Energie über eine Strecke, die die verworfene mit enthielt, und zog
+    // nichts davon ab — 43 % zu hoher Verbrauch, den auch die
+    // Fehlerschranke nicht abfing, weil sie vom selben Fehler mitwächst.
+    const iso = (h: number, m = 0): string =>
+      new Date(Date.UTC(2026, 6, 28, h, m)).toISOString();
+    const trips = buildTrips([
+      { ts: iso(5), odometerKm: 1000, soc: 90, plugged: true, charging: true },
+      { ts: iso(6), odometerKm: 1000, soc: 90, plugged: false },
+      // Fahrt 1: 60 km, Zähler steht auf 25 kWh/100 km
+      { ts: iso(7), odometerKm: 1060, soc: 72, tripKwh100: 25 },
+      { ts: iso(7, 30), odometerKm: 1060, soc: 72, tripKwh100: 25 },
+      // Fahrt 2: 40 km — der Zähler ist still zurückgefallen
+      { ts: iso(9), odometerKm: 1100, soc: 64, tripKwh100: 5 },
+      { ts: iso(9, 30), odometerKm: 1100, soc: 64, tripKwh100: 5 },
+      // Fahrt 3: 40 km bei 20 kWh/100 km seit dem Rücksetzer
+      { ts: iso(11), odometerKm: 1140, soc: 56, tripKwh100: 20 },
+      { ts: iso(11, 30), odometerKm: 1140, soc: 56, tripKwh100: 20 },
+    ]);
+    const letzte = trips[trips.length - 1];
+    // 40 km à 20 kWh/100 km = 8 kWh. Mit der Strecke der verworfenen Fahrt
+    // wären es 16 kWh auf 40 km, also 40 kWh/100 km.
+    expect(letzte.kwhPer100km).toBeLessThan(30);
   });
 });

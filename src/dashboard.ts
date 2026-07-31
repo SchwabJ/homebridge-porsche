@@ -863,6 +863,15 @@ function renderPage(
   // dem die Fahrt ENDETE. Bei einer zweistündigen Fahrt stand dann ein
   // 46-kWh-Balken in einer Stunde, während die Stunde davor mit hundert
   // gefahrenen Kilometern auf null blieb — zwei Maßstäbe im selben Bild.
+  const q = (g: Granularity, p: Place, d?: string): string =>
+    `?g=${g}${p === 'all' ? '' : `&p=${p}`}${d ? `&d=${encodeURIComponent(d)}` : ''}`;
+
+  // Drilldown nur, wenn der Unterzeitraum eine eigene Ansicht hat: Die
+  // Stundenansicht existiert nicht als Ziel, und in ihr selbst ist der
+  // Balken schon die feinste Auflösung.
+  const drill = (b: Bucket): string | undefined =>
+    sub !== gran && sub !== 'hour' ? `/${q(sub, place, b.key)}` : undefined;
+
   const barPoints: BarPoint[] = series.map((b) => {
     const offen = b.unratedKm;
     return {
@@ -881,12 +890,11 @@ function renderPage(
       downDetail:
         offen > 0 ? L.chartUnrated.replace('%n', offen.toLocaleString(L.locale)) : undefined,
       current: b === current,
+      href: drill(b),
     };
   });
   const bars = barChart(barPoints, L);
 
-  const q = (g: Granularity, p: Place, d?: string): string =>
-    `?g=${g}${p === 'all' ? '' : `&p=${p}`}${d ? `&d=${encodeURIComponent(d)}` : ''}`;
   const tabs = (['day', 'week', 'month', 'year'] as Granularity[])
     .map((g) => `<a href="${q(g, place)}"${g === gran ? ' class="on"' : ''}>${GRAN_LABEL[g]}</a>`)
     .join('');
@@ -1497,6 +1505,11 @@ td small{display:block;color:var(--dim);font-size:12px}
 /* Aktionszeile unter JEDER Liste — gleiche Form, gleiche Stelle, gleiche
    Beschriftung für Ladungen und Fahrten. Dahinter liegt jeweils der
    Monatsbericht, und darin der CSV-Knopf: EIN Weg zum selben Ziel. */
+/* Tooltip der Balkendiagramme — als HTML, weil ein SVG-<title> auf Touch nie
+   erscheint. pre-line erhält die Zeilen aus data-tip. */
+#bartip{position:fixed;z-index:9;max-width:min(78vw,320px);padding:8px 11px;border-radius:10px;
+ background:var(--card);border:1px solid var(--line);color:var(--fg);font-size:12.5px;
+ line-height:1.45;white-space:pre-line;box-shadow:0 6px 20px rgba(0,0,0,.18);pointer-events:none}
 .acts{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px 18px;margin:8px 0 4px}
 .act{color:var(--accent);text-decoration:none;font-size:13.5px;min-height:30px;
  display:inline-flex;align-items:center}
@@ -1855,12 +1868,31 @@ ${
       )} ›</a></p>`
     : ''
 }
+<div id="bartip" hidden></div>
 <script>
 // Aktualisiert sich still im Hintergrund: alle 60 s, aber nur wenn die Seite
 // sichtbar ist — im Homescreen-Modus liegt sie sonst tagelang offen und würde
 // den Pi ohne Grund abfragen. Beim Zurückwechseln sofort neu laden, damit man
 // nie veraltete Zahlen sieht.
 (function(){
+  // Balken-Details antippbar machen: Das SVG-<title> erscheint nur beim
+  // Maus-Hover, und den gibt es auf dem Telefon nicht. Der ERSTE Tap zeigt
+  // den Tooltip, der zweite auf denselben Balken öffnet den Unterzeitraum —
+  // sofortiges Navigieren nähme Touch-Nutzern die Details.
+  var bt = document.getElementById('bartip');
+  var lastHit = null;
+  if (bt) document.addEventListener('pointerdown', function(e){
+    var hit = e.target && e.target.closest ? e.target.closest('.bars .hit') : null;
+    if (hit && hit.dataset.tip) {
+      if (hit === lastHit && hit.dataset.href) { location.href = hit.dataset.href; return; }
+      lastHit = hit;
+      bt.textContent = hit.dataset.tip;
+      bt.hidden = false;
+      var w = bt.offsetWidth, h = bt.offsetHeight;
+      bt.style.left = Math.max(6, Math.min(window.innerWidth - w - 6, e.clientX - w / 2)) + 'px';
+      bt.style.top = Math.max(6, e.clientY - h - 18) + 'px';
+    } else { lastHit = null; bt.hidden = true; }
+  });
   // Crosshair auf den Ladekurven: Linie, Punkt und Wertelabel folgen dem
   // Zeiger bzw. dem Finger — wie in der Wetter-App von iOS.
   document.querySelectorAll('.curvewrap').forEach(function(wrap){

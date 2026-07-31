@@ -192,6 +192,15 @@ export interface Labels {
   trTrips: string;
   /** Aktionszeile unter beiden Listen. */
   dashReport: string;
+  /** Standardansicht der Seite (Tag/Woche/Monat/Jahr). */
+  setDefaultView: string;
+  setDefaultViewHint: string;
+  /** Kapazität automatisch aus der Messung übernehmen. */
+  setAutoCapacity: string;
+  setAutoCapacityHint: string;
+  /** Ab wann ein neuer Arbeitspreis gilt. */
+  setPriceFrom: string;
+  setPriceFromHint: string;
   rcSumHome: string;
   rcSumAway: string;
   rcSumUnknown: string;
@@ -467,6 +476,12 @@ export const LABELS_EN: Labels = {
   trTrip: 'trip',
   trTrips: 'trips',
   dashReport: 'Report',
+  setDefaultView: 'Default view',
+  setDefaultViewHint: 'The view the dashboard opens with. You can still switch at any time.',
+  setAutoCapacity: 'Adopt measured capacity',
+  setAutoCapacityHint: 'Once enough discharge cycles are available, the measured value replaces the configured one.',
+  setPriceFrom: 'Valid from',
+  setPriceFromHint: 'Day the new price takes effect. Charges before it keep the old one. Empty means today.',
   rcSumHome: 'Total at home',
   rcSumAway: 'Total away',
   rcSumUnknown: 'Total without location',
@@ -727,6 +742,12 @@ export const LABELS_DE: Labels = {
   trTrip: 'Fahrt',
   trTrips: 'Fahrten',
   dashReport: 'Bericht',
+  setDefaultView: 'Standardansicht',
+  setDefaultViewHint: 'Mit dieser Ansicht öffnet das Dashboard. Umschalten geht weiterhin jederzeit.',
+  setAutoCapacity: 'Messwert übernehmen',
+  setAutoCapacityHint: 'Sobald genug Entladezyklen vorliegen, ersetzt die Messung den eingestellten Wert.',
+  setPriceFrom: 'Gilt ab',
+  setPriceFromHint: 'Tag, ab dem der neue Preis gilt. Ladungen davor behalten den alten. Leer heißt heute.',
   rcSumHome: 'Summe zuhause',
   rcSumAway: 'Summe unterwegs',
   rcSumUnknown: 'Summe ohne Ortsangabe',

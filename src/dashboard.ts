@@ -47,11 +47,14 @@ import { buildTripReport, tripMonths, type TripReport } from './tripReport';
 import { monthKey } from './format';
 import { readPrices, writePrice, costFrom, sanitize, type PriceStore } from './prices';
 import {
+  archivePrice,
+  localDay,
+  dayOk,
+  mergeSettings,
   readSettings,
   writeSettings,
   sanitizeSettings,
   rejectedSettings,
-  mergeSettings,
   type DashboardSettings,
   type Source,
 } from './settings';
@@ -2718,7 +2721,7 @@ function renderSettings(
  padding:12px 0;border-bottom:1px solid var(--line)}
 .srow:last-of-type{border-bottom:0}
 .srow label{font-size:15px}
-.srow input{width:112px;min-height:38px;padding:6px 9px;border-radius:9px;text-align:right;
+.srow input,.srow select{width:112px;min-height:38px;padding:6px 9px;border-radius:9px;text-align:right;
  border:1px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:15px}
 .srow small{grid-column:1/-1;color:var(--dim);font-size:12px;line-height:1.5}
 .srow small i{font-style:normal;opacity:.75}
@@ -2757,6 +2760,32 @@ function renderSettings(
         : ''
   }
   ${field('dayBoundaryHour', L.setDayBoundary, L.setDayBoundaryHint, '1')}
+  <div class="srow">
+    <label for="f-defaultView">${esc(L.setDefaultView)}</label>
+    <select id="f-defaultView" name="defaultView">
+      ${(['day', 'week', 'month', 'year'] as const)
+        .map(
+          (v) =>
+            `<option value="${v}"${
+              (effective(o).stored.defaultView ?? 'month') === v ? ' selected' : ''
+            }>${esc(GRAN_LABEL[v])}</option>`,
+        )
+        .join('')}
+    </select>
+    <small>${esc(L.setDefaultViewHint)}</small>
+  </div>
+  <div class="srow">
+    <label for="f-autoCapacity">${esc(L.setAutoCapacity)}</label>
+    <input id="f-autoCapacity" name="autoCapacity" type="checkbox"${
+      effective(o).stored.autoCapacity === true ? ' checked' : ''
+    }>
+    <small>${esc(L.setAutoCapacityHint)}</small>
+  </div>
+  <div class="srow">
+    <label for="f-priceFrom">${esc(L.setPriceFrom)}</label>
+    <input id="f-priceFrom" name="priceFrom" type="date">
+    <small>${esc(L.setPriceFromHint)}</small>
+  </div>
   <div class="sbar"><button type="submit">${esc(L.pfSave)}</button><em></em></div>
 </form>
 <p style="color:var(--dim);font-size:12.5px;line-height:1.6;margin-top:18px">
@@ -2777,7 +2806,9 @@ function renderSettings(
   f.addEventListener('submit',function(e){
     e.preventDefault();
     var body={};
-    f.querySelectorAll('input').forEach(function(i){ body[i.name]=i.value.trim(); });
+    f.querySelectorAll('input,select').forEach(function(i){
+      body[i.name] = i.type === 'checkbox' ? i.checked : i.value.trim();
+    });
     bar.classList.remove('ok','bad'); out.textContent='…';
     fetch('/api/settings',{method:'POST',headers:{'content-type':'application/json'},
                            body:JSON.stringify(body)})
@@ -2856,8 +2887,12 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
       const g = url.searchParams.get('g');
+      // Ohne g-Parameter gilt die in den Einstellungen gewählte
+      // Standardansicht; erst danach der Monat als Voreinstellung.
       const gran: Granularity =
-        g === 'day' || g === 'week' || g === 'year' ? g : 'month';
+        g === 'day' || g === 'week' || g === 'month' || g === 'year'
+          ? g
+          : readSettings(o.logDir).defaultView ?? 'month';
       const pRaw = url.searchParams.get('p');
       const place: Place = pRaw === 'home' || pRaw === 'away' ? pRaw : 'all';
       // Gewählter Zeitraum als Bucket-Schlüssel (`2026-07-28`, `2026-W31`, …).
@@ -3061,6 +3096,29 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
           if (rejected.length > 0 && Object.keys(next).length === 0) {
             json(res, { ok: false, reason: 'rejected', rejected }, 400);
             return;
+          }
+          // Tarifwechsel archivieren: Der bisher WIRKSAME Preis wird zur
+          // historischen Periode, damit alte Ladungen ihre alten Kosten
+          // behalten. `priceFrom` legt den Tag des Wechsels fest; ohne
+          // Angabe gilt der neue Preis ab heute.
+          const fromRaw = (parsed as Record<string, unknown>).priceFrom;
+          if (fromRaw !== undefined && fromRaw !== '' && !dayOk(fromRaw)) {
+            json(res, { ok: false, reason: 'bad-from' }, 400);
+            return;
+          }
+          const fromDay = dayOk(fromRaw) ? fromRaw : localDay(new Date().toISOString());
+          const before = effective(o).values;
+          const after = mergeSettings({ priceCt: o.priceCt, bonusCt: o.bonusCt }, next).values;
+          const history = archivePrice(
+            readSettings(o.logDir).priceHistory,
+            { priceCt: before.priceCt, bonusCt: before.bonusCt },
+            { priceCt: after.priceCt, bonusCt: after.bonusCt },
+            fromDay,
+          );
+          // Die Historie steht in keinem Formularfeld — sie muss den
+          // Komplett-Ersatz durch den Formularstand ausdrücklich überleben.
+          if (history.length > 0) {
+            next.priceHistory = history;
           }
           const ok = writeSettings(o.logDir, next);
           json(

@@ -2525,7 +2525,7 @@ ${
 /**
  * Ab wie vielen Zyklen der Messwert zur Übernahme angeboten wird.
  *
- * Justins Vorgabe, und sie ist richtig: Bei wenigen Zyklen schwankt die
+ * So vorgegeben, und das ist richtig: Bei wenigen Zyklen schwankt die
  * Schätzung noch deutlich. Ein Knopf, der einen vorläufigen Wert in die
  * Konfiguration schreibt, würde die Vorläufigkeit verstecken — und weil die
  * Kapazität rückwirkend jede kWh-Zahl verändert, wäre das teuer.

@@ -77,12 +77,12 @@ describe('buildReceipt', () => {
     // Fehler aus.
     const r = buildReceipt(
       [
-        session({ energyKwh: 20.09, costEur: 4.15, pricePerKwh: 0.2067 }),
-        session({ energyKwh: 26.78, costEur: 5.54, pricePerKwh: 0.2067 }),
+        session({ energyKwh: 20.09, costEur: 4.15, pricePerKwh: 0.2143 }),
+        session({ energyKwh: 26.78, costEur: 5.54, pricePerKwh: 0.2143 }),
       ],
       '2026-07',
     );
-    expect(r.lines.map((l) => l.centPerKwh)).toEqual([20.67, 20.67]);
+    expect(r.lines.map((l) => l.centPerKwh)).toEqual([21.43, 21.43]);
   });
 
   it('rechnet den Preis zurück, wenn nur ein Betrag eingetragen ist', () => {
@@ -107,7 +107,7 @@ describe('receiptCsv', () => {
   const csv = (lang: 'en' | 'de', name = 'Porsche'): string =>
     receiptCsv(
       buildReceipt(
-        [session({ energyKwh: 20.09, costEur: 4.15, pricePerKwh: 0.2067 })],
+        [session({ energyKwh: 20.09, costEur: 4.15, pricePerKwh: 0.2143 })],
         '2026-07',
       ),
       name,

@@ -73,7 +73,9 @@ describe('buildBatteryReport', () => {
   it('erklärt, warum die Zahl noch nicht belastbar ist', () => {
     const r = buildBatteryReport(schaetzung({ samples: 3 }), 83.7);
     expect(r.trustworthy).toBe(false);
-    expect(r.why).toMatch(/Zyklen|Zeitraum/);
+    // Der Grund ist strukturiert, nicht formuliert — den Satz baut die
+    // Anzeige, die auch die Sprache kennt.
+    expect(r.why).toEqual({ reason: 'few-cycles', cycles: 3, needed: 10 });
   });
 
   it('gilt als belastbar bei genug Zyklen über genug Zeit', () => {

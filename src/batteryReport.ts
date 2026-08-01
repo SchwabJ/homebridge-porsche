@@ -67,8 +67,16 @@ export interface BatteryReport {
   months: CapacityMonth[];
   /** Trägt die Datenbasis eine Aussage über Alterung? */
   trustworthy: boolean;
-  /** Wenn nicht: warum nicht, in einem Satz. */
-  why?: string;
+  /**
+   * Wenn nicht: warum nicht — als Grund, nicht als Satz.
+   *
+   * Bewusst strukturiert statt fertig formuliert: Das Modell soll keine
+   * Sprache kennen. Den Satz baut die Anzeige, die auch weiß, in welcher.
+   */
+  why?:
+    | { reason: 'no-measurement' }
+    | { reason: 'few-cycles'; cycles: number; needed: number }
+    | { reason: 'short-period'; days: number; needed: number };
 }
 
 const round1 = (n: number): number => Math.round(n * 10) / 10;
@@ -116,10 +124,10 @@ export function buildBatteryReport(est: CapacityEstimate, ratedKwh: number): Bat
   if (!trustworthy) {
     report.why =
       est.capacityKwh === undefined
-        ? 'Noch keine Messung: Dafür braucht es mindestens eine Fahrstrecke zwischen zwei Ladungen.'
+        ? { reason: 'no-measurement' }
         : !genugZyklen
-          ? `Erst ${est.samples === 1 ? "ein Zyklus" : `${est.samples} Zyklen`} gemessen — belastbar ab ${TRUST_MIN_CYCLES}.`
-          : `Erst ${days} Tage erfasst — über einen so kurzen Zeitraum ist jede Alterung von der normalen Streuung nicht zu unterscheiden (belastbar ab ${TRUST_MIN_DAYS} Tagen).`;
+          ? { reason: 'few-cycles', cycles: est.samples, needed: TRUST_MIN_CYCLES }
+          : { reason: 'short-period', days: days ?? 0, needed: TRUST_MIN_DAYS };
   }
   return report;
 }

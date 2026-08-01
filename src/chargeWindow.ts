@@ -27,6 +27,8 @@
  *    wert als billiger Strom.
  */
 
+import type { ChargeSession } from './sessions';
+
 /** Ein Ladefenster in Minuten seit Mitternacht, lokale Zeit. */
 export interface ChargeWindow {
   fromMin: number;
@@ -111,4 +113,62 @@ export function chargeWindowAction(
     return charging ? undefined : 'start';
   }
   return charging ? 'stop' : undefined;
+}
+
+/**
+ * Wie lang eine Ladepause sein muss, um als fremder Takt zu gelten.
+ *
+ * Kurze Aussetzer entstehen auch ohne fremde Steuerung — beim Anstecken, bei
+ * einem Netzhüpfer, beim Umschalten der Wallbox. Ein Tarif-Slot dauert
+ * länger: An einer real beobachteten Nacht lagen die Pausen bei 34 und
+ * 94 Minuten.
+ */
+const PACED_PAUSE_MIN = 20;
+
+/** Wie viele der jüngsten abgeschlossenen Ladungen betrachtet werden. */
+const PACED_LOOKBACK = 5;
+
+/**
+ * Wird das Laden bereits von außen getaktet?
+ *
+ * Das ist die wichtigste Frage vor jedem Eingriff. Wer einen Tarif wie
+ * Intelligent Octopus Go oder Tibber nutzt, überlässt dem Anbieter die
+ * Entscheidung, WANN geladen wird — der startet und stoppt selbst, oft in
+ * Viertelstundenschritten. Ein zweites Ladefenster daneben wäre kein
+ * Sparprogramm, sondern ein Wettlauf: Der Anbieter startet, wir stoppen, der
+ * Anbieter startet erneut. Dasselbe gilt für einen Ladeplan im Fahrzeug.
+ *
+ * Erkennbar ist das an den Ladepausen der letzten Ladungen: Wenn eine Ladung
+ * mehrfach unterbrochen wurde, OBWOHL das Ziel noch nicht erreicht war, hat
+ * das jemand anders entschieden. Ein Fahrzeug, das ungestört lädt, lädt
+ * durch, bis es fertig ist.
+ *
+ * OHNE HISTORIE lautet die Antwort `true`, also „Finger weg". Kein Wissen ist
+ * kein Freibrief: Frisch eingerichtet weiß das Plugin nicht, wer taktet, und
+ * darf dann nicht der Erste sein, der eingreift.
+ */
+export function externallyPaced(sessions: ChargeSession[]): boolean {
+  const jüngste = sessions.filter((s) => s.complete).slice(-PACED_LOOKBACK);
+  if (jüngste.length === 0) {
+    return true;
+  }
+  return jüngste.some((s) => {
+    for (let i = 1; i < s.phases.length; i++) {
+      const pause =
+        (Date.parse(s.phases[i].startedAt) - Date.parse(s.phases[i - 1].endedAt)) / 60000;
+      if (pause < PACED_PAUSE_MIN) {
+        continue;
+      }
+      // Entscheidend ist der Ladestand VOR der Pause, nicht der am Ende der
+      // Ladung: Auch ein getakteter Tarif lädt am Schluss bis zum Ziel. Wer
+      // die ganze Ladung danach beurteilt, erkennt gerade den häufigsten Fall
+      // nicht. Umgekehrt ist eine Pause, nach der das Ziel schon erreicht
+      // war, kein fremder Takt — dann hört das Fahrzeug von selbst auf.
+      const davor = s.phases[i - 1].endSoc;
+      if (s.targetSoc === undefined || davor === undefined || davor < s.targetSoc) {
+        return true;
+      }
+    }
+    return false;
+  });
 }

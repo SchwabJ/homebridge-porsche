@@ -15,7 +15,7 @@ import { PorscheClient } from './api/porscheClient';
 import { VehicleState } from './api/measurements';
 import { PorscheCommand } from './api/commands';
 import { clampPollInterval, effectivePollMinutes } from './wake';
-import { chargeWindowAction, parseWindow } from './chargeWindow';
+import { chargeWindowAction, externallyPaced, parseWindow } from './chargeWindow';
 import { chargingStart, chargingStop } from './api/commands';
 import { appendSample } from './chargeLog';
 import { startDashboard, readSamples } from './dashboard';
@@ -483,6 +483,8 @@ export class PorschePlatform implements DynamicPlatformPlugin {
    */
   /** Zeitpunkt des letzten Ladefenster-Befehls — schützt vor Dauerfeuer. */
   private lastWindowCommandAt = 0;
+  /** Die Meldung über fremde Taktung gehört einmal ins Log, nicht bei jedem Poll. */
+  private pacedNoted = false;
 
   /**
    * Setzt das Ladefenster durch: starten, wenn es beginnt, stoppen, wenn es
@@ -516,6 +518,36 @@ export class PorschePlatform implements DynamicPlatformPlugin {
       return;
     }
     if (Date.now() - this.lastWindowCommandAt < WINDOW_COMMAND_GAP_MS) {
+      return;
+    }
+    // Erst JETZT die teure Frage, ob überhaupt eingegriffen werden darf:
+    // Taktet bereits jemand anders — ein Tarif wie Intelligent Octopus Go
+    // oder Tibber, oder ein Ladeplan im Fahrzeug —, wäre ein zweites Fenster
+    // daneben kein Sparprogramm, sondern ein Wettlauf. Der Anbieter startet,
+    // wir stoppen, der Anbieter startet erneut.
+    //
+    // Die Prüfung steht bewusst hinter der Sperre und nicht vor der
+    // Entscheidung: Sie liest die ganze Historie und liefe sonst bei jedem
+    // Poll mit, obwohl fast nie etwas zu tun ist.
+    try {
+      const sessions = buildSessions(readSamples(this.logDir), {
+        capacityKwh: c.capacityKwh,
+      });
+      if (externallyPaced(sessions)) {
+        if (!this.pacedNoted) {
+          this.pacedNoted = true;
+          this.log.info(
+            'Charging window stays idle: charging is already paced externally ' +
+              '(tariff or a plan in the car). Two controllers side by side would ' +
+              'override each other.',
+          );
+        }
+        return;
+      }
+      this.pacedNoted = false;
+    } catch (err) {
+      // Im Zweifel nicht eingreifen — dieselbe Regel wie überall hier.
+      this.log.warn(`Charging window: pacing check failed: ${String(err)}`);
       return;
     }
     this.lastWindowCommandAt = Date.now();

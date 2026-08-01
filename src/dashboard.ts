@@ -1076,14 +1076,11 @@ function renderPage(
       : !st.last.plugged
         ? esc(L.dashNotPlugged)
         : st.last.charging
-          ? `${esc(L.dashCharging)}${
-              st.last.powerKw !== undefined
-                ? ` · ${st.last.powerKw.toFixed(1)} kW${
-                    st.last.rateKmMin !== undefined
-                      ? ` · ${st.last.rateKmMin.toFixed(1)} km/min`
-                      : ''
-                  }`
-                : ''
+    ? // Ohne Laderate: Beide Plaketten sollen nebeneinander in EINE Zeile
+            // passen, und die km/min sagen nichts, was die Fertig-Prognose eine
+            // Zeile tiefer nicht besser sagt.
+            `${esc(L.dashCharging)}${
+              st.last.powerKw !== undefined ? ` · ${st.last.powerKw.toFixed(1)} kW` : ''
             }${where}`
           : `${esc(L.dashPluggedWaiting)}${where}`;
   const plugClass = !st.last?.plugged ? 'off' : st.last.charging ? 'ok' : 'wait';
@@ -1750,11 +1747,12 @@ ${CHART_CSS}${BARS_CSS}${SPARK_CSS}${REFRESH_CSS}
     <span class="pill ${plugClass}">${plugText}</span>
     <span class="pill ${st.monitorOk ? 'ok' : 'bad'}">${
       st.monitorOk
-        ? `${esc(L.dashMonitorOk)}${
-            st.ageMinutes !== undefined
-              ? ` · ${esc(L.dashMonitorAge.replace('%s', `${Math.round(st.ageMinutes)} min`))}`
-              : ''
-          }`
+        ? // Kurz, solange alles läuft: Die Plakette steht immer an derselben
+          // Stelle, das Wort „Überwachung" trägt dort nichts. Stimmt etwas
+          // nicht, steht der volle Satz da — dann zählt Deutlichkeit.
+          st.ageMinutes !== undefined
+          ? esc(L.dashMonitorAge.replace('%s', `${Math.round(st.ageMinutes)} min`))
+          : esc(L.dashMonitorOk)
         : st.ageMinutes !== undefined
           ? `${esc(L.dashNoDataFor)} ${fmtDur(st.ageMinutes)}`
           : esc(L.dashNoDataYet)
@@ -1827,8 +1825,11 @@ ${placeTabs}${nav}${
     hasPrice
       ? `<div class="card"><span>${esc(L.dashCost)}</span><b>${current ? current.cost.toFixed(2) : '0.00'} €</b>
     <span>${
+      // Der Bruttopreis stand hier als „statt 19,41 €" — dieselbe Aussage wie
+      // die Ersparnis daneben, nur rückwärts gerechnet. Ohne Bonus bleibt der
+      // Arbeitspreis, der sonst nirgends steht.
       current && current.costGross > current.cost
-        ? `${esc(L.dashInsteadOf)} <s>${current.costGross.toFixed(2)} €</s>`
+        ? ''
         : `${(o.pricePerKwh * 100).toFixed(2)} ct/kWh`
     }${
       // Die Ersparnis DES ZEITRAUMS, und die Gesamtsumme nur, wenn sie eine
@@ -1934,11 +1935,11 @@ ${placeTabs}${nav}${
     running.startSoc !== undefined
       ? `<span>${esc(socSpan(running.startSoc, running.endSoc, ''))}</span>`
       : ''
-  }<span>${esc(L.dashSince)} ${esc(fmtDate(running.startedAt, L.locale))}${
+  }<span>${esc(L.dashSince)} ${esc(fmtClock(running.startedAt))}</span>${
     running.chargingMin > 0 && running.chargingMin < running.durationMin - 1
-      ? `, ${esc(L.dashOfWhichCharging)} ${esc(fmtDur(running.chargingMin))}`
+      ? `<span>${esc(L.dashOfWhichCharging)} ${esc(fmtDur(running.chargingMin))}</span>`
       : ''
-  }</span>${
+  }${
     etaText
       ? `<span>${esc(etaText.replace(new RegExp(`^${L.dashTarget} \\d+ % · `), ''))}</span>`
       : ''

@@ -129,6 +129,8 @@ export interface ResolvedPorscheConfig {
   externalPricePerKwhCt: number;
   /** Nutzbare Netto-Kapazität in kWh (Basis der Energieberechnung). */
   capacityKwh: number;
+  /** Wurde die Kapazität ausdrücklich konfiguriert (statt geerbt)? */
+  capacityFromUser: boolean;
   /** Port des Ladehistorie-Dashboards; 0 = aus. */
   dashboardPort: number;
   /**
@@ -207,6 +209,7 @@ export const DEFAULT_CONFIG: ResolvedPorscheConfig = {
   chargingBonusCt: 0,
   externalPricePerKwhCt: 0,
   capacityKwh: 83.7,
+  capacityFromUser: false,
   dashboardPort: 8099,
   dashboardPassword: undefined,
   dashboardBind: undefined,
@@ -284,6 +287,10 @@ export function resolveConfig(raw: Record<string, unknown> | undefined | null): 
       DEFAULT_CONFIG.externalPricePerKwhCt,
     ),
     capacityKwh: numOr('capacityKwh', DEFAULT_CONFIG.capacityKwh),
+    // Ob die Kapazität VOM NUTZER stammt, entscheidet, ob mit ihr gerechnet
+    // werden darf: Der Vorgabewert ist ein Taycan-Datenblattwert und bei
+    // jedem anderen Modell um ein Vielfaches daneben — siehe ../capacityTrust.
+    capacityFromUser: typeof c.capacityKwh === 'number' && Number.isFinite(c.capacityKwh),
     dashboardPort: numOr('dashboardPort', DEFAULT_CONFIG.dashboardPort),
     pluggedPollMinutes: numOr('pluggedPollMinutes', DEFAULT_CONFIG.pluggedPollMinutes),
     dayBoundaryHour: numOr('dayBoundaryHour', DEFAULT_CONFIG.dayBoundaryHour),

@@ -263,7 +263,7 @@
         "title": "Charging window — start (HH:MM)",
         "type": "string",
         "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
-        "description": "Charge only within this window, e.g. 00:30 for a night tariff. The car's own timer knows a departure time but no window. Leave both fields empty to disable — then the plugin never touches charging. The car's instant-charge threshold is always honoured: below it, charging happens whatever the clock says."
+        "description": "Charge only within this window, e.g. 00:30 for a night tariff. The car's own timer knows a departure time but no window. Leave both fields empty to disable — then the plugin never touches charging. The car's instant-charge threshold is always honoured: below it, charging happens whatever the clock says, so the window only governs the band between that threshold and your charge target. The window also stays out of the way entirely if a tariff (Intelligent Octopus Go, Tibber), a wallbox or a plan in the car is already pacing your charges — two controllers side by side would only override each other."
       },
       "chargeWindowTo": {
         "title": "Charging window — end (HH:MM)",

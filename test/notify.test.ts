@@ -2,6 +2,7 @@ import {
   buildDailyMessage,
   buildSessionMessage,
   buildStallMessage,
+  buildIdleMessage,
   stalledToWarn,
   msUntilHour,
   sendNotification,
@@ -243,5 +244,30 @@ describe('Meldung bei misslungenem Laden', () => {
 
   it('warnt nicht ohne hängende Ladung', () => {
     expect(stalledToWarn([basis], undefined)).toBeUndefined();
+  });
+});
+
+describe('Warnung bei hohem Ruheverlust', () => {
+  it('nennt Verlust, Energie und die Beobachtungsdauer', () => {
+    // Ohne die Dauer ist die Zahl nicht einzuordnen — und eine Warnung, die
+    // man nicht einordnen kann, ignoriert man beim zweiten Mal.
+    const m = buildIdleMessage({ socPerDay: 3.4, kwhPerDay: 2.8 }, 6.2, labelsFor('en'), 'T');
+    expect(m.title).toBe('T — high idle drain');
+    expect(m.message).toContain('3.4 %');
+    expect(m.message).toContain('2.8 kWh');
+    expect(m.message).toContain('6.2 days');
+  });
+
+  it('sagt, was der Fahrer damit anfangen soll', () => {
+    // Eine Zahl ohne Handlungshinweis ist eine Beunruhigung, keine Warnung.
+    const m = buildIdleMessage({ socPerDay: 5, kwhPerDay: 4.2 }, 9, labelsFor('en'), 'T');
+    expect(m.message).toMatch(/workshop/);
+    expect(m.message).toMatch(/normal/i);
+  });
+
+  it('übersetzt die Warnung', () => {
+    const m = buildIdleMessage({ socPerDay: 3.4, kwhPerDay: 2.8 }, 6.2, labelsFor('de'), 'T');
+    expect(m.title).toBe('T — hoher Ruheverlust');
+    expect(m.message).toContain('Werkstatt');
   });
 });

@@ -310,6 +310,11 @@ export interface Labels {
   battMethod: string;
   battPrint: string;
   battBack: string;
+  /** Warnung bei hohem Ruheverlust. */
+  pushIdleTitle: string;
+  /** Verlust je Tag, Energie und Beobachtungsdauer als Platzhalter. */
+  pushIdleLine: string;
+  pushIdleAdvice: string;
   stRangeSuffix: string;
   stSecurity: string;
   stLocked: string;
@@ -620,6 +625,9 @@ export const LABELS_EN: Labels = {
   battMethod: 'How this is measured: between two charges the car covers a distance and loses state of charge. Together with the consumption the car reports, that gives the energy behind one percentage point — and from it the usable capacity. Each such stretch is one reading; what is stated is their median rather than their mean, so that a single drive in frost or with heavy preconditioning does not pull the result. The uncertainty is the larger of the statistical error and a systematic floor that does not shrink with more cycles.',
   battPrint: 'Print',
   battBack: '‹ Back',
+  pushIdleTitle: 'high idle drain',
+  pushIdleLine: '{0} % per day while parked ({1} kWh), measured over {2} days of standstill.',
+  pushIdleAdvice: 'Well under 1 % is normal. If preconditioning and auxiliary heating were off, this is worth showing to a workshop — reported cases came down to a single weak cell.',
   stRangeSuffix: 'km of range',
   stSecurity: 'Security',
   stLocked: 'Locked',
@@ -926,6 +934,9 @@ export const LABELS_DE: Labels = {
   battMethod: 'So wird gemessen: Zwischen zwei Ladungen legt das Fahrzeug eine Strecke zurück und verliert dabei Ladestand. Zusammen mit dem vom Fahrzeug gemeldeten Verbrauch ergibt sich daraus, wie viel Energie ein Prozentpunkt trägt — und daraus die nutzbare Kapazität. Jeder solche Abschnitt ist eine Einzelmessung; ausgewiesen wird ihr Median, nicht ihr Mittelwert, damit eine einzelne Fahrt bei Frost oder mit viel Standklima das Ergebnis nicht zieht. Die Unsicherheit ist das Größere aus dem statistischen Fehler und einem systematischen Boden, der auch mit vielen Zyklen nicht verschwindet.',
   battPrint: 'Drucken',
   battBack: '‹ Zurück',
+  pushIdleTitle: 'hoher Ruheverlust',
+  pushIdleLine: '{0} % je Tag im Stehen ({1} kWh), gemessen über {2} Tage Stillstand.',
+  pushIdleAdvice: 'Normal ist deutlich unter 1 %. Wenn Vorklimatisierung und Standheizung aus waren, gehört das in der Werkstatt angesehen — gemeldete Fälle gingen auf eine einzelne schwache Zelle zurück.',
   stRangeSuffix: 'km Reichweite',
   stSecurity: 'Sicherung',
   stLocked: 'Verriegelt',

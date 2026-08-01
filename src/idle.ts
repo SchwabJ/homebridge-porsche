@@ -345,3 +345,48 @@ export function idleStats(a: IdleAnalysis, capacityKwh: number): IdleStats | und
     obergrenze,
   };
 }
+
+/**
+ * Ab welchem Ruheverlust je Tag gewarnt wird, in Prozentpunkten.
+ *
+ * Ein gesunder Taycan verliert im Stehen deutlich unter einem Prozentpunkt
+ * am Tag. Die belegten Problemfälle lagen weit darüber: Ein Besitzer verlor
+ * 85 auf 63 % in drei Wochen und danach 5 bis 10 % je Tag — Ursache war eine
+ * einzelne schwache Zelle. Ein zweiter meldete 3 % über wenige Tage. Beide
+ * merkten es erst, als die Reichweite fehlte.
+ *
+ * Zwei Prozentpunkte liegen weit genug über dem Normalfall, um nicht bei
+ * jedem kalten Wochenende anzuschlagen, und weit genug unter den gemeldeten
+ * Schäden, um sie zu erwischen.
+ */
+export const IDLE_ALARM_PCT_PER_DAY = 2;
+
+/** Mindestens so viele Tage Stillstand, bevor die Zahl etwas taugt. */
+const ALARM_MIN_DAYS = 3;
+
+/**
+ * Verliert das Fahrzeug im Stehen auffällig viel?
+ *
+ * Gibt die Werte zurück, wenn gewarnt werden sollte — sonst `undefined`.
+ *
+ * Ausdrücklich NICHT bei einer bloßen Obergrenze: Ist der Ladestand über die
+ * Beobachtung kaum gefallen, nennt {@link idleStats} eine Obergrenze statt
+ * einer Messung, und darauf zu warnen hieße, aus „höchstens so viel" ein „so
+ * viel" zu machen. Ebenso wenig auf zwei Tagen Stillstand — der Ladestand ist
+ * ganzzahlig, ein einzelner Punkt ist schon fast ein Prozent.
+ */
+export function idleAlarm(
+  stats: IdleStats | undefined,
+  thresholdPctPerDay: number,
+): { socPerDay: number; kwhPerDay: number } | undefined {
+  if (
+    !stats ||
+    thresholdPctPerDay <= 0 ||
+    stats.obergrenze ||
+    stats.observedDays < ALARM_MIN_DAYS ||
+    stats.socPerDay <= thresholdPctPerDay
+  ) {
+    return undefined;
+  }
+  return { socPerDay: stats.socPerDay, kwhPerDay: stats.kwhPerDay };
+}

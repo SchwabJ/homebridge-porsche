@@ -16,6 +16,7 @@ import { VehicleState } from './api/measurements';
 import { PorscheCommand } from './api/commands';
 import { clampPollInterval, effectivePollMinutes } from './wake';
 import { chargeWindowAction, externallyPaced, parseWindow } from './chargeWindow';
+import { analyzeIdle, idleAlarm, idleStats, IDLE_ALARM_PCT_PER_DAY } from './idle';
 import { chargingStart, chargingStop } from './api/commands';
 import { appendSample } from './chargeLog';
 import { startDashboard, readSamples } from './dashboard';
@@ -26,6 +27,7 @@ import {
   buildDailyMessage,
   buildSessionMessage,
   buildStallMessage,
+  buildIdleMessage,
   stalledToWarn,
   msUntilHour,
   type NotifyConfig,
@@ -52,6 +54,22 @@ const RATE_LIMIT_COOLDOWN_MS = 30 * 60000;
  * denselben Befehl nochmal schickte.
  */
 const WINDOW_COMMAND_GAP_MS = 10 * 60000;
+
+/**
+ * Mindestabstand zwischen zwei Ruheverlust-Warnungen.
+ *
+ * Der Wert ändert sich über Tage, nicht über Stunden. Eine Warnung bei jedem
+ * Poll wäre nach dem zweiten Mal nur noch Lärm — und Lärm liest niemand.
+ */
+const IDLE_WARN_GAP_MS = 7 * 24 * 60 * 60000;
+
+/**
+ * Mindestabstand zwischen zwei Ruheverlust-PRÜFUNGEN.
+ *
+ * Sie liest die ganze Historie. Sechs Stunden reichen bei einem Wert, der
+ * sich über Tage bewegt, und halten die Last aus dem Poll-Takt heraus.
+ */
+const IDLE_CHECK_GAP_MS = 6 * 60 * 60000;
 
 /**
  * Wie lange ein zuletzt bekannter Steckerzustand weitergilt, wenn die API
@@ -429,6 +447,7 @@ export class PorschePlatform implements DynamicPlatformPlugin {
       this.checkChargeEnd(state.plugged);
       this.checkChargeStall(state.plugged);
       void this.applyChargeWindow(state);
+      this.checkIdleDrain();
       if (state.plugged !== undefined) {
         this.lastKnown = { plugged: state.plugged, charging: state.charging, at: Date.now() };
       }
@@ -562,6 +581,59 @@ export class PorschePlatform implements DynamicPlatformPlugin {
       // ohnehin erst später zu, und ein klemmender Befehl wird durch
       // Wiederholung nicht besser.
       this.log.warn(`Charging-window command failed: ${String(err)}`);
+    }
+  }
+
+  /** Zeitpunkt der letzten Ruheverlust-Warnung. */
+  private idleWarnedAt = 0;
+  /** Zeitpunkt der letzten Ruheverlust-PRÜFUNG — sie ist teuer. */
+  private idleCheckedAt = 0;
+
+  /**
+   * Warnt, wenn das Fahrzeug im Stehen auffällig viel verliert.
+   *
+   * Zwei Fälle aus dem Taycan-Forum, die beide zu spät auffielen: Ein
+   * Besitzer verlor 85 auf 63 % in drei Wochen am Kabel und danach 5 bis 10 %
+   * je Tag — Ursache war eine einzelne schwache Zelle. Ein zweiter meldete 3 %
+   * über wenige Tage. Gemerkt haben es beide erst, als die Reichweite fehlte.
+   *
+   * HÖCHSTENS EINMAL JE WOCHE. Der Wert ändert sich über Tage, nicht über
+   * Stunden — eine Warnung bei jedem Poll wäre nach dem zweiten Mal nur noch
+   * Lärm, und Lärm liest niemand.
+   */
+  private checkIdleDrain(): void {
+    const c = this.resolvedConfig;
+    // ZWEI Sperren, und die erste ist die wichtige: Ohne sie liefe die
+    // Auswertung über die ganze Historie bei JEDEM Poll — die Warnsperre
+    // greift ja erst, wenn tatsächlich gewarnt wurde, also nie im Normalfall.
+    const jetzt = Date.now();
+    if (
+      !c.ntfyTopic ||
+      jetzt - this.idleCheckedAt < IDLE_CHECK_GAP_MS ||
+      jetzt - this.idleWarnedAt < IDLE_WARN_GAP_MS
+    ) {
+      return;
+    }
+    this.idleCheckedAt = jetzt;
+    try {
+      // Direkt statt über den Statistik-Cache: Gebraucht wird allein die
+      // Ruhebilanz, und die hängt an keinem Preis.
+      const stats = idleStats(analyzeIdle(readSamples(this.logDir)), c.capacityKwh);
+      const alarm = idleAlarm(stats, IDLE_ALARM_PCT_PER_DAY);
+      if (!alarm || !stats) {
+        return;
+      }
+      this.idleWarnedAt = jetzt;
+      const { title, message } = buildIdleMessage(
+        alarm,
+        stats.observedDays,
+        labelsFor(c.language),
+        c.vehicleName,
+      );
+      void sendNotification(this.notifyConfig(), title, message);
+      this.log.warn(`High idle drain reported: ${alarm.socPerDay.toFixed(1)} %/day.`);
+    } catch (err) {
+      this.log.warn(`Idle-drain check failed: ${String(err)}`);
     }
   }
 

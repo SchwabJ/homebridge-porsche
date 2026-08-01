@@ -4,6 +4,24 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.14.0] — 2026-08-01
+
+### Added
+- **Warning when the car loses too much while parked.** Two cases from the
+  Taycan forum that both surfaced too late: one owner went from 85 to 63 % in
+  three weeks on the cable and then 5 to 10 % a day — a single weak cell — and
+  another reported 3 % over a few days. Both noticed only when the range was
+  missing; nobody warned them, and the app does not show the figure at all.
+  The analysis already existed here; it just stood silently on the status page.
+
+  It stays quiet where it knows nothing: not on a mere upper bound (when the
+  charge level barely moved, the analysis states "at most this much" rather
+  than a measurement), not below three days of standstill (the level is a
+  whole number, so a single point is nearly one percent), and at most once a
+  week. The threshold is 2 % per day — far enough above normal (well under
+  1 %) not to fire on every cold weekend, far enough below the reported faults
+  to catch them.
+
 ## [0.13.0] — 2026-08-01
 
 ### Added

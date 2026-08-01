@@ -232,3 +232,34 @@ export function msUntilHour(hour: number, now: Date): number {
   }
   return next.getTime() - now.getTime();
 }
+
+/**
+ * Meldung, wenn das Fahrzeug im Stehen auffällig viel verliert.
+ *
+ * Der Wert ist keine Rechnung über eine Nacht, sondern über alle beobachteten
+ * Ruhephasen — deshalb steht die Beobachtungsdauer dabei. Ohne sie wäre die
+ * Zahl nicht einzuordnen, und eine Warnung, die man nicht einordnen kann,
+ * ignoriert man beim zweiten Mal.
+ *
+ * Was der Fahrer damit anfangen soll, steht dabei: Der belegte Fall aus dem
+ * Forum war eine einzelne schwache Zelle, und die findet nur die Werkstatt.
+ */
+export function buildIdleMessage(
+  a: { socPerDay: number; kwhPerDay: number },
+  observedDays: number,
+  L: Labels,
+  vehicleName: string,
+): { title: string; message: string } {
+  return {
+    title: `${vehicleName} — ${L.pushIdleTitle}`,
+    message: [
+      fill(
+        L.pushIdleLine,
+        a.socPerDay.toFixed(1),
+        a.kwhPerDay.toFixed(1),
+        observedDays.toFixed(1),
+      ),
+      L.pushIdleAdvice,
+    ].join('\n'),
+  };
+}

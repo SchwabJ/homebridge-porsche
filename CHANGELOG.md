@@ -4,6 +4,27 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.10.0] — 2026-08-01
+
+### Added
+- **Charging window.** Charge only between two times you choose — `00:30` to
+  `04:30` for a night tariff, for instance. The car's own timer knows a
+  departure time but no window, which owners have been asking for for years;
+  one put it plainly: *"all I require is a timer to only charge in this time
+  range. i didn't realise it would be so complicated."* There are also
+  documented cases of a working charging plan silently reverting to instant
+  charging, and of a running charge that cannot be stopped from the app at
+  all. This plugin runs in your house and polls every three minutes while
+  plugged in, so it can simply start and stop charging itself.
+
+  Restraint is the rule. Nothing happens without a configured window (the
+  default), without a cable, or on any unknown reading — the API answers some
+  polls without values, and stopping a charge on a guessed state of charge
+  would be the worst mistake this feature could make. The car's own
+  instant-charge threshold is never overridden: below it the car charges
+  whatever the clock says, because a usable car is worth more than cheap
+  electricity. A mistyped window is rejected rather than guessed.
+
 ## [0.9.0] — 2026-08-01
 
 ### Added

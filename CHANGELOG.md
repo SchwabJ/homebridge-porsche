@@ -4,6 +4,23 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.11.0] — 2026-08-01
+
+### Changed
+- **The running charge moved into the status area at the top**, and the
+  separate card below the tiles is gone. The card repeated the charge level
+  and target that already stood at the top, while sitting far down the page —
+  anyone asking what the car is doing *right now* looks up, so everything
+  about the present belongs in one place.
+- **It leads with the energy charged so far** instead of the starting level.
+  That is the number which grows during a charge; the starting level stands
+  still and says nothing about how much is already in the battery.
+- **Cable time and actual charging time are now shown separately.** Seeing
+  "2.5 kWh" next to "charging at 10.1 kW" invites the wrong arithmetic: the
+  cable had been connected for 24 minutes, but current had only been flowing
+  for 17. Both numbers were right; side by side they looked wrong. The charge
+  list has made this distinction for a while.
+
 ## [0.10.0] — 2026-08-01
 
 ### Added

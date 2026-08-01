@@ -2447,16 +2447,47 @@ describe('rendering the running charge', () => {
     return html;
   };
 
-  it('shows the forecast next to the running charge', async () => {
+  /**
+   * Nur die Ladezeile im Statusbereich.
+   *
+   * Ein Test auf das ganze HTML wäre wertlos — Energie und Ladestand stehen
+   * auch in der Liste darunter. Die Klasse `live` gibt es genau einmal und
+   * nur im Statusbereich, sie ist damit der genaue Anker.
+   */
+  const oben = (html: string): string => {
+    const m = /<div class="live">(.*?)<\/div>/s.exec(html);
+    if (!m) {
+      throw new Error('live charging line not found in the status area');
+    }
+    return m[1];
+  };
+
+  it('leads with the energy charged so far — the number that grows', async () => {
+    // 50 → 60 % of 100 kWh is exactly 10 kWh. The starting level stands still
+    // and said nothing about how much is already in the battery.
+    const o = oben(await seite('en'));
+    expect(o).toContain('<b>10.0 kWh</b>');
+    expect(o).toContain('50 → 60 %');
+  });
+
+  it('puts the running charge in the status area, not in a card of its own', async () => {
+    // It used to sit far below the tiles and repeat what the status area
+    // already said — level and target twice, in two places.
     const html = await seite('en');
-    expect(html).toContain('Running now');
-    // Ziel und Fertig-Zeitpunkt — vorher stand dort nur "since <Zeit>".
-    expect(html).toMatch(/target 80 % · done ~\d{1,2}[:.]\d{2}/);
+    expect(oben(html)).toContain('kWh');
+    expect(html).not.toMatch(/card" style="margin-bottom:16px"><span>Running now/);
+  });
+
+  it('shows the forecast, without repeating the target', async () => {
+    // Das Ladeziel steht bereits in der Zeile über der Ladezeile — zweimal
+    // dieselbe Zahl im selben Kasten liest sich wie ein Fehler.
+    const o = oben(await seite('en'));
+    expect(o).toMatch(/done ~\d{1,2}[:.]\d{2}/);
+    expect(o).not.toContain('target 80 %');
   });
 
   it('translates the forecast', async () => {
-    const html = await seite('de');
-    expect(html).toMatch(/Ziel 80 % · fertig ~\d{1,2}[:.]\d{2}/);
+    expect(oben(await seite('de'))).toMatch(/fertig ~\d{1,2}[:.]\d{2}/);
   });
 });
 

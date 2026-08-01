@@ -259,6 +259,16 @@
         "maximum": 12,
         "description": "Hour at which a new day begins for the statistics. Default 0 splits an overnight charge across both days; set to e.g. 4 so a 22:00-06:00 charge counts towards the evening it started."
       },
+      "dashboardPassword": {
+        "title": "Dashboard password",
+        "type": "string",
+        "description": "Protects the dashboard with a password (any username works). Empty means no protection — the default, so existing installations keep working. Without one, anyone who can reach this machine on the network reads your charging history, odometer and home/away status. Worth setting if guests, IoT devices or a smart TV share your network. Note that over plain HTTP the password travels only base64-wrapped, which is fine on your own network and not enough for the open internet — where this page does not belong anyway."
+      },
+      "dashboardBind": {
+        "title": "Dashboard bind address",
+        "type": "string",
+        "description": "Leave empty to listen on all interfaces, which is what makes the page reachable from your phone. Set to 127.0.0.1 to restrict it to this machine, for instance behind your own reverse proxy."
+      },
       "chargeWindowFrom": {
         "title": "Charging window — start (HH:MM)",
         "type": "string",

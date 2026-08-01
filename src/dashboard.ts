@@ -26,6 +26,7 @@
  */
 
 import * as http from 'http';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { buildSessions, type ChargeSession } from './sessions';
@@ -81,6 +82,26 @@ import {
 export interface DashboardOptions {
   port: number;
   logDir: string;
+  /**
+   * Passwort für das Dashboard. Leer oder fehlend = kein Schutz.
+   *
+   * Der Standard bleibt bewusst ungeschützt: Ein Wechsel würde jede
+   * bestehende Installation aussperren, und wer sein Heimnetz für sicher
+   * hält, soll die Wahl behalten. Gesetzt wird per HTTP Basic Auth geprüft —
+   * über einfaches HTTP fährt das Passwort dabei nur base64-verpackt über
+   * das Netz, was im eigenen WLAN genügt und im offenen Internet nichts
+   * taugt. Dorthin gehört die Seite ohnehin nicht.
+   */
+  password?: string;
+  /**
+   * An welche Adresse das Dashboard bindet.
+   *
+   * Ohne Angabe an ALLE Schnittstellen — sonst käme man vom Telefon nicht auf
+   * die Seite, und das ist ihr halber Zweck. Wer sie nur auf dem Rechner
+   * selbst braucht (etwa hinter einem eigenen Reverse-Proxy), trägt hier
+   * `127.0.0.1` ein.
+   */
+  bindAddress?: string;
   capacityKwh: number;
   /** Effektiver Arbeitspreis in EUR/kWh (Grundpreis abzüglich Bonus). */
   pricePerKwh: number;
@@ -3291,9 +3312,63 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
 
   let lastRefresh = 0;
 
+  /**
+   * Zeitkonstanter Vergleich zweier Geheimnisse.
+   *
+   * Ein gewöhnliches `===` bricht beim ersten unterschiedlichen Zeichen ab.
+   * Über viele Versuche hinweg verrät die Antwortzeit dann, wie viele Zeichen
+   * stimmen, und ein Passwort lässt sich Zeichen für Zeichen erraten statt im
+   * Ganzen. Im Heimnetz ist das theoretisch — der richtige Vergleich kostet
+   * aber nichts.
+   */
+  const gleich = (a: string, b: string): boolean => {
+    const bufA = Buffer.from(a);
+    const bufB = Buffer.from(b);
+    // timingSafeEqual verlangt gleiche Länge und verrät sie damit ohnehin;
+    // die Länge eines Passworts ist kein nennenswertes Geheimnis.
+    return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
+  };
+
+  /**
+   * Ist die Anfrage berechtigt?
+   *
+   * Ohne gesetztes Passwort immer. Sonst per Basic Auth, wobei ausschließlich
+   * das PASSWORT zählt: Ein zweites Geheimnis, das niemand vergisst, wäre nur
+   * eine Hürde beim Einrichten und keine zusätzliche Sicherheit.
+   */
+  const erlaubt = (req: http.IncomingMessage): boolean => {
+    if (!o.password) {
+      return true;
+    }
+    const header = req.headers.authorization;
+    if (typeof header !== 'string' || !header.startsWith('Basic ')) {
+      return false;
+    }
+    try {
+      const entpackt = Buffer.from(header.slice(6), 'base64').toString('utf8');
+      const trenner = entpackt.indexOf(':');
+      return trenner >= 0 && gleich(entpackt.slice(trenner + 1), o.password);
+    } catch {
+      // Ein kaputter Header ist keine Anmeldung, aber auch kein Grund
+      // abzustürzen — sonst legte ein einzelner Aufruf das Dashboard lahm.
+      return false;
+    }
+  };
+
   const server = http.createServer((req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
+      // Das Manifest bleibt frei: Der Browser lädt es ohne Anmeldedaten, und
+      // mit 401 bliebe der Homescreen-Eintrag ohne Symbol und Namen. Es
+      // enthält keine Fahrzeugdaten.
+      if (url.pathname !== '/manifest.json' && !erlaubt(req)) {
+        res.writeHead(401, {
+          'www-authenticate': 'Basic realm="Porsche", charset="UTF-8"',
+          'content-type': 'text/plain; charset=utf-8',
+        });
+        res.end('Authentication required.\n');
+        return;
+      }
       const g = url.searchParams.get('g');
       // Ohne g-Parameter gilt die in den Einstellungen gewählte
       // Standardansicht; erst danach der Monat als Voreinstellung.
@@ -3659,16 +3734,26 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
   server.on('error', (err) => {
     o.log?.(`Charging dashboard failed to start: ${String(err)}`);
   });
-  server.listen(o.port, () => {
-    // Die Warnung gehört hierher und nicht nur ins README: Der Port bindet an
-    // alle Schnittstellen, und wer das Dashboard erreicht, liest die
-    // Ladehistorie ohne Anmeldung. Wer das nicht will, setzt den Port auf 0.
+  const fertig = (): void => {
+    // Die Lage gehört ins Log und nicht nur ins README — aber nur die
+    // TATSÄCHLICHE. Eine Warnung, die auch bei gesetztem Passwort erschiene,
+    // wäre nach dem dritten Start Hintergrundrauschen, und dann liest sie
+    // auch der nicht mehr, den sie angeht.
     o.log?.(
-      `Charging dashboard on port ${o.port} — reachable on all interfaces ` +
-        'and NOT password-protected. Keep it off the public internet; set ' +
-        'dashboardPort to 0 to disable it.',
+      `Charging dashboard on port ${o.port}` +
+        (o.bindAddress ? ` on ${o.bindAddress}` : ' on all interfaces') +
+        (o.password
+          ? ' — password-protected.'
+          : ' — NO password. Anyone who can reach this machine on the network ' +
+            'reads your charging history and odometer. Set dashboardPassword ' +
+            'to protect it; dashboardPort 0 disables the page.'),
     );
-  });
+  };
+  if (o.bindAddress) {
+    server.listen(o.port, o.bindAddress, fertig);
+  } else {
+    server.listen(o.port, fertig);
+  }
   if (typeof server.unref === 'function') {
     server.unref();
   }

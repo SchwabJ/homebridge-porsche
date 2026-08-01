@@ -240,6 +240,8 @@ export class PorschePlatform implements DynamicPlatformPlugin {
       const c = this.resolvedConfig;
       this.dashboard = startDashboard({
         port: c.dashboardPort,
+        password: c.dashboardPassword,
+        bindAddress: c.dashboardBind,
         logDir: this.logDir,
         capacityKwh: c.capacityKwh,
         // Effektivpreis = Arbeitspreis abzüglich Ladebonus, in EUR/kWh.

@@ -4,6 +4,37 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] — 2026-08-01
+
+### Added
+- **Warning when a charge stalls.** The car is still plugged in, the target is
+  far off, and no power has flowed for hours — the message goes out that night
+  instead of the next morning, while there is still time to react. Among
+  Taycan owners this is the most frequently voiced wish: the Porsche app sends
+  nothing when a wallbox drops out mid-charge.
+- **A failed charge is reported as failed.** The plugin already detected it and
+  showed it on the status page, but the push still read "charging finished"
+  and quoted a level, never mentioning that the car had been plugged in and
+  had stopped. Now the title says so and the first line contrasts the level
+  reached with the one wanted.
+- **The vehicle's own trip counter** — distance, driving time and average
+  speed — is now read and recorded, not just consumption. Note that this is
+  the resettable counter the car keeps, not a monthly history: the API offers
+  no trip history at all (`TRIP_STATISTICS_LONG_TERM` and friends return
+  nothing), which is why a monthly report can only cover what this plugin has
+  recorded itself.
+- **Nine further fields are now recorded** that were parsed and thrown away:
+  the car's own remaining-charge estimate, parking light and brake, privacy
+  mode and remote access, the active charging profile, and doors, windows and
+  lids separately instead of one combined flag. A window left open overnight
+  is not the same thing as a door opened briefly.
+
+### Changed
+- **Push messages follow the `language` setting.** They were the only texts in
+  the plugin hard-wired to German — an owner in England got an English screen
+  and a German notification on their phone. The title also uses the configured
+  vehicle name instead of a fixed "Taycan".
+
 ## [0.8.2] — 2026-07-31
 
 ### Added

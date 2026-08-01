@@ -23,6 +23,8 @@ import {
   sendNotification,
   buildDailyMessage,
   buildSessionMessage,
+  buildStallMessage,
+  stalledToWarn,
   msUntilHour,
   type NotifyConfig,
 } from './notify';
@@ -414,6 +416,7 @@ export class PorschePlatform implements DynamicPlatformPlugin {
           : undefined;
       appendSample(this.logDir, state, new Date(), atHome);
       this.checkChargeEnd(state.plugged);
+      this.checkChargeStall(state.plugged);
       if (state.plugged !== undefined) {
         this.lastKnown = { plugged: state.plugged, charging: state.charging, at: Date.now() };
       }
@@ -466,6 +469,43 @@ export class PorschePlatform implements DynamicPlatformPlugin {
    * Ladens: Bei preisgesteuertem Laden pausiert der Tarif ständig, das wäre
    * ein Dauerfeuer an Meldungen.
    */
+  /** Startzeitpunkt der Ladung, vor deren Hängen bereits gewarnt wurde. */
+  private stallWarnedFor?: string;
+
+  /**
+   * Warnt, wenn die LAUFENDE Ladung hängt — noch am Kabel, Ziel verfehlt,
+   * seit Stunden stromlos (siehe {@link ChargeSession.stalled}).
+   *
+   * Anders als Tagesbericht und Ladeende-Meldung hängt die Warnung an KEINEM
+   * eigenen Schalter, nur am ntfy-Topic: Sie ist der einzige Push, der ein
+   * Eingreifen erlaubt, solange es noch etwas nützt. Wer den Kanal
+   * konfiguriert, bekommt sie; die Berichte bleiben einzeln schaltbar.
+   */
+  private checkChargeStall(plugged: boolean | undefined): void {
+    if (plugged !== true || !this.resolvedConfig.ntfyTopic) {
+      return;
+    }
+    try {
+      const sessions = buildSessions(readSamples(this.logDir), {
+        capacityKwh: this.resolvedConfig.capacityKwh,
+      });
+      const open = stalledToWarn(sessions, this.stallWarnedFor);
+      if (!open) {
+        return;
+      }
+      this.stallWarnedFor = open.startedAt;
+      const { title, message } = buildStallMessage(
+        open,
+        labelsFor(this.resolvedConfig.language),
+        this.resolvedConfig.vehicleName,
+      );
+      void sendNotification(this.notifyConfig(), title, message);
+      this.log.warn('Stalled charge reported.');
+    } catch (err) {
+      this.log.warn(`Stalled-charge warning failed: ${String(err)}`);
+    }
+  }
+
   private checkChargeEnd(plugged: boolean | undefined): void {
     if (plugged === undefined) {
       return; // fehlgeschlagener Poll ist kein Ausstecken
@@ -489,7 +529,11 @@ export class PorschePlatform implements DynamicPlatformPlugin {
       if (!last || (last.energyKwh ?? 0) < 0.5) {
         return;
       }
-      const { title, message } = buildSessionMessage(last);
+      const { title, message } = buildSessionMessage(
+        last,
+        labelsFor(this.resolvedConfig.language),
+        this.resolvedConfig.vehicleName,
+      );
       void sendNotification(this.notifyConfig(), title, message);
       this.log.info('Ladeende gemeldet.');
     } catch (err) {
@@ -538,6 +582,8 @@ export class PorschePlatform implements DynamicPlatformPlugin {
         days,
         months[months.length - 1],
         efficiency(months),
+        labelsFor(this.resolvedConfig.language),
+        this.resolvedConfig.vehicleName,
       );
       void sendNotification(this.notifyConfig(), title, message);
     } catch (err) {

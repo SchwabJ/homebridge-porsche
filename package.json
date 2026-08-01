@@ -1,6 +1,6 @@
 {
   "name": "homebridge-porsche",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "description": "Homebridge plugin for Porsche vehicles via the Connect/PPA API — climate, charging, lock and more in Apple Home, plus a charging history and dashboard the API itself does not provide. No Docker, no Home Assistant.",
   "license": "MIT",
   "author": "SchwabJ",

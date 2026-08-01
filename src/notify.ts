@@ -16,6 +16,7 @@ import * as https from 'https';
 import { URL } from 'url';
 import type { Bucket, Efficiency } from './aggregate';
 import type { ChargeSession } from './sessions';
+import { fill, type Labels } from './i18n';
 
 export interface NotifyConfig {
   /** ntfy-Server, Standard `https://ntfy.sh`. */
@@ -41,44 +42,121 @@ export function buildDailyMessage(
   days: Bucket[],
   month: Bucket | undefined,
   eff: Efficiency,
+  L: Labels,
+  vehicleName: string,
 ): { title: string; message: string } {
   // Letzter abgeschlossener Tag = vorletzter Bucket (der letzte ist heute).
   const yesterday = days.length >= 2 ? days[days.length - 2] : undefined;
 
   const lines: string[] = [];
   if (yesterday && yesterday.kwh > 0) {
-    lines.push(`Gestern: ${fmtKwh(yesterday.kwh)} für ${fmtEur(yesterday.cost)}`);
+    lines.push(
+      `${L.pushYesterday}: ${fmtKwh(yesterday.kwh)} ${L.pushFor} ${fmtEur(yesterday.cost)}`,
+    );
   } else {
-    lines.push('Gestern: keine Ladung');
+    lines.push(`${L.pushYesterday}: ${L.pushNoCharge}`);
   }
   if (yesterday && yesterday.km > 0) {
-    lines.push(`Gefahren: ${yesterday.km} km`);
+    lines.push(`${L.pushDriven}: ${yesterday.km} km`);
   }
   if (month) {
     lines.push(`${month.label}: ${fmtKwh(month.kwh)} · ${fmtEur(month.cost)}`);
   }
   if (eff.kwhPer100km !== undefined && eff.centPerKm !== undefined) {
-    lines.push(`Schnitt: ${eff.kwhPer100km.toFixed(1)} kWh/100 km · ${eff.centPerKm.toFixed(1)} ct/km`);
+    lines.push(
+      `${L.pushAverage}: ${eff.kwhPer100km.toFixed(1)} kWh/100 km · ` +
+        `${eff.centPerKm.toFixed(1)} ct/km`,
+    );
   }
-  return { title: 'Taycan — Ladebericht', message: lines.join('\n') };
+  return { title: `${vehicleName} — ${L.pushReportTitle}`, message: lines.join('\n') };
 }
 
-/** Meldung nach einem abgeschlossenen Ladevorgang. */
-export function buildSessionMessage(s: ChargeSession): { title: string; message: string } {
+/**
+ * Meldung nach einem abgeschlossenen Ladevorgang.
+ *
+ * Endete die Ladung als ABBRUCH, sagt die Meldung das — im Titel und in der
+ * ersten Zeile. Vorher lautete sie auch dann „Ladung beendet" und nannte einen
+ * Ladestand, ohne mit einem Wort zu erwähnen, dass das Auto am Kabel stand und
+ * aufgehört hatte. Wer sie morgens überfliegt, hielt das für einen normalen
+ * Ladeschluss.
+ *
+ * Unter Taycan-Fahrern ist eine Meldung bei misslungenem Laden der am
+ * häufigsten geäußerte Wunsch: Die Porsche-App schickt dazu nichts, auch dann
+ * nicht, wenn die Wallbox mitten in der Nacht aussteigt.
+ */
+export function buildSessionMessage(
+  s: ChargeSession,
+  L: Labels,
+  vehicleName: string,
+): { title: string; message: string } {
   const lines: string[] = [];
+  // Der Abbruch gehört nach ganz oben, nicht in eine Fußnote: Eine
+  // Push-Meldung wird überflogen, nicht gelesen.
+  if (s.aborted === true && s.endSoc !== undefined && s.targetSoc !== undefined) {
+    lines.push(
+      `${fill(L.pushAbortedLine, s.endSoc, s.targetSoc)} — ${L.pushAbortedCable}`,
+    );
+  }
   if (s.energyKwh !== undefined) {
     lines.push(
-      `${fmtKwh(s.energyKwh)}` + (s.costEur !== undefined ? ` für ${fmtEur(s.costEur)}` : ''),
+      `${fmtKwh(s.energyKwh)}` +
+        (s.costEur !== undefined ? ` ${L.pushFor} ${fmtEur(s.costEur)}` : ''),
     );
   }
   if (s.startSoc !== undefined && s.endSoc !== undefined) {
-    lines.push(`Ladestand: ${s.startSoc} → ${s.endSoc} %`);
+    lines.push(`${L.pushLevel}: ${s.startSoc} → ${s.endSoc} %`);
   }
-  lines.push(`Am Kabel: ${fmtDur(s.durationMin)}, davon ${fmtDur(s.chargingMin)} geladen`);
+  // Die ganze Zeile als ein Label, nicht aus Fragmenten zusammengesetzt: Im
+  // Deutschen steht „geladen" hinter der Zeitangabe, im Englischen davor.
+  lines.push(fill(L.pushCableLine, fmtDur(s.durationMin), fmtDur(s.chargingMin)));
   if (s.peakPowerKw !== undefined) {
-    lines.push(`Spitze: ${s.peakPowerKw.toFixed(1)} kW`);
+    lines.push(`${L.pushPeak}: ${s.peakPowerKw.toFixed(1)} kW`);
   }
-  return { title: 'Taycan — Ladung beendet', message: lines.join('\n') };
+  return {
+    title: `${vehicleName} — ${s.aborted === true ? L.pushAbortedTitle : L.pushSessionTitle}`,
+    message: lines.join('\n'),
+  };
+}
+
+/**
+ * Warnung bei hängender LAUFENDER Ladung.
+ *
+ * Das Gegenstück zum rückblickenden Abbruch, aber VOR dem Ausstecken — nur so
+ * kann die Meldung noch in der Nacht kommen statt am Morgen. Ein Abbruch, den
+ * man erst morgens auf der Statusseite sieht, kostet die Nacht, und morgens
+ * fehlt dann die Reichweite.
+ */
+export function buildStallMessage(
+  s: ChargeSession,
+  L: Labels,
+  vehicleName: string,
+): { title: string; message: string } {
+  const lines: string[] = [];
+  lines.push(
+    s.endSoc !== undefined && s.targetSoc !== undefined
+      ? fill(L.pushStallLine, s.endSoc, s.targetSoc)
+      : L.pushStallLinePlain,
+  );
+  lines.push(fill(L.pushStallSince, fmtDur(s.durationMin)));
+  return { title: `${vehicleName} — ${L.pushStallTitle}`, message: lines.join('\n') };
+}
+
+/**
+ * Die hängende laufende Ladung, vor der noch nicht gewarnt wurde.
+ *
+ * Der Poll läuft alle paar Minuten, die Warnung darf trotzdem nur EINMAL je
+ * Ladung kommen. `warnedFor` ist der Startzeitpunkt der bereits gemeldeten
+ * Ladung — derselbe stabile Schlüssel, den auch die Preisdatei nutzt.
+ */
+export function stalledToWarn(
+  sessions: ChargeSession[],
+  warnedFor: string | undefined,
+): ChargeSession | undefined {
+  const open = sessions.find((s) => !s.complete && s.stalled);
+  if (!open || open.startedAt === warnedFor) {
+    return undefined;
+  }
+  return open;
 }
 
 /**

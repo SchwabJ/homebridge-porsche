@@ -332,6 +332,14 @@ export interface Labels {
   yrEmpty: string;
   yrNote: string;
   yrLink: string;
+  /** Beschriftungen der Befehlsknoepfe. */
+  cmdPreclimate: string;
+  cmdClimateOff: string;
+  cmdChargeStart: string;
+  cmdChargeStop: string;
+  cmdChargeStopAsk: string;
+  cmdLock: string;
+  cmdFailed: string;
   stRangeSuffix: string;
   stSecurity: string;
   stLocked: string;
@@ -657,6 +665,13 @@ export const LABELS_EN: Labels = {
   yrEmpty: 'Nothing was charged in this year.',
   yrNote: 'Stated is the energy charged at home — only that qualifies for reimbursement by an employer; away from home the charging provider bills you directly. The individual charges with their times and levels are in the monthly receipt. A charge is assigned by when it started: a night charge from the 31st into the 1st belongs entirely to the earlier month, because it was paid for as one.',
   yrLink: 'Annual statement',
+  cmdPreclimate: 'Precondition',
+  cmdClimateOff: 'Climate off',
+  cmdChargeStart: 'Start charging',
+  cmdChargeStop: 'Stop charging',
+  cmdChargeStopAsk: 'Really stop charging?',
+  cmdLock: 'Lock',
+  cmdFailed: 'did not work',
   pushIdleAdvice: 'Well under 1 % is normal. If preconditioning and auxiliary heating were off, this is worth showing to a workshop — reported cases came down to a single weak cell.',
   stRangeSuffix: 'km of range',
   stSecurity: 'Security',
@@ -979,6 +994,13 @@ export const LABELS_DE: Labels = {
   yrEmpty: 'In diesem Jahr wurde nicht geladen.',
   yrNote: 'Ausgewiesen ist die zuhause geladene Energie — nur sie kommt für eine Erstattung durch den Arbeitgeber in Betracht; unterwegs rechnet der Ladeanbieter selbst ab. Die einzelnen Ladungen samt Zeitpunkt und Ladestand stehen im Monatsbeleg. Zugeordnet wird nach dem Beginn der Ladung: Eine Nachtladung vom 31. auf den 1. gehört vollständig in den alten Monat, weil sie als Ganzes bezahlt wurde.',
   yrLink: 'Jahresnachweis',
+  cmdPreclimate: 'Vorklimatisieren',
+  cmdClimateOff: 'Klima aus',
+  cmdChargeStart: 'Laden starten',
+  cmdChargeStop: 'Laden stoppen',
+  cmdChargeStopAsk: 'Laden wirklich stoppen?',
+  cmdLock: 'Verriegeln',
+  cmdFailed: 'ging nicht',
   pushIdleAdvice: 'Normal ist deutlich unter 1 %. Wenn Vorklimatisierung und Standheizung aus waren, gehört das in der Werkstatt angesehen — gemeldete Fälle gingen auf eine einzelne schwache Zelle zurück.',
   stRangeSuffix: 'km Reichweite',
   stSecurity: 'Sicherung',

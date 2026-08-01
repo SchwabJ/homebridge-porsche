@@ -161,6 +161,24 @@ export interface VehicleState {
   tripConsumptionKwhPer100Km?: number;
   /** Gefahrene Strecke des jüngsten Statistik-Eintrags in km. */
   tripDistanceKm?: number;
+  /** Fahrzeit des Statistik-Eintrags in Minuten. */
+  tripDrivingMinutes?: number;
+  /** Durchschnittsgeschwindigkeit des Statistik-Eintrags in km/h. */
+  tripAvgSpeedKmh?: number;
+  /** Zeitpunkt, bis zu dem der Statistik-Eintrag zählt. */
+  tripEndTime?: string;
+  /**
+   * Bauform des Statistik-Eintrags: wie viele Einträge die Liste trägt und wie
+   * die Felder heißen — KEINE Werte.
+   *
+   * An der Live-API gemessen (2026-08-01): genau EIN Eintrag, und zwar der
+   * zurücksetzbare Zyklus-Zähler des Fahrzeugs. Eine Fahrtenhistorie liefert
+   * diese Schnittstelle nicht; die Schlüssel TRIP_STATISTICS_LONG_TERM,
+   * _SHORT_TERM und TRIP_STATISTICS wurden einzeln probiert und antworten
+   * nicht. Ändert Porsche das Format, fällt es hier auf, statt still zu
+   * verschwinden.
+   */
+  tripShape?: { count: number; fields: string[] };
 }
 
 /** Ein einzelner Messwert-Eintrag aus der PPA-API. */
@@ -320,11 +338,19 @@ export function parseMeasurements(response: unknown, nowMs: number = Date.now())
   // akzeptiert, damit ein Formatwechsel den Wert nicht still verschwinden lässt.
   let tripConsumptionKwhPer100Km: number | undefined;
   let tripDistanceKm: number | undefined;
+  let tripDrivingMinutes: number | undefined;
+  let tripAvgSpeedKmh: number | undefined;
+  let tripEndTime: string | undefined;
+  let tripShape: { count: number; fields: string[] } | undefined;
   const tripList = trip?.['list'];
   const latestTrip = (
     Array.isArray(tripList) && tripList.length > 0 ? tripList[tripList.length - 1] : trip
   ) as Record<string, unknown> | undefined;
   if (latestTrip) {
+    tripShape = {
+      count: Array.isArray(tripList) ? tripList.length : trip ? 1 : 0,
+      fields: Object.keys(latestTrip).sort(),
+    };
     const nested = (obj: unknown, key: string): number | undefined => {
       const v = (obj as Record<string, unknown> | undefined)?.[key];
       return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
@@ -337,6 +363,10 @@ export function parseMeasurements(response: unknown, nowMs: number = Date.now())
       num(latestTrip, 'distanceKm') ??
       nested(latestTrip['tripMileage'], 'valueInKilometers') ??
       nested(latestTrip['tripMileage'], 'value');
+    tripDrivingMinutes = num(latestTrip, 'drivingTimeMinutes');
+    tripAvgSpeedKmh = num(latestTrip, 'avgSpeedKmh');
+    const ende = latestTrip['tripEndTime'];
+    tripEndTime = typeof ende === 'string' ? ende : undefined;
   }
 
   // --- aktives Ladeprofil ---------------------------------------------------
@@ -472,5 +502,9 @@ export function parseMeasurements(response: unknown, nowMs: number = Date.now())
     dataTimestamp: parseTimestamp(response),
     tripConsumptionKwhPer100Km,
     tripDistanceKm,
+    tripDrivingMinutes,
+    tripAvgSpeedKmh,
+    tripEndTime,
+    tripShape,
   };
 }

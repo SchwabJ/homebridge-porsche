@@ -245,3 +245,60 @@ describe('parseMeasurements (echte PPA-Struktur)', () => {
     expect(s.lon).toBeUndefined();
   });
 });
+
+describe('TRIP_STATISTICS_CYCLIC — die Bauform, die die Schnittstelle wirklich liefert', () => {
+  // An der Live-API gemessen (2026-08-01). Der Eintrag ist der ZURÜCKSETZBARE
+  // Zyklus-Zähler des Fahrzeugs, nicht eine Monatshistorie: genau ein Eintrag,
+  // fünf Felder. Die Monatszahlen der Porsche-App (1586 km im Juli) stammen aus
+  // einer serverseitigen Aggregation, an die der Messwert-Endpunkt nicht
+  // heranreicht — TRIP_STATISTICS_LONG_TERM, _SHORT_TERM und TRIP_STATISTICS
+  // wurden einzeln probiert und antworten nicht.
+  const live = {
+    key: 'TRIP_STATISTICS_CYCLIC',
+    value: {
+      list: [
+        {
+          avgKwhPerHundredKm: 22.5,
+          avgSpeedKmh: 19,
+          distanceKm: 66,
+          drivingTimeMinutes: 217,
+          tripEndTime: '2026-07-31T15:17:29Z',
+        },
+      ],
+    },
+  };
+
+  it('liest alle fünf Felder des Eintrags', () => {
+    const s = parseMeasurements(ppaResponse([live])) as VehicleState;
+    expect(s.tripConsumptionKwhPer100Km).toBe(22.5);
+    expect(s.tripDistanceKm).toBe(66);
+    expect(s.tripDrivingMinutes).toBe(217);
+    expect(s.tripAvgSpeedKmh).toBe(19);
+    expect(s.tripEndTime).toBe('2026-07-31T15:17:29Z');
+  });
+
+  it('hält die Bauform fest, damit ein Formatwechsel auffällt', () => {
+    const s = parseMeasurements(ppaResponse([live])) as VehicleState;
+    expect(s.tripShape).toEqual({
+      count: 1,
+      fields: ['avgKwhPerHundredKm', 'avgSpeedKmh', 'distanceKm', 'drivingTimeMinutes', 'tripEndTime'],
+    });
+  });
+
+  it('nimmt auch die unverschachtelte Form ohne list', () => {
+    // Die Schnittstelle hat historisch beide Formen geliefert; der Parser
+    // akzeptiert weiterhin beide.
+    const s = parseMeasurements(
+      ppaResponse([{ key: 'TRIP_STATISTICS_CYCLIC', value: { distanceKm: 40, avgKwhPerHundredKm: 19.5 } }]),
+    ) as VehicleState;
+    expect(s.tripDistanceKm).toBe(40);
+    expect(s.tripShape?.count).toBe(1);
+  });
+
+  it('schweigt ohne Fahrtstatistik, statt Nullen zu behaupten', () => {
+    const s = parseMeasurements(ppaResponse([])) as VehicleState;
+    expect(s.tripShape).toBeUndefined();
+    expect(s.tripDistanceKm).toBeUndefined();
+    expect(s.tripDrivingMinutes).toBeUndefined();
+  });
+});

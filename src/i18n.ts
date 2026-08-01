@@ -286,6 +286,30 @@ export interface Labels {
   pushStallLinePlain: string;
   /** „Noch am Kabel seit 3 h 20 min" — {0} Dauer. */
   pushStallSince: string;
+  /** Batterie-Nachweis: Überschrift und Felder. */
+  battTitle: string;
+  battMeasured: string;
+  /** „90,1 % der eingestellten 83,7 kWh" — {0} Prozent, {1} Werksangabe. */
+  battOfRated: string;
+  battVehicle: string;
+  battRated: string;
+  battCycles: string;
+  battDistance: string;
+  battPeriod: string;
+  /** „(105 Tage)" — {0} Tage. */
+  battDays: string;
+  battLoss: string;
+  battNotYet: string;
+  battNoMeasurement: string;
+  /** „Erst {0} Zyklen gemessen — belastbar ab {1}." */
+  battFewCycles: string;
+  /** „Erst {0} Tage erfasst … (belastbar ab {1} Tagen)." */
+  battShortPeriod: string;
+  battMonth: string;
+  battReadings: string;
+  battMethod: string;
+  battPrint: string;
+  battBack: string;
   stRangeSuffix: string;
   stSecurity: string;
   stLocked: string;
@@ -577,6 +601,25 @@ export const LABELS_EN: Labels = {
   pushStallLine: 'At {0} %, target {1} % — no power for over two hours.',
   pushStallLinePlain: 'No power for over two hours, and the target is not reached.',
   pushStallSince: 'Still plugged in for {0}.',
+  battTitle: 'Battery report',
+  battMeasured: 'measured usable capacity',
+  battOfRated: '{0} % of the configured {1} kWh',
+  battVehicle: 'Vehicle',
+  battRated: 'Rated capacity',
+  battCycles: 'Discharge cycles',
+  battDistance: 'Distance covered',
+  battPeriod: 'Period',
+  battDays: '({0} days)',
+  battLoss: 'Loss over the period',
+  battNotYet: 'not reliable yet',
+  battNoMeasurement: 'No measurement yet. One appears by itself once the car has covered a distance between two charges.',
+  battFewCycles: 'Only {0} cycles measured — reliable from {1}.',
+  battShortPeriod: 'Only {0} days covered — over such a short span, ageing cannot be told apart from ordinary scatter (reliable from {1} days).',
+  battMonth: 'Month',
+  battReadings: 'Readings',
+  battMethod: 'How this is measured: between two charges the car covers a distance and loses state of charge. Together with the consumption the car reports, that gives the energy behind one percentage point — and from it the usable capacity. Each such stretch is one reading; what is stated is their median rather than their mean, so that a single drive in frost or with heavy preconditioning does not pull the result. The uncertainty is the larger of the statistical error and a systematic floor that does not shrink with more cycles.',
+  battPrint: 'Print',
+  battBack: '‹ Back',
   stRangeSuffix: 'km of range',
   stSecurity: 'Security',
   stLocked: 'Locked',
@@ -864,6 +907,25 @@ export const LABELS_DE: Labels = {
   pushStallLine: 'Steht bei {0} %, Ziel {1} % — seit über zwei Stunden fließt kein Strom.',
   pushStallLinePlain: 'Seit über zwei Stunden fließt kein Strom, das Ziel ist nicht erreicht.',
   pushStallSince: 'Noch am Kabel seit {0}.',
+  battTitle: 'Batterie-Nachweis',
+  battMeasured: 'gemessene nutzbare Kapazität',
+  battOfRated: '{0} % der eingestellten {1} kWh',
+  battVehicle: 'Fahrzeug',
+  battRated: 'Werksangabe',
+  battCycles: 'Entladezyklen',
+  battDistance: 'Erfasste Strecke',
+  battPeriod: 'Zeitraum',
+  battDays: '({0} Tage)',
+  battLoss: 'Verlust im Zeitraum',
+  battNotYet: 'noch nicht belastbar',
+  battNoMeasurement: 'Noch keine Messung. Sie entsteht von selbst, sobald das Fahrzeug eine Strecke zwischen zwei Ladungen zurückgelegt hat.',
+  battFewCycles: 'Erst {0} Zyklen gemessen — belastbar ab {1}.',
+  battShortPeriod: 'Erst {0} Tage erfasst — über einen so kurzen Zeitraum ist Alterung von der normalen Streuung nicht zu unterscheiden (belastbar ab {1} Tagen).',
+  battMonth: 'Monat',
+  battReadings: 'Messungen',
+  battMethod: 'So wird gemessen: Zwischen zwei Ladungen legt das Fahrzeug eine Strecke zurück und verliert dabei Ladestand. Zusammen mit dem vom Fahrzeug gemeldeten Verbrauch ergibt sich daraus, wie viel Energie ein Prozentpunkt trägt — und daraus die nutzbare Kapazität. Jeder solche Abschnitt ist eine Einzelmessung; ausgewiesen wird ihr Median, nicht ihr Mittelwert, damit eine einzelne Fahrt bei Frost oder mit viel Standklima das Ergebnis nicht zieht. Die Unsicherheit ist das Größere aus dem statistischen Fehler und einem systematischen Boden, der auch mit vielen Zyklen nicht verschwindet.',
+  battPrint: 'Drucken',
+  battBack: '‹ Zurück',
   stRangeSuffix: 'km Reichweite',
   stSecurity: 'Sicherung',
   stLocked: 'Verriegelt',

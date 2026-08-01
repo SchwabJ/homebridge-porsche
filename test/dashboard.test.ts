@@ -2575,3 +2575,65 @@ describe('plug state in the status line', () => {
     expect(await seite('de')).toContain('Steckerzustand unbekannt');
   });
 });
+
+describe('Seite /batterie — der Nachweis', () => {
+  // Wer sein Auto verkauft oder einen Garantiefall anmeldet, braucht mehr als
+  // eine Zahl auf einer Kachel: Ohne Datenbasis und Verlauf ist „75,4 kWh"
+  // eine Behauptung. Deshalb eine eigene, druckbare Seite.
+  let dir: string;
+  let port = 19996;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'batt-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const seite = async (sprache: 'en' | 'de'): Promise<{ status: number; html: string }> => {
+    const server = startDashboard({
+      port: port++,
+      logDir: dir,
+      capacityKwh: 83.7,
+      pricePerKwh: 0.2,
+      priceCt: 30,
+      bonusCt: 0,
+      externalPriceCt: 0,
+      dayBoundaryHour: 0,
+      vehicleName: 'Taycan',
+      uiPort: 8581,
+      labels: labelsFor(sprache),
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server.once('listening', r));
+    const a = server.address();
+    const res = await fetch(`http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}/batterie`);
+    const html = await res.text();
+    server.close();
+    return { status: res.status, html };
+  };
+
+  it('antwortet auch ohne jede Messung, statt mit einem Fehler', async () => {
+    const { status, html } = await seite('en');
+    expect(status).toBe(200);
+    // Und sagt, warum noch nichts dasteht — statt eine leere Seite zu zeigen.
+    expect(html).toContain('No measurement yet');
+  });
+
+  it('nennt die Werksangabe als Bezugsgröße', async () => {
+    expect((await seite('en')).html).toContain('83.7');
+  });
+
+  it('erklärt in beiden Sprachen, wie gemessen wurde', async () => {
+    // Ein Nachweis, der seine Methode verschweigt, überzeugt niemanden.
+    expect((await seite('en')).html).toContain('How this is measured');
+    expect((await seite('de')).html).toContain('So wird gemessen');
+  });
+
+  it('ist druckbar wie Beleg und Fahrtenbericht', async () => {
+    expect((await seite('en')).html).toContain('window.print()');
+  });
+});

@@ -32,7 +32,7 @@ import { buildSessions, type ChargeSession } from './sessions';
 import { aggregate, efficiency, keyOf, SUB, type Granularity, type Bucket} from './aggregate';
 import type { ChargeLogSample } from './chargeLog';
 import { ICONS } from './icons';
-import type { Labels } from './i18n';
+import { fill, type Labels } from './i18n';
 import {
   capacityTrend,
   estimateCapacity,
@@ -44,6 +44,7 @@ import { analyzeIdle, idleStats } from './idle';
 import { buildReceipt, receiptCsv, receiptMonths, type Receipt } from './receipt';
 import { tripsCsv, sessionsCsv } from './csv';
 import { buildTripReport, tripMonths, type TripReport } from './tripReport';
+import { buildBatteryReport, type BatteryReport } from './batteryReport';
 import { monthKey, socSpan } from './format';
 import { readPrices, writePrice, costFrom, sanitize, type PriceStore } from './prices';
 import {
@@ -1467,6 +1468,11 @@ h1 button.cog.busy svg{animation:spin .9s linear infinite}
  background:radial-gradient(120% 90% at 100% 0%,rgba(10,132,255,.10),transparent 60%)}
 .caphead{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
 .caphead span{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+/* Der Weg zum Nachweis führt über die Überschrift der Kachel — dort steht die
+   Zahl, über die er Auskunft gibt. Dezent unterstrichen statt als Knopf: Die
+   Seite braucht kaum jemand täglich, aber wer sie sucht, sucht sie hier. */
+.caphead a.plain{color:inherit;text-decoration:underline;text-underline-offset:3px;
+ text-decoration-color:var(--line)}
 .caphead em{font-style:normal;color:var(--dim);font-size:11.5px}
 .capmain{display:flex;align-items:baseline;gap:10px;margin-bottom:10px}
 .capmain b{font-size:30px;font-weight:600;letter-spacing:-.03em;
@@ -1765,7 +1771,7 @@ ${
   cap.capacityKwh !== undefined
     ? `<div class="cap">
         <div class="caphead">
-          <span>${esc(L.dashMeasuredCapacity)}</span>
+          <span><a href="/batterie" class="plain">${esc(L.dashMeasuredCapacity)}</a></span>
           <em>${cap.samples} ${esc(cap.samples === 1 ? L.capDrive : L.capDrives)} · ${cap.km} km</em>
         </div>
         <div class="capmain">
@@ -2777,6 +2783,117 @@ ${
 </body></html>`;
 }
 
+/** Den strukturierten Grund in einen Satz übersetzen — hier weiß man die Sprache. */
+function battWhy(why: BatteryReport['why'], L: Labels): string {
+  if (!why) {
+    return L.battNotYet;
+  }
+  switch (why.reason) {
+    case 'no-measurement':
+      return L.battNoMeasurement;
+    case 'few-cycles':
+      return fill(L.battFewCycles, why.cycles, why.needed);
+    case 'short-period':
+      return fill(L.battShortPeriod, why.days, why.needed);
+  }
+}
+
+/**
+ * Der Batterie-Nachweis als druckbare Seite.
+ *
+ * Bewusst dieselbe Form wie Ladebeleg und Fahrtenbericht: Es sind alles
+ * Dokumente, die man jemandem vorlegt.
+ *
+ * Der Aufbau folgt dem, was ein Käufer oder eine Garantieabteilung prüfen
+ * würde — erst die Zahl, dann woher sie kommt, dann der Verlauf, dann die
+ * Methode. Wo die Datenbasis noch nicht trägt, steht das an derselben Stelle,
+ * an der sonst der Verlust stünde. Eine Zahl zu zeigen und ihre Unsicherheit
+ * zu verschweigen wäre hier besonders verkehrt: Der ganze Zweck des Blattes
+ * ist, überprüfbar zu sein.
+ */
+function renderBattery(o: DashboardOptions, r: BatteryReport): string {
+  const L = o.labels;
+  const stamp = (iso: string): string =>
+    new Date(iso).toLocaleString(L.locale, {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  const zeitraum =
+    r.firstAt !== undefined && r.lastAt !== undefined
+      ? `${stamp(r.firstAt)} – ${stamp(r.lastAt)}`
+      : '—';
+
+  const verlauf = r.months
+    .map(
+      (m) => `<tr>
+        <td>${esc(m.month)}</td>
+        <td class="num">${m.kwh.toFixed(1)}</td>
+        <td class="num">${m.samples}</td>
+      </tr>`,
+    )
+    .join('');
+
+  return `<!doctype html>
+<html lang="${esc(L.locale.slice(0, 2))}"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>${esc(o.vehicleName)} — ${esc(L.battTitle)}</title>
+<style>${BASE_CSS}
+${REPORT_CSS}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin:14px 0;font-size:14px}
+.kv dt{color:var(--dim)}
+.kv dd{margin:0;font-weight:600}
+.big{font-size:34px;font-weight:600;letter-spacing:-.02em;margin:4px 0 2px}
+.big small{font-size:15px;font-weight:400;color:var(--dim);margin-left:6px}
+.hint{color:var(--dim);font-size:13px;line-height:1.5;margin:10px 0}
+</style></head><body>
+<h1><span>${esc(L.battTitle)}</span><em><a class="back" href="/">${esc(L.battBack)}</a></em></h1>
+<div class="tools">
+  <a href="#" onclick="window.print();return false">${esc(L.battPrint)}</a>
+</div>
+${
+  r.capacityKwh !== undefined
+    ? `<div class="big">${r.capacityKwh.toFixed(1)} kWh${
+        r.uncertaintyKwh !== undefined ? `<small>± ${r.uncertaintyKwh.toFixed(1)}</small>` : ''
+      }</div>
+<div class="hint">${esc(L.battMeasured)}${
+        r.healthPct !== undefined
+          ? ` · ${esc(fill(L.battOfRated, r.healthPct.toFixed(1), r.ratedKwh.toFixed(1)))}`
+          : ''
+      }</div>`
+    : `<div class="empty">${esc(L.battNoMeasurement)}</div>`
+}
+<dl class="kv">
+  <dt>${esc(L.battVehicle)}</dt><dd>${esc(o.vehicleName)}</dd>
+  <dt>${esc(L.battRated)}</dt><dd>${r.ratedKwh.toFixed(1)} kWh</dd>
+  <dt>${esc(L.battCycles)}</dt><dd>${r.cycles}</dd>
+  <dt>${esc(L.battDistance)}</dt><dd>${r.km.toLocaleString(L.locale)} km</dd>
+  <dt>${esc(L.battPeriod)}</dt><dd>${esc(zeitraum)}${
+    r.days !== undefined ? ` ${esc(fill(L.battDays, r.days))}` : ''
+  }</dd>
+  <dt>${esc(L.battLoss)}</dt><dd>${
+    r.lossKwh !== undefined
+      ? `${r.lossKwh.toFixed(1)} kWh`
+      : `<span style="font-weight:400;color:var(--dim)">${esc(battWhy(r.why, L))}</span>`
+  }</dd>
+</dl>
+${
+  verlauf
+    ? `<div class="wrap"><table>
+        <thead><tr><th>${esc(L.battMonth)}</th><th class="num">kWh</th>
+        <th class="num">${esc(L.battReadings)}</th></tr></thead>
+        <tbody>${verlauf}</tbody>
+      </table></div>`
+    : ''
+}
+<p class="hint">${esc(L.battMethod)}</p>
+<p class="foot">${esc(o.vehicleName)} · ${esc(stamp(new Date().toISOString()))}</p>
+</body></html>`;
+}
+
 function renderReceipt(
   o: DashboardOptions,
   r: Receipt,
@@ -3142,6 +3259,15 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
         return;
       }
       // Der Fahrtenbericht — dieselbe Form wie der Ladebeleg.
+      // Der Batterie-Nachweis. Eigene Seite, weil eine Zahl auf einer Kachel
+      // beim Verkauf oder im Garantiefall niemanden überzeugt.
+      if (url.pathname === '/batterie') {
+        const st = statsFor(o);
+        const page = renderBattery(o, buildBatteryReport(st.capacity, o.capacityKwh));
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end(page);
+        return;
+      }
       if (url.pathname === '/fahrtenbericht') {
         const trips = statsFor(o).trips;
         const months = tripMonths(trips);

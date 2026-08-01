@@ -4,6 +4,27 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.13.0] — 2026-08-01
+
+### Added
+- **Battery report at `/batterie`** — the measured capacity as a document you
+  can hand to someone, printable, in the same shape as the charging receipt
+  and the trip report. Learning the state of a Taycan battery is awkwardly
+  hard today: the official app does not show it, the dealer measures it on
+  request, and owners resort to OBD dongles and multi-day procedures. This
+  plugin measures it anyway — what was missing was the form.
+
+  It is laid out the way a buyer or a warranty desk would check it: the figure
+  with its uncertainty, then where it comes from (cycles, distance, period),
+  then the monthly trend, then the method in plain words. **A loss figure only
+  appears when the data supports one** — at least ten discharge cycles over at
+  least sixty days. Below that, the same spot states why not: single cycles
+  scatter by several percent, and over two weeks no ageing stands out from
+  that, however many cycles fall inside. Showing a number and hiding its
+  uncertainty would defeat the entire purpose of the page.
+
+  Reachable through the heading of the measured-capacity tile.
+
 ## [0.12.0] — 2026-08-01
 
 ### Fixed

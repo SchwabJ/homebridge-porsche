@@ -1,3 +1,4 @@
+import { labelsFor } from '../src/i18n';
 import { chargeCurve, barChart, sparkline } from '../src/chart';
 import type { ChargeLogSample } from '../src/chargeLog';
 import type { ChargePhase } from '../src/sessions';
@@ -285,5 +286,62 @@ describe('Achse des Gegenbalkens', () => {
   it('lässt die untere Kennzeichnung weg, wenn es keinen Gegenbalken gibt', () => {
     const svg = barChart([{ label: 'Mo', value: 30 }], LABELS_DE);
     expect(svg).not.toContain('class="ax dn"');
+  });
+});
+
+describe('Ladekurve — die Leistung über die Zeit', () => {
+  // Bisher zeigte die Kurve allein den Ladestand. Wie stark geladen wurde,
+  // stand nur im Crosshair-Text beim Überfahren — an einer Ladekurve ist das
+  // aber die zweite Hälfte der Auskunft: Bei Wechselstrom läuft die Leistung
+  // flach, an einer Schnellladesäule fällt sie mit steigendem Ladestand ab,
+  // und genau dieser Abfall ist das, was man sehen will.
+  const punkt = (min: number, soc: number, kw?: number): ChargeLogSample => ({
+    ts: new Date(Date.UTC(2026, 6, 29, 0, min)).toISOString(),
+    soc,
+    ...(kw !== undefined ? { powerKw: kw } : {}),
+    plugged: true,
+    charging: true,
+  });
+
+  const phase = { startedAt: new Date(Date.UTC(2026, 6, 29, 0, 0)).toISOString(),
+    endedAt: new Date(Date.UTC(2026, 6, 29, 2, 0)).toISOString(), durationMin: 120 };
+
+  it('zeichnet eine Leistungslinie, wenn Messwerte da sind', () => {
+    const svg = chargeCurve(
+      [punkt(0, 40, 50), punkt(30, 50, 45), punkt(60, 60, 30), punkt(90, 70, 15)],
+      [phase],
+      { targetSoc: 80, labels: labelsFor('en') },
+    );
+    expect(svg).toContain('class="kw"');
+  });
+
+  it('beschriftet die Leistungsachse mit dem Höchstwert', () => {
+    // Ohne Bezugsgröße ist eine Linie ohne Achse nur Dekoration.
+    const svg = chargeCurve(
+      [punkt(0, 40, 50), punkt(30, 50, 45), punkt(60, 60, 30)],
+      [phase],
+      { targetSoc: 80, labels: labelsFor('en') },
+    );
+    // Bei glatten Werten ohne Nachkommastelle: „50 kW", nicht „50.0 kW".
+    expect(svg).toContain('50 kW');
+  });
+
+  it('lässt die Leistungslinie weg, wo keine Messwerte sind', () => {
+    // Ältere Ladungen tragen keine Leistung. Eine Linie auf null wäre eine
+    // Behauptung, keine Messung.
+    const svg = chargeCurve([punkt(0, 40), punkt(30, 50), punkt(60, 60)], [phase], {
+      targetSoc: 80,
+      labels: labelsFor('en'),
+    });
+    expect(svg).not.toContain('class="kw"');
+  });
+
+  it('behält den Ladestand als Hauptkurve', () => {
+    const svg = chargeCurve(
+      [punkt(0, 40, 50), punkt(30, 50, 45), punkt(60, 60, 30)],
+      [phase],
+      { targetSoc: 80, labels: labelsFor('en') },
+    );
+    expect(svg).toContain('class="ln"');
   });
 });

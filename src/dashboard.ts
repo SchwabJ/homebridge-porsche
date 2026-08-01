@@ -102,6 +102,16 @@ export const DASHBOARD_COMMANDS = [
 
 export type DashboardCommand = (typeof DASHBOARD_COMMANDS)[number];
 
+/**
+ * Fährt das Fahrzeug gesichert rein elektrisch?
+ *
+ * Die Option darf eine Funktion sein, weil die Antriebsart erst nach dem
+ * Start des Dashboards feststeht — siehe {@link DashboardOptions.pureElectric}.
+ */
+function istElektrisch(o: DashboardOptions): boolean {
+  return typeof o.pureElectric === 'function' ? o.pureElectric() : o.pureElectric === true;
+}
+
 export interface DashboardOptions {
   port: number;
   logDir: string;
@@ -116,6 +126,25 @@ export interface DashboardOptions {
    * taugt. Dorthin gehört die Seite ohnehin nicht.
    */
   password?: string;
+  /**
+   * Fährt dieses Fahrzeug rein elektrisch? `undefined` heißt UNBEKANNT.
+   *
+   * Entscheidet, ob die Kapazitätsschätzung und alles darauf Aufbauende
+   * überhaupt etwas aussagen darf. Bei einem Plug-in-Hybrid fährt das Auto
+   * zwischen zwei Ladungen auch mit Kraftstoff — die Rechnung „Strecke mal
+   * Verbrauch" ergäbe dann nicht einen ungenauen Wert, sondern einen
+   * falschen, der plausibel aussieht.
+   *
+   * Unbekannt wird wie „nicht rein elektrisch" behandelt. Ein älteres Konto
+   * liefert womöglich keine Antriebsangabe, und eine falsche Kapazität fällt
+   * niemandem auf.
+   *
+   * ALS FUNKTION, nicht als Wert: Das Dashboard startet, bevor die
+   * Fahrzeugliste abgerufen ist — ein zum Startzeitpunkt eingefrorener Wert
+   * wäre immer „unbekannt" und die Kapazität dauerhaft verborgen. Genau das
+   * ist beim ersten Anlauf passiert und fiel erst am laufenden System auf.
+   */
+  pureElectric?: boolean | (() => boolean);
   /**
    * An welche Adresse das Dashboard bindet.
    *
@@ -1847,7 +1876,9 @@ ${CHART_CSS}${BARS_CSS}${SPARK_CSS}${REFRESH_CSS}
 <!-- Über den Filtern: Die gemessene Kapazität ändert sich weder mit dem
      Zeitraum noch mit dem Ort. Darunter gelesen wirkte sie gefiltert. -->
 ${
-  cap.capacityKwh !== undefined
+  // Nur bei gesichert rein elektrischem Antrieb: Bei allem anderen wäre die
+  // Zahl still falsch — siehe {@link DashboardOptions.pureElectric}.
+  cap.capacityKwh !== undefined && istElektrisch(o)
     ? `<div class="cap">
         <div class="caphead">
           <span><a href="/batterie" class="plain">${esc(L.dashMeasuredCapacity)}</a></span>
@@ -3051,7 +3082,7 @@ ${
           ? ` · ${esc(fill(L.battOfRated, r.healthPct.toFixed(1), r.ratedKwh.toFixed(1)))}`
           : ''
       }</div>`
-    : `<div class="empty">${esc(L.battNoMeasurement)}</div>`
+    : `<div class="empty">${esc(istElektrisch(o) ? L.battNoMeasurement : L.battNotElectric)}</div>`
 }
 <dl class="kv">
   <dt>${esc(L.battVehicle)}</dt><dd>${esc(o.vehicleName)}</dd>
@@ -3661,7 +3692,18 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
       // beim Verkauf oder im Garantiefall niemanden überzeugt.
       if (url.pathname === '/batterie') {
         const st = statsFor(o);
-        const page = renderBattery(o, buildBatteryReport(st.capacity, o.capacityKwh));
+        const page = renderBattery(
+          o,
+          // Bei allem, was nicht gesichert rein elektrisch fährt, wird die
+          // Schätzung gar nicht erst weitergereicht: Der Nachweis soll nicht
+          // eine Zahl zeigen, die er im nächsten Absatz einschränken muss.
+          istElektrisch(o)
+            ? buildBatteryReport(st.capacity, o.capacityKwh)
+            : buildBatteryReport(
+                { samples: 0, cyclesSeen: 0, km: 0, values: [], points: [] },
+                o.capacityKwh,
+              ),
+        );
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         res.end(page);
         return;

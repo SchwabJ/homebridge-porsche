@@ -1782,6 +1782,9 @@ describe('Kapazitätsverlauf auf der Seite', () => {
       dayBoundaryHour: 0,
       vehicleName: 'T',
       uiPort: 8581,
+      // Kapazität und Nachweis gibt es nur bei gesichert
+      // elektrischem Antrieb — sonst wären die Zahlen still falsch.
+      pureElectric: true,
       labels: labelsFor('en'),
     });
     if (!server) {
@@ -2603,6 +2606,9 @@ describe('Seite /batterie — der Nachweis', () => {
       dayBoundaryHour: 0,
       vehicleName: 'Taycan',
       uiPort: 8581,
+      // Kapazität und Nachweis gibt es nur bei gesichert
+      // elektrischem Antrieb — sonst wären die Zahlen still falsch.
+      pureElectric: true,
       labels: labelsFor(sprache),
     });
     if (!server) {

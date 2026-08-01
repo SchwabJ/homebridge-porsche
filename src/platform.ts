@@ -19,7 +19,7 @@ import { chargeWindowAction, externallyPaced, parseWindow } from './chargeWindow
 import { analyzeIdle, idleAlarm, idleStats, IDLE_ALARM_PCT_PER_DAY } from './idle';
 import { buildBatteryReport, healthAlarm, HEALTH_ALARM_PCT } from './batteryReport';
 import { estimateCapacity } from './capacity';
-import { chargingStart, chargingStop } from './api/commands';
+import { chargingStart, chargingStop, climateStart, climateStop, lock } from './api/commands';
 import { appendSample } from './chargeLog';
 import { startDashboard, readSamples } from './dashboard';
 import { buildSessions } from './sessions';
@@ -257,6 +257,30 @@ export class PorschePlatform implements DynamicPlatformPlugin {
         // Manueller Abruf aus dem Dashboard: derselbe Poll wie der zyklische,
         // inklusive Mitschrieb und Neuplanung des nächsten Laufs.
         onRefresh: () => this.poll(),
+        // Fahrzeugbefehle aus dem Browser. Die Zuordnung steht HIER und nicht
+        // im Dashboard: Dort gehört das Wissen über die Seite hin, hier das
+        // über das Fahrzeug. Die Liste im Dashboard ist fest, es kann also
+        // nichts ankommen, das hier keine Entsprechung hat.
+        onCommand: async (command) => {
+          const cmd =
+            command === 'climate-start'
+              ? climateStart(c.defaultTargetTemp)
+              : command === 'climate-stop'
+                ? climateStop()
+                : command === 'charge-start'
+                  ? chargingStart()
+                  : command === 'charge-stop'
+                    ? chargingStop()
+                    : lock();
+          if (!this.client || !this.vin) {
+            throw new Error('no connection to the vehicle');
+          }
+          await this.client.sendCommand(this.vin, cmd);
+          this.log.info(`Command from the dashboard executed: ${command}.`);
+          // Sofort nachfassen, damit die Seite den neuen Zustand zeigt statt
+          // bis zum nächsten regulären Poll den alten.
+          void this.poll();
+        },
       });
       this.scheduleDailyPush();
     });

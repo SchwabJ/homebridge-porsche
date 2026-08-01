@@ -4,6 +4,33 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.17.0] — 2026-08-01
+
+### Added
+- **Vehicle commands from the dashboard** — preconditioning, start and stop
+  charging, lock. The commands have been built for a long time but were only
+  reachable through HomeKit: whoever had the page on their home screen could
+  see everything and do nothing.
+
+  **The route requires a password.** Without `dashboardPassword` it does not
+  exist, handler or not, and the buttons stay hidden. The difference from
+  reading along is qualitative: seeing a charging history is unpleasant, but
+  starting a stranger's air conditioning at night or stopping their charge is
+  something else. Only a fixed list of five commands is accepted — what is not
+  on it does not exist for the page, so the route cannot become an open door
+  to whatever the backend happens to accept. Unlocking is deliberately absent:
+  it needs the S-PIN, and a button that opens a car does not belong on a page
+  left open in a browser.
+
+  The bar is contextual — whatever is running gets its counterpart button —
+  and stopping a charge asks first, because pressing it by accident at night
+  means a car that will not get far in the morning.
+
+### Changed
+- The POST-and-same-origin check for routes with an effect lived inline in
+  three places, word for word. It is now one helper. The copy you forget on
+  the next route is exactly the class of gap the refresh button once had.
+
 ## [0.16.0] — 2026-08-01
 
 ### Added

@@ -79,6 +79,28 @@ import {
   type BarPoint,
 } from './chart';
 
+/**
+ * Was sich vom Dashboard aus auslösen lässt — eine feste, kurze Liste.
+ *
+ * Bewusst KEIN Durchreichen beliebiger Befehlsnamen an das Fahrzeug: Was hier
+ * nicht steht, existiert für die Seite nicht. Sonst wäre die Route ein
+ * offenes Tor zu allem, was das Backend annimmt, heute und in jeder künftigen
+ * Version.
+ *
+ * Entriegeln fehlt mit Absicht. Es verlangt die S-PIN, und ein Knopf, der ein
+ * Auto aufschließt, gehört nicht auf eine Seite, die man im Browser offen
+ * liegen lässt.
+ */
+export const DASHBOARD_COMMANDS = [
+  'climate-start',
+  'climate-stop',
+  'charge-start',
+  'charge-stop',
+  'lock',
+] as const;
+
+export type DashboardCommand = (typeof DASHBOARD_COMMANDS)[number];
+
 export interface DashboardOptions {
   port: number;
   logDir: string;
@@ -125,6 +147,13 @@ export interface DashboardOptions {
    * zeigen — so bleibt das Dashboard auch eigenständig lauffähig.
    */
   onRefresh?: () => Promise<void>;
+  /**
+   * Führt einen Fahrzeugbefehl aus. Ohne Handler bleiben die Knöpfe fort.
+   *
+   * Die Zeichenkette stammt aus {@link DASHBOARD_COMMANDS} — beliebige Werte
+   * erreichen diesen Handler nicht.
+   */
+  onCommand?: (command: DashboardCommand) => Promise<void>;
 }
 
 /**
@@ -1981,6 +2010,11 @@ ${placeTabs}${nav}${
       : ''
   }</div>`
       : ''
+  }${
+    // Die Knöpfe nur, wenn BEIDES da ist: ein Handler im Plugin und ein
+    // gesetztes Passwort. Ohne Passwort gäbe die Route sie ohnehin nicht
+    // frei — sie hier trotzdem zu zeigen hieße, eine Enttäuschung anzubieten.
+    o.onCommand && o.password ? commandBar(st, L) : ''
   }
 </div>
 ${
@@ -2176,6 +2210,7 @@ ${
     });
   });
   ${refreshScript(L)}
+  ${o.onCommand && o.password ? commandScript(L.cmdFailed) : ''}
   // Reload nur, wenn er niemanden unterbricht: kein fokussiertes Feld (ein
   // halb ausgefülltes Preisformular wäre weg), keine offene Ladungszeile
   // (die Kurve, die gerade jemand studiert, klappte zu), kein offener
@@ -2299,7 +2334,79 @@ const THEME_META =
   '<meta name="theme-color" content="#f6f6f7" media="(prefers-color-scheme: light)">' +
   '<meta name="theme-color" content="#111214" media="(prefers-color-scheme: dark)">';
 
-const BASE_CSS = `${REFRESH_CSS}
+const COMMAND_CSS = `
+.acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px;padding-top:10px;
+ border-top:1px solid var(--line)}
+.acts button{font:inherit;font-size:12px;font-weight:600;padding:6px 11px;
+ border-radius:8px;border:1px solid var(--line);background:var(--card);
+ color:var(--fg);cursor:pointer;line-height:1.2}
+.acts button:active{opacity:.6}
+.acts button[disabled]{opacity:.45;cursor:default}`;
+
+/**
+ * Das Skript der Befehlsknöpfe.
+ *
+ * ACHTUNG bei Änderungen: Diese Zeichenkette erzeugt JavaScript. Ein `\n` im
+ * Quelltext wird hier zu einem echten Zeilenumbruch mitten in einem
+ * JS-String und zerreißt die Datei — genau so fiel einmal die ganze Seite
+ * aus. Umbrüche in Texten deshalb über \\n.
+ */
+const commandScript = (fehlerText: string): string => `
+  Array.prototype.forEach.call(document.querySelectorAll('[data-cmd]'),function(b){
+    b.addEventListener('click',function(){
+      var frage=b.getAttribute('data-ask');
+      if(frage && !window.confirm(frage)) return;
+      var alt=b.textContent; b.disabled=true; b.textContent='…';
+      var schief=function(){
+        b.textContent=${JSON.stringify(fehlerText)};
+        setTimeout(function(){ b.textContent=alt; b.disabled=false; }, 2500);
+      };
+      fetch('/api/command',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({command:b.getAttribute('data-cmd')})})
+        .then(function(r){return r.json();}).then(function(j){
+          if(j.ok){ setTimeout(function(){ location.reload(); }, 1200); return; }
+          schief();
+        }).catch(schief);
+    });
+  });`;
+
+/**
+ * Die Knopfleiste — kontextabhängig, nicht alle fünf auf einmal.
+ *
+ * Was gerade läuft, bekommt seinen Gegenknopf: Wer klimatisiert, will
+ * abschalten können, nicht nochmal einschalten. Das halbiert die Leiste und
+ * macht sie auf einem Telefon überhaupt erst brauchbar.
+ *
+ * „Laden stoppen" fragt nach. Nachts versehentlich gedrückt heißt morgens ein
+ * Auto, das nicht weit kommt — die anderen Knöpfe kosten im Zweifel etwas
+ * Strom und sonst nichts.
+ */
+function commandBar(st: CurrentStatus, L: Labels): string {
+  const knopf = (cmd: DashboardCommand, text: string, frage?: string): string =>
+    `<button type="button" data-cmd="${cmd}"${
+      frage ? ` data-ask="${esc(frage)}"` : ''
+    }>${esc(text)}</button>`;
+  const teile: string[] = [];
+  teile.push(
+    st.state?.climateOn === true
+      ? knopf('climate-stop', L.cmdClimateOff)
+      : knopf('climate-start', L.cmdPreclimate),
+  );
+  if (st.state?.plugged === true) {
+    teile.push(
+      st.state.charging === true
+        ? knopf('charge-stop', L.cmdChargeStop, L.cmdChargeStopAsk)
+        : knopf('charge-start', L.cmdChargeStart),
+    );
+  }
+  if (st.state?.locked !== true) {
+    teile.push(knopf('lock', L.cmdLock));
+  }
+  return `<div class="acts">${teile.join('')}</div>`;
+}
+
+const BASE_CSS = `${COMMAND_CSS}
+${REFRESH_CSS}
 
 .empty{background:var(--card);border:1px solid var(--line);border-radius:12px;
  padding:26px;text-align:center;color:var(--dim)}
@@ -3355,6 +3462,63 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
     }
   };
 
+  /**
+   * Der gemeinsame Riegel aller Routen mit Wirkung: POST plus gleicher Origin.
+   *
+   * POST verlangt bei fremdem Origin einen Preflight, den dieser Server nicht
+   * beantwortet (keine CORS-Header); der Origin-Vergleich fängt zusätzlich ab,
+   * was den Preflight umgeht. Ein fehlender Origin bleibt erlaubt — curl und
+   * der eigene Knopf im Homescreen-Modus senden keinen.
+   *
+   * EIN Helfer statt einer Kopie je Route: Die Prüfung stand hier dreimal
+   * wortgleich im Code. Die Kopie, die man bei der nächsten Route vergisst,
+   * ist genau die Lückenklasse, die der Abruf-Knopf einmal hatte.
+   */
+  const guardWrite = (req: http.IncomingMessage, res: http.ServerResponse): boolean => {
+    if (req.method !== 'POST') {
+      json(res, { ok: false, reason: 'method-not-allowed' }, 405);
+      return false;
+    }
+    const origin = req.headers.origin;
+    if (typeof origin === 'string' && origin !== `http://${req.headers.host ?? ''}`) {
+      json(res, { ok: false, reason: 'cross-origin' }, 403);
+      return false;
+    }
+    return true;
+  };
+
+  /**
+   * Liest den JSON-Body und übergibt ihn geparst. Deckel bei 4 kB — keine
+   * dieser Routen braucht mehr, und alles darüber wäre ein offener
+   * Datenstrom, der Speicher bindet.
+   */
+  const readJson = (
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    cb: (parsed: unknown) => void,
+  ): void => {
+    let body = '';
+    let tooBig = false;
+    req.on('data', (chunk: Buffer) => {
+      body += chunk.toString('utf8');
+      if (body.length > 4096 && !tooBig) {
+        tooBig = true;
+        json(res, { ok: false, reason: 'too-large' }, 413);
+        req.destroy();
+      }
+    });
+    req.on('end', () => {
+      if (tooBig) {
+        return;
+      }
+      try {
+        cb(JSON.parse(body || '{}'));
+      } catch {
+        json(res, { ok: false, reason: 'bad-json' }, 400);
+      }
+    });
+  };
+
   const server = http.createServer((req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
@@ -3521,6 +3685,43 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
         return;
       }
 
+      /**
+       * Fahrzeugbefehle aus dem Browser.
+       *
+       * NUR MIT GESETZTEM PASSWORT. Der Unterschied zum Mitlesen ist
+       * qualitativ: Ladehistorie zu sehen ist unangenehm, aber nachts die
+       * Klimaanlage eines fremden Autos zu starten oder dessen Ladung zu
+       * stoppen ist etwas anderes.
+       */
+      if (url.pathname === '/api/command') {
+        if (!guardWrite(req, res)) {
+          return;
+        }
+        if (!o.password) {
+          json(res, { ok: false, reason: 'no-password' }, 403);
+          return;
+        }
+        if (!o.onCommand) {
+          json(res, { ok: false, reason: 'unavailable' }, 503);
+          return;
+        }
+        readJson(req, res, (parsed) => {
+          const wunsch = (parsed as { command?: unknown } | null)?.command;
+          if (
+            typeof wunsch !== 'string' ||
+            !(DASHBOARD_COMMANDS as readonly string[]).includes(wunsch)
+          ) {
+            json(res, { ok: false, reason: 'unknown-command' }, 400);
+            return;
+          }
+          o.onCommand?.(wunsch as DashboardCommand)
+            .then(() => json(res, { ok: true }))
+            // 502 und nicht 200: Ein Befehl, der das Fahrzeug nie erreicht
+            // hat, ist kein Erfolg.
+            .catch((err) => json(res, { ok: false, reason: String(err) }, 502));
+        });
+        return;
+      }
       if (url.pathname === '/api/refresh') {
         if (!o.onRefresh) {
           json(res, { ok: false, reason: 'not-available' });
@@ -3539,13 +3740,7 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
         // keine CORS-Header). Der Origin-Vergleich fängt zusätzlich alles ab,
         // was den Preflight umgeht. Ein fehlender Origin bleibt erlaubt —
         // curl und der eigene Knopf im Homescreen-Modus senden keinen.
-        if (req.method !== 'POST') {
-          json(res, { ok: false, reason: 'method-not-allowed' }, 405);
-          return;
-        }
-        const origin = req.headers.origin;
-        if (typeof origin === 'string' && origin !== `http://${req.headers.host ?? ''}`) {
-          json(res, { ok: false, reason: 'cross-origin' }, 403);
+        if (!guardWrite(req, res)) {
           return;
         }
         const since = Date.now() - lastRefresh;
@@ -3565,13 +3760,7 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
       }
       if (url.pathname === '/api/settings') {
         // Wie jede schreibende Route: POST und gleicher Origin.
-        if (req.method !== 'POST') {
-          json(res, { ok: false, reason: 'method-not-allowed' }, 405);
-          return;
-        }
-        const origin = req.headers.origin;
-        if (typeof origin === 'string' && origin !== `http://${req.headers.host ?? ''}`) {
-          json(res, { ok: false, reason: 'cross-origin' }, 403);
+        if (!guardWrite(req, res)) {
           return;
         }
         let body = '';
@@ -3645,13 +3834,7 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
         return;
       }
       if (url.pathname === '/api/price') {
-        if (req.method !== 'POST') {
-          json(res, { ok: false, reason: 'method-not-allowed' }, 405);
-          return;
-        }
-        const origin = req.headers.origin;
-        if (typeof origin === 'string' && origin !== `http://${req.headers.host ?? ''}`) {
-          json(res, { ok: false, reason: 'cross-origin' }, 403);
+        if (!guardWrite(req, res)) {
           return;
         }
         let body = '';

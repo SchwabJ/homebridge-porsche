@@ -61,7 +61,65 @@ export interface PorscheClientOptions {
 /** Ein einzelnes Fahrzeug aus der Fahrzeugliste. */
 export interface VehicleListEntry {
   vin: string;
+  /** Werblicher Name, etwa „Taycan 4 Cross Turismo". */
   modelName?: string;
+  /**
+   * Antriebsart laut Fahrzeug: `BEV`, `PHEV` und was Porsche sonst vergibt.
+   *
+   * Am 01.08.2026 an einem Taycan gemessen — die Fahrzeugliste trägt ein
+   * `modelType`-Objekt mit `{ code, year, body, generation, model, engine }`.
+   * Diese eine Angabe entscheidet, ob mehrere Auswertungen überhaupt etwas
+   * aussagen dürfen.
+   */
+  engine?: string;
+  /** Baureihe in Großbuchstaben, etwa `TAYCAN`. */
+  model?: string;
+  /** Modelljahr als Zeichenkette, wie geliefert. */
+  year?: string;
+}
+
+/** Liest einen Eintrag der Fahrzeugliste; unbekannte Felder bleiben leer. */
+export function parseVehicleEntry(v: unknown): VehicleListEntry {
+  const o = (v ?? {}) as Record<string, unknown>;
+  const t = (o.modelType ?? {}) as Record<string, unknown>;
+  const str = (x: unknown): string | undefined => (typeof x === 'string' ? x : undefined);
+  return {
+    vin: str(o.vin) ?? str(o.VIN) ?? '',
+    modelName: str(o.modelName),
+    engine: str(t.engine),
+    model: str(t.model),
+    year: str(t.year),
+  };
+}
+
+/**
+ * Ist das ein Plug-in-Hybrid? `undefined` heißt UNBEKANNT.
+ *
+ * Der Rückgabewert ist bewusst dreiwertig. „Unbekannt" darf nicht
+ * stillschweigend zu „elektrisch" werden: Sonst rechnete das Plugin bei einem
+ * Hybrid weiter munter falsch, und niemand merkte es. Wer sich darauf stützt,
+ * fragt deshalb auf `=== false` und nicht auf `!isPluginHybrid(...)`.
+ *
+ * Warum die Frage überhaupt zählt: Die Kapazitätsschätzung rechnet aus der
+ * Strecke zwischen zwei Ladungen. Fährt ein Hybrid Teile davon mit dem
+ * Verbrennungsmotor, ist das Ergebnis nicht ungenau, sondern falsch — und
+ * alles, was darauf aufsetzt (kWh je Ladung, Kosten, Ersparnis, Verbrauch,
+ * Batterie-Nachweis), wäre still falsch statt sichtbar kaputt.
+ */
+export function isPluginHybrid(v: VehicleListEntry | undefined): boolean | undefined {
+  const e = v?.engine?.toUpperCase();
+  if (e === undefined) {
+    return undefined;
+  }
+  if (e === 'BEV') {
+    return false;
+  }
+  if (e.includes('PHEV') || e.includes('HYBRID')) {
+    return true;
+  }
+  // Ein Wert, den wir nicht kennen, ist keine Antwort. Porsche kann morgen
+  // etwas Neues vergeben, und dann ist Schweigen richtiger als Raten.
+  return undefined;
 }
 
 /** Default-Sleep auf Basis von `setTimeout` (echtes Warten). */
@@ -127,10 +185,7 @@ export class PorscheClient {
       : Array.isArray(data?.vehicles)
         ? data.vehicles
         : [];
-    return list.map((v) => ({
-      vin: v?.vin ?? v?.VIN,
-      modelName: v?.modelName,
-    }));
+    return list.map(parseVehicleEntry);
   }
 
   /**

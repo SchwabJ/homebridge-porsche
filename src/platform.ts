@@ -11,7 +11,7 @@ import type {
 import { UndiciHttpClient } from './http';
 import { PorscheAuth, Tokens } from './auth/porscheAuth';
 import { loadTokens, saveTokens } from './auth/tokenStore';
-import { PorscheClient } from './api/porscheClient';
+import { PorscheClient, isPluginHybrid, type VehicleListEntry } from './api/porscheClient';
 import { VehicleState } from './api/measurements';
 import { PorscheCommand } from './api/commands';
 import { clampPollInterval, effectivePollMinutes } from './wake';
@@ -180,6 +180,10 @@ export class PorschePlatform implements DynamicPlatformPlugin {
   // --- Laufzeit-Zustand ------------------------------------------------------
   private client?: PorscheClient;
   private vin?: string;
+  /** Das eigene Fahrzeug samt Antriebsart — Grundlage der Auswertungswahl. */
+  private vehicle?: VehicleListEntry;
+  /** Zeitpunkt des letzten Versuchs, die Fahrzeugliste zu lesen. */
+  private vehicleTriedAt = 0;
   private pollTimer?: NodeJS.Timeout;
   /** Gesetzt beim Shutdown — verhindert, dass ein laufender Poll neu plant. */
   private stopped = false;
@@ -241,6 +245,9 @@ export class PorschePlatform implements DynamicPlatformPlugin {
       this.dashboard = startDashboard({
         port: c.dashboardPort,
         password: c.dashboardPassword,
+        // Als Funktion: Das Dashboard startet, bevor die Fahrzeugliste
+        // abgerufen ist. Ein hier eingefrorener Wert wäre immer „unbekannt".
+        pureElectric: () => isPluginHybrid(this.vehicle) === false,
         bindAddress: c.dashboardBind,
         logDir: this.logDir,
         capacityKwh: c.capacityKwh,
@@ -416,10 +423,43 @@ export class PorschePlatform implements DynamicPlatformPlugin {
       }
 
       // VIN bestimmen: aus Config oder erstes Fahrzeug der Liste.
+      // Die Liste wird EINMAL beim Start auch dann abgefragt, wenn die VIN
+      // konfiguriert ist. Bisher unterblieb das — womit das Plugin nie
+      // erfuhr, welches Modell dort steht. Für ein Plugin, das für alle
+      // Porsche dieser Generation taugen soll, ist das die Grundlage: Ein
+      // Plug-in-Hybrid braucht andere Auswertungen als ein Elektrofahrzeug.
       let vin = this.resolvedConfig.vin;
-      if (!vin) {
+      try {
         const vehicles = await client.listVehicles();
-        vin = vehicles[0]?.vin;
+        if (vehicles.length > 0) {
+          this.log.info(
+            `${vehicles.length} vehicle(s) in the account: ${vehicles
+              .map((v) => `${v.modelName ?? 'no model name'}${v.engine ? ` (${v.engine})` : ''}`)
+              .join(', ')}`,
+          );
+        }
+        if (!vin) {
+          vin = vehicles[0]?.vin;
+        }
+        this.vehicle = vin ? vehicles.find((v) => v.vin === vin) : vehicles[0];
+        this.vehicleTriedAt = Date.now();
+        const hybrid = isPluginHybrid(this.vehicle);
+        if (hybrid === true) {
+          this.log.warn(
+            'Plug-in hybrid detected. Evaluations that assume a purely electric ' +
+              'drive — measured capacity, the battery report and the consumption ' +
+              'derived from them — stay switched off: between two charges this car ' +
+              'also runs on fuel, and computing over that would produce plausible ' +
+              'but wrong numbers.',
+          );
+        } else if (hybrid === undefined && this.vehicle) {
+          this.log.info(
+            'Drivetrain unknown — evaluations that assume a purely electric drive ' +
+              'stay off as a precaution.',
+          );
+        }
+      } catch (err) {
+        this.log.warn(`Vehicle list unavailable: ${String(err)}`);
       }
       if (!vin) {
         this.log.error('No VIN found (vehicle list empty).');
@@ -485,6 +525,12 @@ export class PorschePlatform implements DynamicPlatformPlugin {
       this.checkChargeEnd(state.plugged);
       this.checkChargeStall(state.plugged);
       void this.applyChargeWindow(state);
+      // Die Antriebsart nachholen, falls der Listenabruf beim Start scheiterte.
+      // Ohne das bliebe die gemessene Kapazität nach einem einzelnen
+      // Netzfehler bis zum nächsten Neustart verborgen.
+      if (!this.vehicle) {
+        void this.resolveVehicle();
+      }
       this.checkIdleDrain();
       if (state.plugged !== undefined) {
         this.lastKnown = { plugged: state.plugged, charging: state.charging, at: Date.now() };
@@ -671,7 +717,13 @@ export class PorschePlatform implements DynamicPlatformPlugin {
       // Dieselbe Gelegenheit für die Batteriegesundheit: Beide Auswertungen
       // brauchen die Historie, und die ist gerade gelesen. Eigene Sperre,
       // damit nicht eine Warnung die andere unterdrückt.
-      if (jetzt - this.healthWarnedAt >= HEALTH_WARN_GAP_MS) {
+      // Die Batteriewarnung setzt dieselbe Messung voraus wie der Nachweis —
+      // ohne gesicherten Elektroantrieb wäre sie eine Warnung auf Basis einer
+      // Zahl, die nicht stimmt.
+      if (
+        isPluginHybrid(this.vehicle) === false &&
+        jetzt - this.healthWarnedAt >= HEALTH_WARN_GAP_MS
+      ) {
         const bericht = buildBatteryReport(estimateCapacity(samples), c.capacityKwh);
         const h = healthAlarm(bericht, HEALTH_ALARM_PCT);
         if (h) {
@@ -683,6 +735,32 @@ export class PorschePlatform implements DynamicPlatformPlugin {
       }
     } catch (err) {
       this.log.warn(`Idle-drain check failed: ${String(err)}`);
+    }
+  }
+
+  /**
+   * Holt die Antriebsart nach, wenn sie beim Start nicht zu haben war.
+   *
+   * Höchstens stündlich: Ein Konto, dessen Liste dauerhaft nicht antwortet,
+   * soll nicht bei jedem Poll dagegenlaufen.
+   */
+  private async resolveVehicle(): Promise<void> {
+    if (!this.client || Date.now() - this.vehicleTriedAt < 60 * 60000) {
+      return;
+    }
+    this.vehicleTriedAt = Date.now();
+    try {
+      const vehicles = await this.client.listVehicles();
+      this.vehicle = this.vin ? vehicles.find((v) => v.vin === this.vin) : vehicles[0];
+      if (this.vehicle) {
+        this.log.info(
+          `Vehicle determined later: ${this.vehicle.modelName ?? '?'}${
+            this.vehicle.engine ? ` (${this.vehicle.engine})` : ''
+          }`,
+        );
+      }
+    } catch {
+      // Still: Der nächste Versuch kommt in einer Stunde von selbst.
     }
   }
 

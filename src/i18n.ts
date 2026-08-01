@@ -301,6 +301,8 @@ export interface Labels {
   battLoss: string;
   battNotYet: string;
   battNoMeasurement: string;
+  /** Warum bei nicht rein elektrischem Antrieb nichts dasteht. */
+  battNotElectric: string;
   /** „Erst {0} Zyklen gemessen — belastbar ab {1}." */
   battFewCycles: string;
   /** „Erst {0} Tage erfasst … (belastbar ab {1} Tagen)." */
@@ -651,6 +653,7 @@ export const LABELS_EN: Labels = {
   battDays: '({0} days)',
   battLoss: 'Loss over the period',
   battNotYet: 'not reliable yet',
+  battNotElectric: 'Capacity cannot be measured for this vehicle. The calculation assumes the distance between two charges was covered on electricity alone. If the car also runs on fuel — or if the drivetrain cannot be determined from the API — the result would look plausible and be wrong. On a report meant as evidence, that is the worst kind of error.',
   battNoMeasurement: 'No measurement yet. One appears by itself once the car has covered a distance between two charges.',
   battFewCycles: 'Only {0} cycles measured — reliable from {1}.',
   battShortPeriod: 'Only {0} days covered — over such a short span, ageing cannot be told apart from ordinary scatter (reliable from {1} days).',
@@ -987,6 +990,7 @@ export const LABELS_DE: Labels = {
   battDays: '({0} Tage)',
   battLoss: 'Verlust im Zeitraum',
   battNotYet: 'noch nicht belastbar',
+  battNotElectric: 'Für dieses Fahrzeug lässt sich die Kapazität nicht messen. Die Rechnung setzt voraus, dass die Strecke zwischen zwei Ladungen rein elektrisch zurückgelegt wurde. Fährt das Auto auch mit Kraftstoff — oder ist der Antrieb der Schnittstelle nicht zu entnehmen —, käme eine Zahl heraus, die plausibel aussieht und falsch ist. Auf einem Nachweis wäre das der schlechteste aller Fehler.',
   battNoMeasurement: 'Noch keine Messung. Sie entsteht von selbst, sobald das Fahrzeug eine Strecke zwischen zwei Ladungen zurückgelegt hat.',
   battFewCycles: 'Erst {0} Zyklen gemessen — belastbar ab {1}.',
   battShortPeriod: 'Erst {0} Tage erfasst — über einen so kurzen Zeitraum ist Alterung von der normalen Streuung nicht zu unterscheiden (belastbar ab {1} Tagen).',

@@ -4,6 +4,28 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.19.0] — 2026-08-01
+
+### Added
+- **The drivetrain is now detected**, and evaluations that cannot hold for it
+  stay quiet. The vehicle list — which the plugin never fetched once a VIN was
+  configured — carries a `modelType` object; measured on a Taycan it reads
+  `{ code: 'Y1BBD1', year: '2023', body: 'CUV', generation: 'J1',
+  model: 'TAYCAN', engine: 'BEV' }`. The `engine` field says it outright.
+
+  This matters because measured capacity is computed from the distance
+  between two charges. If a plug-in hybrid covers part of it on fuel, the
+  result is not imprecise but wrong — and everything built on it (kWh per
+  charge, cost, savings, consumption, the battery report) would be **quietly**
+  wrong rather than visibly broken. A battery report with invented numbers,
+  handed over when selling the car, is the worst kind of error there is.
+
+  Measured capacity, the battery report and the battery warning therefore stay
+  off unless the drive is confirmed electric. **Unknown counts as not
+  electric**: an older account may not report a drivetrain, and Porsche may
+  introduce new values — silence is better than a guess. The report says *why*
+  it is empty, because a blank page without a reason reads like a fault.
+
 ## [0.18.0] — 2026-08-01
 
 ### Added

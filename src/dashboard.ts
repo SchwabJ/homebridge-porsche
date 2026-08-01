@@ -34,6 +34,7 @@ import { aggregate, efficiency, keyOf, SUB, type Granularity, type Bucket} from 
 import type { ChargeLogSample } from './chargeLog';
 import { ICONS } from './icons';
 import { fill, type Labels } from './i18n';
+import { tyreTrend } from './tyres';
 import {
   capacityTrend,
   estimateCapacity,
@@ -186,11 +187,27 @@ const LIST_LIMIT = 40;
  * bei jedem Seitenaufruf alles neu zu parsen. Da nur angehängt wird, genügt
  * Größe plus mtime, um jede Änderung zu erkennen.
  */
+/**
+ * Nur die Tagesdateien des Mitschriebs.
+ *
+ * Der Name ist Teil des Formats: `YYYY-MM-DD.jsonl`. Was anders heißt, gehört
+ * jemand anderem — eine halb zurückgespielte Sicherung, ein Export, eine von
+ * Hand angelegte Datei.
+ *
+ * Vorher genügte die Endung, und eine einzige fremde Datei konnte die gesamte
+ * Auswertung kippen: Eine Zeile ohne `ts` reichte, um alle siebzehn Routen
+ * dauerhaft auf HTTP 500 zu setzen — ohne eine Seite, von der aus man das
+ * hätte diagnostizieren können. Der Download unter `/mitschrieb.jsonl`
+ * erzeugt genau so eine Datei, was die Regel von einer Vorsichtsmaßnahme zu
+ * einer Notwendigkeit macht.
+ */
+const DAY_FILE = /^\d{4}-\d{2}-\d{2}\.jsonl$/;
+
 function signature(dir: string): string {
   try {
     return fs
       .readdirSync(dir)
-      .filter((f) => f.endsWith('.jsonl'))
+      .filter((f) => DAY_FILE.test(f))
       .sort()
       .map((f) => {
         const st = fs.statSync(path.join(dir, f));
@@ -443,7 +460,7 @@ function dayFiles(dir: string): string[] {
   try {
     return fs
       .readdirSync(dir)
-      .filter((f) => f.endsWith('.jsonl'))
+      .filter((f) => DAY_FILE.test(f))
       .sort();
   } catch {
     return [];
@@ -1421,7 +1438,10 @@ function renderPage(
               )}" placeholder="${esc(L.pfProvider)}">
               <button type="submit">${esc(L.pfSave)}</button>
               <em></em>
-            </form>`
+            </form>
+<p class="hint" style="color:var(--dim);font-size:13px;line-height:1.5;margin:16px 0 0">
+  <a href="/mitschrieb.jsonl">${esc(L.backupLink)}</a> — ${esc(L.backupNote)}
+</p>`
           : '';
 
       // Ohne Kurve (zu wenige Messpunkte) gäbe es keinen Schalter für die
@@ -2554,6 +2574,7 @@ function renderStatus(
               .replace('%n', days),
     };
   };
+  const tyreWarn = tyreTrend(samples);
   const tyreRows = tyre
     ? tyre.value
         .map((bar, i) => {
@@ -2707,7 +2728,29 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim)
 ${REFRESH_NOTE}
 ${
   tyre
-    ? `<h2>${esc(L.stTyrePressure)} · ${esc(ago(tyre.at))}</h2><div class="wheels">${tyreRows}</div>`
+    ? `<h2>${esc(L.stTyrePressure)} · ${esc(ago(tyre.at))}</h2>${
+        // Die Warnung VOR den Rädern, nicht darunter: Wer die Seite
+        // überfliegt, soll sie sehen, ohne vier Sparklines zu vergleichen.
+        //
+        // Sie unterscheidet, was die Einzelanzeige nicht kann: Fallen alle
+        // vier Räder gemeinsam, war es das Wetter — zwischen kalter Nacht und
+        // warmem Nachmittag liegen leicht 0,1 bar. Ein Loch betrifft eines.
+        tyreWarn.dropping.length > 0
+          ? `<div class="quality warn">${esc(
+              tyreWarn.dropping
+                .map((d) =>
+                  fill(
+                    L.tyreLosing,
+                    [L.wheelFL, L.wheelFR, L.wheelRL, L.wheelRR][d.wheel],
+                    d.fromBar.toFixed(1),
+                    d.toBar.toFixed(1),
+                    d.days,
+                  ),
+                )
+                .join(' · '),
+            )}</div>`
+          : ''
+      }<div class="wheels">${tyreRows}</div>`
     : `<div class="empty">${esc(L.stNoTyreData)}</div>`
 }
 <h2>${esc(L.stVehicle)}</h2>
@@ -3664,6 +3707,48 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
         );
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         res.end(page);
+        return;
+      }
+      /**
+       * Der ganze Mitschrieb als eine Datei.
+       *
+       * Die JSONL-Dateien sind das eigentliche Kapital dieses Plugins: die
+       * einzige Quelle für Kapazität, Verbrauch, Ladehistorie und jeden
+       * Nachweis — und nicht nachträglich zu beschaffen. Ohne Download gab es
+       * keinen Umzugsweg auf einen neuen Rechner; wer ihn wechselte, fing bei
+       * null an.
+       *
+       * Mitgenommen werden NUR Tagesdateien. Eine einzelne fremde Datei im
+       * Log-Verzeichnis hat das Dashboard schon einmal komplett lahmgelegt;
+       * dieselbe Vorsicht gilt hier, damit ein Backup nicht mitnimmt, was
+       * niemand darin erwartet.
+       */
+      if (url.pathname === '/mitschrieb.jsonl') {
+        res.writeHead(200, {
+          'content-type': 'application/x-ndjson; charset=utf-8',
+          'content-disposition': `attachment; filename="taycan-mitschrieb-${new Date()
+            .toISOString()
+            .slice(0, 10)}.jsonl"`,
+        });
+        let dateien: string[] = [];
+        try {
+          dateien = fs
+            .readdirSync(o.logDir)
+            .filter((f) => DAY_FILE.test(f))
+            .sort();
+        } catch {
+          // Kein Verzeichnis, keine Sicherung — aber auch kein Fehler: Ein
+          // frisch eingerichtetes Plugin hat schlicht noch nichts.
+        }
+        for (const f of dateien) {
+          try {
+            res.write(fs.readFileSync(path.join(o.logDir, f)));
+          } catch {
+            // Eine unlesbare Tagesdatei darf die Sicherung der übrigen nicht
+            // verhindern — gerade im Fehlerfall will man retten, was geht.
+          }
+        }
+        res.end();
         return;
       }
       if (url.pathname === '/manifest.json') {

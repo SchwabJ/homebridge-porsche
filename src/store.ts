@@ -206,7 +206,7 @@ export function readSamplesRange(
  * eine von Hand angelegte Datei. Vorher genügte die Endung, und eine
  * einzige fremde Datei konnte die gesamte Auswertung kippen.
  */
-const DAY_FILE = /^\d{4}-\d{2}-\d{2}\.jsonl$/;
+export const DAY_FILE = /^\d{4}-\d{2}-\d{2}\.jsonl$/;
 
 function dayFiles(dir: string): string[] {
   try {

@@ -4,6 +4,36 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.18.0] — 2026-08-01
+
+### Added
+- **Charging power as a second line in the charge curve.** The curve showed
+  only the state of charge; how hard the car was charging appeared solely in
+  the crosshair on hover, so nowhere for anyone just looking at it. On a
+  charge curve that is half the story: on AC the power runs flat, at a rapid
+  charger it tapers off as the level rises, and that taper is exactly what you
+  want to see. Scaled to this charge's own maximum, labelled — an 11 kW
+  wallbox against a 270 kW axis would be a line stuck to the floor.
+- **Warning for a slow puncture.** Tyre pressure has always been recorded, and
+  each wheel had a sparkline; what was missing is the distinction that
+  matters. Pressure follows temperature — a cold night against a warm
+  afternoon is easily 0.1 bar — so judging one wheel on its own reports four
+  flat tyres every autumn. A puncture affects **one** wheel, so what counts
+  here is the loss relative to the other three.
+- **Download the whole log as one file** (`/mitschrieb.jsonl`, linked from
+  settings). The JSONL files are this plugin's actual capital: the only source
+  for capacity, consumption and every report, and impossible to obtain
+  afterwards. There was no download, no backup and no way to move to a new
+  machine.
+
+### Fixed
+- **A stray `.jsonl` file in the log directory could still take everything
+  down.** Day files were recognised by their extension alone, so a
+  half-restored backup or an export was read as if it were a recording — one
+  line without a timestamp used to put all routes on HTTP 500 permanently. The
+  name is now part of the format (`YYYY-MM-DD.jsonl`). The new download makes
+  this necessary rather than merely careful: it produces exactly such a file.
+
 ## [0.17.0] — 2026-08-01
 
 ### Added

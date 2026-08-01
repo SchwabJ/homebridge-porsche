@@ -143,6 +143,41 @@ export function chargeCurve(
   ].join('');
 
   const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.soc).toFixed(1)}`).join('');
+
+  /**
+   * Die Ladeleistung als zweite Linie, mit eigener Skala.
+   *
+   * An einer Ladekurve ist sie die zweite Hälfte der Auskunft: Bei
+   * Wechselstrom läuft sie flach, an einer Schnellladesäule fällt sie mit
+   * steigendem Ladestand ab — und genau dieser Abfall ist das, was man sehen
+   * will. Bisher stand die Leistung nur im Crosshair-Text beim Überfahren,
+   * also nirgends für den, der die Kurve bloß ansieht.
+   *
+   * Eigene Skala auf den Höchstwert dieser Ladung, nicht auf eine feste
+   * Obergrenze: Eine 11-kW-Wallbox neben einer 270-kW-Skala ergäbe eine
+   * Linie, die am Boden klebt. Der Höchstwert steht als Beschriftung dabei,
+   * sonst wäre die Linie ohne Bezugsgröße nur Dekoration.
+   *
+   * Gezeichnet wird nur, wo Messwerte sind. Ältere Ladungen tragen keine
+   * Leistung, und eine Linie auf null wäre eine Behauptung statt einer
+   * Messung.
+   */
+  const kwPts = pts.filter((p): p is typeof p & { kw: number } => p.kw !== undefined && p.kw > 0);
+  const kwMax = kwPts.reduce((m, p) => Math.max(m, p.kw), 0);
+  const kwLine =
+    kwPts.length >= 2 && kwMax > 0
+      ? `<path class="kw" d="${kwPts
+          .map(
+            (p, i) =>
+              `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${(
+                PAD.t +
+                (1 - p.kw / kwMax) * (H - PAD.t - PAD.b)
+              ).toFixed(1)}`,
+          )
+          .join('')}"/><text class="ax kwax" x="${W - PAD.r - 2}" y="${(PAD.t + 9).toFixed(
+          1,
+        )}">${kwMax % 1 === 0 || kwMax >= 100 ? kwMax.toFixed(0) : kwMax.toFixed(1)} kW</text>`
+      : '';
   const area =
     `M${x(pts[0].t).toFixed(1)},${(H - PAD.b).toFixed(1)}` +
     pts.map((p) => `L${x(p.t).toFixed(1)},${y(p.soc).toFixed(1)}`).join('') +
@@ -205,6 +240,7 @@ export function chargeCurve(
   ${bands}${marks}
   <path class="fill" d="${area}"/>
   <path class="ln" d="${line}"/>
+  ${kwLine}
   ${axis}${hover}
 </svg>
 <div class="curvetime"><span>${esc(uhr(t0))}</span><em>${esc(dauer)}</em><span>${esc(
@@ -226,7 +262,14 @@ export const CHART_CSS = `
 .curve .fill{fill:url(#cg)}
 .curve .ln{fill:none;stroke:var(--accent);stroke-width:2;stroke-linejoin:round;
  stroke-linecap:round;vector-effect:non-scaling-stroke}
+/* Die Leistung: dünner und in Orange, damit sie den Ladestand nicht
+   überstimmt. Der ist die Hauptaussage der Kurve, die Leistung erklärt ihn —
+   deshalb gestrichelt und ohne Fläche. */
+.curve .kw{fill:none;stroke:#e08a2e;stroke-width:1.4;stroke-dasharray:4 3;
+ stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke;opacity:.9}
 .curve .ax{fill:var(--dim);font-size:10px}
+.curve .ax.kwax{fill:#e08a2e;text-anchor:end;font-size:9.5px}
+@media(prefers-color-scheme:dark){.curve .kw{stroke:#f0a44e}.curve .ax.kwax{fill:#f0a44e}}
 .curve .ax.mk{font-size:9.5px;opacity:.85}
 .curvewrap{position:relative;touch-action:pan-y}
 .curvetime{display:flex;justify-content:space-between;align-items:baseline;

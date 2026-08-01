@@ -2826,10 +2826,17 @@ function renderBattery(o: DashboardOptions, r: BatteryReport): string {
       ? `${stamp(r.firstAt)} – ${stamp(r.lastAt)}`
       : '—';
 
+  const monat = (m: string): string =>
+    new Date(`${m}-01T12:00:00Z`).toLocaleDateString(L.locale, {
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'UTC',
+    });
+
   const verlauf = r.months
     .map(
       (m) => `<tr>
-        <td>${esc(m.month)}</td>
+        <td>${esc(monat(m.month))}</td>
         <td class="num">${m.kwh.toFixed(1)}</td>
         <td class="num">${m.samples}</td>
       </tr>`,

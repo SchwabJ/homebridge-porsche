@@ -2636,4 +2636,40 @@ describe('Seite /batterie — der Nachweis', () => {
   it('ist druckbar wie Beleg und Fahrtenbericht', async () => {
     expect((await seite('en')).html).toContain('window.print()');
   });
+
+  it('schreibt die Monate im Verlauf aus, statt den rohen Schlüssel zu zeigen', async () => {
+    // Der Verlauf ist der Kern des Nachweises — „2026-01" statt „January 2026"
+    // sieht nach Rohdaten aus, nicht nach einem Dokument.
+    //
+    // Zwanzig Entladezyklen im Wochenabstand: Ein Zyklus ist eine Fahrstrecke
+    // zwischen zwei Ladungen, ein Monatswert braucht deren zwei, und der
+    // Verlauf braucht vier solche Monate. Ein loserer Takt ergibt Zyklen ohne
+    // einen einzigen Monatswert — dann prüft der Test nichts, und genau das
+    // war der erste Anlauf.
+    const rows: string[] = [];
+    let km = 50000;
+    let t = Date.UTC(2026, 0, 3);
+    for (let i = 0; i < 20; i++) {
+      rows.push(
+        JSON.stringify({ ts: new Date(t).toISOString(), soc: 80, odometerKm: km, plugged: true, charging: true }),
+        JSON.stringify({ ts: new Date(t + 36e5).toISOString(), soc: 80, odometerKm: km, plugged: false, tripKwh100: 20 }),
+        JSON.stringify({ ts: new Date(t + 20 * 36e5).toISOString(), soc: 40, odometerKm: km + 170, plugged: false, tripKwh100: 20 }),
+      );
+      km += 170;
+      t += 7 * 864e5;
+    }
+    const byDay: Record<string, string[]> = {};
+    for (const r of rows) {
+      const tag = (JSON.parse(r) as { ts: string }).ts.slice(0, 10);
+      (byDay[tag] ??= []).push(r);
+    }
+    for (const [d, rs] of Object.entries(byDay)) {
+      fs.writeFileSync(path.join(dir, `${d}.jsonl`), rs.join('\n') + '\n', 'utf8');
+    }
+    const html = (await seite('en')).html;
+    // Der Verlauf MUSS entstanden sein — sonst prüft der Rest nichts.
+    expect(html).toContain('<tbody>');
+    expect(html).toContain('January 2026');
+    expect(html).not.toMatch(/<td>\d{4}-\d{2}<\/td>/);
+  });
 });

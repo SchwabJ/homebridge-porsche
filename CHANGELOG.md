@@ -4,6 +4,31 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.16.0] — 2026-08-01
+
+### Added
+- **Optional password for the dashboard**, and a configurable bind address.
+  The page listens on all interfaces and handed anyone on the network your
+  charging history, odometer and home/away status without asking. For a plugin
+  distributed publicly that is not a hardening detail but a real gap: a guest
+  on the Wi-Fi, an IoT device or a compromised TV all read along without doing
+  anything wrong.
+
+  **The default stays unprotected on purpose** — changing it would lock out
+  every existing installation, and someone who trusts their home network
+  should keep the choice. What is new is that the choice exists. Set
+  `dashboardPassword` and any username works; only the password is checked,
+  in constant time. `dashboardBind` can restrict the page to `127.0.0.1`, for
+  instance behind your own reverse proxy.
+
+  The web manifest stays open — the browser fetches it without credentials,
+  and a 401 would leave the home-screen entry without an icon or name. It
+  carries no vehicle data.
+
+  The startup log now states the actual situation instead of always warning. A
+  warning that also appeared with a password set would be background noise by
+  the third restart — and then the people it concerns stop reading it too.
+
 ## [0.15.0] — 2026-08-01
 
 ### Added

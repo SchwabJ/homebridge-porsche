@@ -132,6 +132,17 @@ export interface ResolvedPorscheConfig {
   /** Port des Ladehistorie-Dashboards; 0 = aus. */
   dashboardPort: number;
   /**
+   * Passwort für das Dashboard. Leer = kein Schutz.
+   *
+   * Der Standard bleibt bewusst leer: Ein Wechsel würde jede bestehende
+   * Installation aussperren. Wer im Netz Gäste, IoT-Geräte oder einen
+   * Fernseher hat, sollte eines setzen — ohne liest jeder im WLAN die
+   * Ladehistorie mit.
+   */
+  dashboardPassword?: string;
+  /** Bindeadresse des Dashboards; leer = alle Schnittstellen. */
+  dashboardBind?: string;
+  /**
    * Poll-Intervall in Minuten, solange das Kabel steckt (Minimum 1).
    *
    * Darf bewusst unter der 12V-Untergrenze liegen: Am Kabel hängt das
@@ -197,6 +208,8 @@ export const DEFAULT_CONFIG: ResolvedPorscheConfig = {
   externalPricePerKwhCt: 0,
   capacityKwh: 83.7,
   dashboardPort: 8099,
+  dashboardPassword: undefined,
+  dashboardBind: undefined,
   pluggedPollMinutes: 1,
   dayBoundaryHour: 0,
   chargeWindowFrom: undefined,

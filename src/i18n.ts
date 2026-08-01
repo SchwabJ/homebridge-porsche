@@ -257,6 +257,35 @@ export interface Labels {
   stOdometer: string;
   stLast7Days: string;
   stChargeLevel: string;
+  /**
+   * Texte der Push-Meldungen.
+   *
+   * Sie waren als einzige fest deutsch — ein Nutzer in England bekam einen
+   * englischen Bildschirm und eine deutsche Benachrichtigung aufs Telefon.
+   */
+  pushReportTitle: string;
+  pushSessionTitle: string;
+  pushAbortedTitle: string;
+  pushStallTitle: string;
+  pushYesterday: string;
+  pushNoCharge: string;
+  pushDriven: string;
+  pushAverage: string;
+  pushFor: string;
+  pushLevel: string;
+  /** „Am Kabel: 10 h, davon 3 h geladen" — {0} Kabelzeit, {1} reine Ladezeit. */
+  pushCableLine: string;
+  pushPeak: string;
+  /** „Nur 55 % statt 80 %" — {0} erreicht, {1} Ziel. */
+  pushAbortedLine: string;
+  /** Erklärt, warum das ein Abbruch war und kein Ausstecken. */
+  pushAbortedCable: string;
+  /** „Steht bei 55 %, Ziel 80 %" — {0} erreicht, {1} Ziel. */
+  pushStallLine: string;
+  /** Ohne bekannten Ladestand. */
+  pushStallLinePlain: string;
+  /** „Noch am Kabel seit 3 h 20 min" — {0} Dauer. */
+  pushStallSince: string;
   stRangeSuffix: string;
   stSecurity: string;
   stLocked: string;
@@ -531,6 +560,23 @@ export const LABELS_EN: Labels = {
   stOdometer: 'Odometer',
   stLast7Days: 'Last 7 days',
   stChargeLevel: 'Charge level',
+  pushReportTitle: 'charging report',
+  pushSessionTitle: 'charging finished',
+  pushAbortedTitle: 'charging aborted',
+  pushStallTitle: 'charging stalled',
+  pushYesterday: 'Yesterday',
+  pushNoCharge: 'no charging',
+  pushDriven: 'Driven',
+  pushAverage: 'Average',
+  pushFor: 'for',
+  pushLevel: 'Charge level',
+  pushCableLine: 'Plugged in: {0}, charging for {1}',
+  pushPeak: 'Peak',
+  pushAbortedLine: 'Only {0} % instead of {1} %',
+  pushAbortedCable: 'the car was still plugged in and stopped charging.',
+  pushStallLine: 'At {0} %, target {1} % — no power for over two hours.',
+  pushStallLinePlain: 'No power for over two hours, and the target is not reached.',
+  pushStallSince: 'Still plugged in for {0}.',
   stRangeSuffix: 'km of range',
   stSecurity: 'Security',
   stLocked: 'Locked',
@@ -801,6 +847,23 @@ export const LABELS_DE: Labels = {
   stOdometer: 'Kilometerstand',
   stLast7Days: 'Letzte 7 Tage',
   stChargeLevel: 'Ladestand',
+  pushReportTitle: 'Ladebericht',
+  pushSessionTitle: 'Ladung beendet',
+  pushAbortedTitle: 'Ladung abgebrochen',
+  pushStallTitle: 'Ladung hängt',
+  pushYesterday: 'Gestern',
+  pushNoCharge: 'keine Ladung',
+  pushDriven: 'Gefahren',
+  pushAverage: 'Schnitt',
+  pushFor: 'für',
+  pushLevel: 'Ladestand',
+  pushCableLine: 'Am Kabel: {0}, davon {1} geladen',
+  pushPeak: 'Spitze',
+  pushAbortedLine: 'Nur {0} % statt {1} %',
+  pushAbortedCable: 'das Auto stand noch am Kabel und hat aufgehört zu laden.',
+  pushStallLine: 'Steht bei {0} %, Ziel {1} % — seit über zwei Stunden fließt kein Strom.',
+  pushStallLinePlain: 'Seit über zwei Stunden fließt kein Strom, das Ziel ist nicht erreicht.',
+  pushStallSince: 'Noch am Kabel seit {0}.',
   stRangeSuffix: 'km Reichweite',
   stSecurity: 'Sicherung',
   stLocked: 'Verriegelt',
@@ -878,4 +941,19 @@ export const LABELS_DE: Labels = {
 /** Liefert den Label-Satz für die gewählte Sprache (Fallback Englisch). */
 export function labelsFor(language: Language): Labels {
   return language === 'de' ? LABELS_DE : LABELS_EN;
+}
+
+/**
+ * Ersetzt `{0}`, `{1}`, … in einem Label durch die übergebenen Werte.
+ *
+ * Nötig, weil sich Satzbau zwischen Sprachen unterscheidet: „Only 55 %
+ * instead of 80 %" und „Nur 55 % statt 80 %" tragen dieselben Zahlen an
+ * verschiedenen Stellen. Ein zusammengestückelter Satz aus Textfragmenten
+ * ergäbe in der einen Sprache Sinn und in der anderen Kauderwelsch.
+ */
+export function fill(template: string, ...values: Array<string | number>): string {
+  return template.replace(/\{(\d+)\}/g, (treffer, i) => {
+    const v = values[Number(i)];
+    return v === undefined ? treffer : String(v);
+  });
 }

@@ -2673,3 +2673,69 @@ describe('Seite /batterie — der Nachweis', () => {
     expect(html).not.toMatch(/<td>\d{4}-\d{2}<\/td>/);
   });
 });
+
+describe('Seite /jahresbeleg — der Nachweis fürs Finanzamt', () => {
+  // Seit dem 01.01.2026 entfallen in Deutschland die monatlichen Pauschalen
+  // für zuhause geladenen Dienstwagenstrom. Die steuerfreie Erstattung setzt
+  // einen kWh-Nachweis voraus, und der wird fürs Jahr eingereicht.
+  let dir: string;
+  let port = 19998;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jahr-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const hole = async (
+    pfad: string,
+    sprache: 'en' | 'de' = 'en',
+  ): Promise<{ status: number; body: string; typ: string }> => {
+    const server = startDashboard({
+      port: port++,
+      logDir: dir,
+      capacityKwh: 83.7,
+      pricePerKwh: 0.2,
+      priceCt: 30,
+      bonusCt: 0,
+      externalPriceCt: 0,
+      dayBoundaryHour: 0,
+      vehicleName: 'Taycan',
+      uiPort: 8581,
+      labels: labelsFor(sprache),
+    });
+    if (!server) {
+      throw new Error('kein Server');
+    }
+    await new Promise((r) => server.once('listening', r));
+    const a = server.address();
+    const res = await fetch(`http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}${pfad}`);
+    const body = await res.text();
+    server.close();
+    return { status: res.status, body, typ: res.headers.get('content-type') ?? '' };
+  };
+
+  it('antwortet auch ohne Ladungen, statt mit einem Fehler', async () => {
+    const { status, body } = await hole('/jahresbeleg');
+    expect(status).toBe(200);
+    expect(body).toContain('Nothing was charged');
+  });
+
+  it('erklärt in beiden Sprachen, warum nur zuhause zählt', async () => {
+    expect((await hole('/jahresbeleg', 'en')).body).toContain('Annual statement');
+    expect((await hole('/jahresbeleg', 'de')).body).toContain('Jahresnachweis');
+  });
+
+  it('liefert den Nachweis auch als CSV', async () => {
+    const { status, typ, body } = await hole('/jahresbeleg.csv');
+    expect(status).toBe(200);
+    expect(typ).toMatch(/csv/);
+    expect(body).toContain('Fahrzeug;Taycan');
+  });
+
+  it('ist vom Monatsbeleg aus erreichbar', async () => {
+    expect((await hole('/beleg')).body).toContain('/jahresbeleg');
+  });
+});

@@ -17,6 +17,8 @@ import { PorscheCommand } from './api/commands';
 import { clampPollInterval, effectivePollMinutes } from './wake';
 import { chargeWindowAction, externallyPaced, parseWindow } from './chargeWindow';
 import { analyzeIdle, idleAlarm, idleStats, IDLE_ALARM_PCT_PER_DAY } from './idle';
+import { buildBatteryReport, healthAlarm, HEALTH_ALARM_PCT } from './batteryReport';
+import { estimateCapacity } from './capacity';
 import { chargingStart, chargingStop } from './api/commands';
 import { appendSample } from './chargeLog';
 import { startDashboard, readSamples } from './dashboard';
@@ -28,6 +30,7 @@ import {
   buildSessionMessage,
   buildStallMessage,
   buildIdleMessage,
+  buildHealthMessage,
   stalledToWarn,
   msUntilHour,
   type NotifyConfig,
@@ -70,6 +73,15 @@ const IDLE_WARN_GAP_MS = 7 * 24 * 60 * 60000;
  * sich über Tage bewegt, und halten die Last aus dem Poll-Takt heraus.
  */
 const IDLE_CHECK_GAP_MS = 6 * 60 * 60000;
+
+/**
+ * Mindestabstand zwischen zwei Warnungen zur Batteriegesundheit.
+ *
+ * Deutlich länger als beim Ruheverlust: Eine Batterie altert über Jahre. Wer
+ * die Meldung einmal im Monat bekommt, hat sie verstanden — häufiger wäre sie
+ * eine Mahnung ohne neuen Inhalt.
+ */
+const HEALTH_WARN_GAP_MS = 30 * 24 * 60 * 60000;
 
 /**
  * Wie lange ein zuletzt bekannter Steckerzustand weitergilt, wenn die API
@@ -586,6 +598,8 @@ export class PorschePlatform implements DynamicPlatformPlugin {
 
   /** Zeitpunkt der letzten Ruheverlust-Warnung. */
   private idleWarnedAt = 0;
+  /** Zeitpunkt der letzten Warnung zur Batteriegesundheit. */
+  private healthWarnedAt = 0;
   /** Zeitpunkt der letzten Ruheverlust-PRÜFUNG — sie ist teuer. */
   private idleCheckedAt = 0;
 
@@ -607,31 +621,40 @@ export class PorschePlatform implements DynamicPlatformPlugin {
     // Auswertung über die ganze Historie bei JEDEM Poll — die Warnsperre
     // greift ja erst, wenn tatsächlich gewarnt wurde, also nie im Normalfall.
     const jetzt = Date.now();
-    if (
-      !c.ntfyTopic ||
-      jetzt - this.idleCheckedAt < IDLE_CHECK_GAP_MS ||
-      jetzt - this.idleWarnedAt < IDLE_WARN_GAP_MS
-    ) {
+    if (!c.ntfyTopic || jetzt - this.idleCheckedAt < IDLE_CHECK_GAP_MS) {
       return;
     }
     this.idleCheckedAt = jetzt;
     try {
       // Direkt statt über den Statistik-Cache: Gebraucht wird allein die
       // Ruhebilanz, und die hängt an keinem Preis.
-      const stats = idleStats(analyzeIdle(readSamples(this.logDir)), c.capacityKwh);
+      const samples = readSamples(this.logDir);
+      const stats = idleStats(analyzeIdle(samples), c.capacityKwh);
       const alarm = idleAlarm(stats, IDLE_ALARM_PCT_PER_DAY);
-      if (!alarm || !stats) {
-        return;
+      if (alarm && stats && jetzt - this.idleWarnedAt >= IDLE_WARN_GAP_MS) {
+        this.idleWarnedAt = jetzt;
+        const { title, message } = buildIdleMessage(
+          alarm,
+          stats.observedDays,
+          labelsFor(c.language),
+          c.vehicleName,
+        );
+        void sendNotification(this.notifyConfig(), title, message);
+        this.log.warn(`High idle drain reported: ${alarm.socPerDay.toFixed(1)} %/day.`);
       }
-      this.idleWarnedAt = jetzt;
-      const { title, message } = buildIdleMessage(
-        alarm,
-        stats.observedDays,
-        labelsFor(c.language),
-        c.vehicleName,
-      );
-      void sendNotification(this.notifyConfig(), title, message);
-      this.log.warn(`High idle drain reported: ${alarm.socPerDay.toFixed(1)} %/day.`);
+      // Dieselbe Gelegenheit für die Batteriegesundheit: Beide Auswertungen
+      // brauchen die Historie, und die ist gerade gelesen. Eigene Sperre,
+      // damit nicht eine Warnung die andere unterdrückt.
+      if (jetzt - this.healthWarnedAt >= HEALTH_WARN_GAP_MS) {
+        const bericht = buildBatteryReport(estimateCapacity(samples), c.capacityKwh);
+        const h = healthAlarm(bericht, HEALTH_ALARM_PCT);
+        if (h) {
+          this.healthWarnedAt = jetzt;
+          const { title, message } = buildHealthMessage(h, labelsFor(c.language), c.vehicleName);
+          void sendNotification(this.notifyConfig(), title, message);
+          this.log.warn(`Battery health reported: ${h.healthPct.toFixed(1)} %.`);
+        }
+      }
     } catch (err) {
       this.log.warn(`Idle-drain check failed: ${String(err)}`);
     }

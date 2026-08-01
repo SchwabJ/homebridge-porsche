@@ -41,7 +41,16 @@ import {
 } from './capacity';
 import { buildTrips, summarizeTrips, type Trip } from './trips';
 import { analyzeIdle, idleStats } from './idle';
-import { buildReceipt, receiptCsv, receiptMonths, type Receipt } from './receipt';
+import {
+  buildReceipt,
+  buildYearReceipt,
+  receiptCsv,
+  receiptMonths,
+  receiptYears,
+  yearReceiptCsv,
+  type Receipt,
+  type YearReceipt,
+} from './receipt';
 import { tripsCsv, sessionsCsv } from './csv';
 import { buildTripReport, tripMonths, type TripReport } from './tripReport';
 import { buildBatteryReport, type BatteryReport } from './batteryReport';
@@ -2901,6 +2910,86 @@ ${
 </body></html>`;
 }
 
+/**
+ * Der Jahresnachweis als druckbare Seite.
+ *
+ * Seit dem 01.01.2026 entfallen in Deutschland die monatlichen Pauschalen für
+ * zuhause geladenen Dienstwagenstrom; eine steuerfreie Erstattung setzt einen
+ * Nachweis der geladenen Kilowattstunden voraus. Der wird fürs Jahr
+ * eingereicht — sonst müsste man zwölf Monatsbelege ausdrucken und selbst
+ * addieren.
+ *
+ * ZUHAUSE STEHT VORN, weil nur das erstattet wird: Unterwegs rechnet der
+ * Ladeanbieter selbst ab. Die anderen Summen bleiben trotzdem stehen — wer
+ * den Beleg einreicht, will nicht erklären müssen, wo der Rest geblieben ist.
+ */
+function renderYearReceipt(o: DashboardOptions, r: YearReceipt, years: string[]): string {
+  const L = o.labels;
+  const monatsname = (m: string): string =>
+    new Date(`${m}-01T12:00:00Z`).toLocaleDateString(L.locale, {
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'UTC',
+    });
+  const zahl = (n: number): string => n.toLocaleString(L.locale, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const zeile = (
+    label: string,
+    g: { kwh: number; costEur: number; count: number },
+    klasse = '',
+  ): string =>
+    `<tr${klasse ? ` class="${klasse}"` : ''}>
+      <td>${esc(label)}</td>
+      <td class="num">${g.count || ''}</td>
+      <td class="num">${g.kwh > 0 ? zahl(g.kwh) : ''}</td>
+      <td class="num">${g.costEur > 0 ? zahl(g.costEur) : ''}</td>
+    </tr>`;
+
+  const monate = r.months.map((m) => zeile(monatsname(m.month), m.home)).join('');
+
+  return `<!doctype html>
+<html lang="${esc(L.locale.slice(0, 2))}"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>${esc(o.vehicleName)} — ${esc(L.yrTitle)} ${esc(r.year)}</title>
+<style>${BASE_CSS}
+${REPORT_CSS}
+.hint{color:var(--dim);font-size:13px;line-height:1.5;margin:10px 0}
+</style></head><body>
+<h1><span>${esc(L.yrTitle)}</span><em><a class="back" href="/beleg">${esc(
+    L.yrBackToMonth,
+  )}</a></em></h1>
+<div class="months">${years
+    .map(
+      (y) =>
+        `<a href="/jahresbeleg?y=${encodeURIComponent(y)}"${y === r.year ? ' class="on"' : ''}>${esc(
+          y,
+        )}</a>`,
+    )
+    .join('')}</div>
+<div class="tools">
+  <a href="/jahresbeleg.csv?y=${encodeURIComponent(r.year)}">${esc(L.rcCsv)}</a>
+  <a href="#" onclick="window.print();return false">${esc(L.battPrint)}</a>
+</div>
+${
+  r.months.length
+    ? `<div class="wrap"><table>
+        <thead><tr><th>${esc(L.yrHomeCharged)}</th><th class="num">${esc(L.yrCharges)}</th>
+        <th class="num">kWh</th><th class="num">EUR</th></tr></thead>
+        <tbody>${monate}</tbody>
+        <tfoot>${zeile(fill(L.yrTotal, r.year), r.home, 'sum')}${
+          r.away.count > 0 ? zeile(L.yrAlsoAway, r.away) : ''
+        }${r.unknown.count > 0 ? zeile(L.yrAlsoUnknown, r.unknown) : ''}</tfoot>
+      </table></div>
+<p class="hint">${esc(L.yrNote)}</p>`
+    : `<div class="empty">${esc(L.yrEmpty)}</div>`
+}
+<p class="foot">${esc(o.vehicleName)} · ${esc(r.year)}</p>
+</body></html>`;
+}
+
 function renderReceipt(
   o: DashboardOptions,
   r: Receipt,
@@ -2971,6 +3060,7 @@ ${REPORT_CSS}
 <div class="tools">
   <a href="/beleg.csv?m=${encodeURIComponent(r.month)}">${esc(L.rcCsv)}</a>
   <a href="#" onclick="window.print();return false">${esc(L.rcPrint)}</a>
+  <a href="/jahresbeleg?y=${encodeURIComponent(r.month.slice(0, 4))}">${esc(L.yrLink)}</a>
 </div>
 ${
   r.lines.length
@@ -3266,6 +3356,25 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
         return;
       }
       // Der Fahrtenbericht — dieselbe Form wie der Ladebeleg.
+      // Der Jahresnachweis — seit 2026 verlangt die steuerfreie
+      // Arbeitgeber-Erstattung einen Nachweis über die geladenen kWh.
+      if (url.pathname === '/jahresbeleg' || url.pathname === '/jahresbeleg.csv') {
+        const { sessions } = load();
+        const years = receiptYears(sessions);
+        const gewuenscht = url.searchParams.get('y');
+        const year =
+          gewuenscht && years.includes(gewuenscht)
+            ? gewuenscht
+            : (years[0] ?? String(new Date().getFullYear()));
+        const r = buildYearReceipt(sessions, year);
+        if (url.pathname === '/jahresbeleg.csv') {
+          csvAntwort(res, `jahresbeleg-${year}.csv`, yearReceiptCsv(r, o.vehicleName));
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end(renderYearReceipt(o, r, years));
+        return;
+      }
       // Der Batterie-Nachweis. Eigene Seite, weil eine Zahl auf einer Kachel
       // beim Verkauf oder im Garantiefall niemanden überzeugt.
       if (url.pathname === '/batterie') {

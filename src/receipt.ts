@@ -196,3 +196,111 @@ export function receiptMonths(sessions: ChargeSession[]): string[] {
   }
   return [...set].sort().reverse();
 }
+
+export interface YearMonth {
+  /** Monat als `YYYY-MM`. */
+  month: string;
+  home: ReceiptGroup;
+  away: ReceiptGroup;
+  unknown: ReceiptGroup;
+}
+
+export interface YearReceipt {
+  /** Jahr als `YYYY`. */
+  year: string;
+  /** Monate mit Ladungen, aufsteigend. Leere Monate fehlen. */
+  months: YearMonth[];
+  home: ReceiptGroup;
+  away: ReceiptGroup;
+  unknown: ReceiptGroup;
+}
+
+/**
+ * Der Jahresnachweis — Monatssummen und die Jahressumme.
+ *
+ * ## Wozu
+ *
+ * Seit dem 01.01.2026 entfallen in Deutschland die monatlichen Pauschalen für
+ * zuhause geladenen Dienstwagenstrom. Eine steuerfreie Erstattung durch den
+ * Arbeitgeber setzt seither einen Nachweis der geladenen Kilowattstunden
+ * voraus — und der wird fürs Jahr eingereicht, nicht für einen Monat. Bisher
+ * hätte man zwölf Belege ausdrucken und selbst addieren müssen.
+ *
+ * ## Warum Monatssummen statt aller Ladungen
+ *
+ * Ein Jahr bringt schnell zweihundert Zeilen zusammen. Wer erstattet bekommen
+ * will, braucht die Summe je Monat und die Jahressumme; die Einzelnachweise
+ * liegen im Monatsbeleg bereit, falls jemand nachfragt.
+ *
+ * Zugeordnet wird wie dort nach dem STARTZEITPUNKT: Eine Ladung wird als
+ * Ganzes bezahlt und gehört genau einem Monat. Laufende bleiben draußen —
+ * was noch am Kabel hängt, ist nicht abgerechnet.
+ */
+export function buildYearReceipt(sessions: ChargeSession[], year: string): YearReceipt {
+  const byMonth = new Map<string, YearMonth>();
+  const jahr: Pick<YearReceipt, 'home' | 'away' | 'unknown'> = {
+    home: empty(),
+    away: empty(),
+    unknown: empty(),
+  };
+
+  for (const s of sessions) {
+    if (!s.complete || s.startedAt.slice(0, 4) !== year) {
+      continue;
+    }
+    const key = s.startedAt.slice(0, 7);
+    let m = byMonth.get(key);
+    if (!m) {
+      m = { month: key, home: empty(), away: empty(), unknown: empty() };
+      byMonth.set(key, m);
+    }
+    const wohin = s.atHome === true ? 'home' : s.atHome === false ? 'away' : 'unknown';
+    for (const ziel of [m[wohin], jahr[wohin]]) {
+      ziel.kwh = round2(ziel.kwh + (s.energyKwh ?? 0));
+      ziel.costEur = round2(ziel.costEur + (s.costEur ?? 0));
+      ziel.count += 1;
+    }
+  }
+
+  return {
+    year,
+    months: [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month)),
+    ...jahr,
+  };
+}
+
+/** Die Jahre mit abgerechneten Ladungen, jüngstes zuerst. */
+export function receiptYears(sessions: ChargeSession[]): string[] {
+  const years = new Set<string>();
+  for (const s of sessions) {
+    if (s.complete) {
+      years.add(s.startedAt.slice(0, 4));
+    }
+  }
+  return [...years].sort((a, b) => b.localeCompare(a));
+}
+
+/**
+ * Der Jahresnachweis als CSV — Monatssummen, dann die Jahressumme.
+ *
+ * Dieselben Konventionen wie der Monatsbeleg: deutsches Semikolon und Komma,
+ * damit ein Tabellenprogramm die Datei ohne Nachfrage öffnet.
+ */
+export function yearReceiptCsv(r: YearReceipt, vehicleName: string): string {
+  const zahl = (n: number): string => n.toFixed(2).replace('.', ',');
+  const zeilen: string[][] = [
+    ['Fahrzeug', vehicleName],
+    ['Jahr', r.year],
+    [],
+    ['Monat', 'Ladungen zuhause', 'kWh zuhause', 'EUR zuhause'],
+  ];
+  for (const m of r.months) {
+    zeilen.push([m.month, String(m.home.count), zahl(m.home.kwh), zahl(m.home.costEur)]);
+  }
+  zeilen.push([]);
+  zeilen.push([`Summe ${r.year} zuhause`, String(r.home.count), zahl(r.home.kwh), zahl(r.home.costEur)]);
+  if (r.away.count > 0) {
+    zeilen.push(['nachrichtlich unterwegs', String(r.away.count), zahl(r.away.kwh), zahl(r.away.costEur)]);
+  }
+  return zeilen.map((z) => z.join(';')).join('\r\n') + '\r\n';
+}

@@ -131,3 +131,44 @@ export function buildBatteryReport(est: CapacityEstimate, ratedKwh: number): Bat
   }
   return report;
 }
+
+/**
+ * Ab welcher Gesundheit gewarnt wird, in Prozent der Werksangabe.
+ *
+ * Bewusst deutlich ÜBER der üblichen Garantiegrenze von rund 70 %: Eine
+ * Meldung erst dort käme zu spät, um noch etwas zu belegen. Wer einen
+ * Anspruch geltend machen will, braucht einen Nachweis, der bereits läuft —
+ * und bei 85 % bleibt Zeit, ihn zu sichern und in der Werkstatt nachfragen
+ * zu lassen, bevor es darauf ankommt.
+ */
+export const HEALTH_ALARM_PCT = 85;
+
+/**
+ * Hat die Batterie messbar nachgelassen?
+ *
+ * Gibt die Werte zurück, wenn gewarnt werden sollte — sonst `undefined`.
+ *
+ * Ausdrücklich nur bei belastbarer Datenbasis. Eine Warnung über
+ * Batteriealterung aus drei Zyklen wäre genau die Sorte Behauptung, die
+ * dieser Nachweis vermeiden soll: Die Streuung einzelner Zyklen liegt bei
+ * mehreren Prozent, und ein Alarm daraus verunsichert ohne Grund.
+ */
+export function healthAlarm(
+  r: BatteryReport,
+  thresholdPct: number,
+): { healthPct: number; capacityKwh: number; lossKwh?: number } | undefined {
+  if (
+    thresholdPct <= 0 ||
+    !r.trustworthy ||
+    r.healthPct === undefined ||
+    r.capacityKwh === undefined ||
+    r.healthPct >= thresholdPct
+  ) {
+    return undefined;
+  }
+  return {
+    healthPct: r.healthPct,
+    capacityKwh: r.capacityKwh,
+    ...(r.lossKwh !== undefined ? { lossKwh: r.lossKwh } : {}),
+  };
+}

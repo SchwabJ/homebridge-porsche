@@ -4,6 +4,22 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.15.0] — 2026-08-01
+
+### Added
+- **Annual statement at `/jahresbeleg`**, with CSV and a link from the monthly
+  receipt. Since 1 January 2026 the flat monthly allowances for company-car
+  electricity charged at home no longer apply in Germany; a tax-free
+  reimbursement from an employer now requires evidence of the kilowatt-hours
+  charged — and that is filed per year. Until now you would have printed
+  twelve monthly receipts and added them up yourself. It states monthly totals
+  and the annual total, home charging first, because only that qualifies.
+- **Warning when the battery has measurably degraded.** The threshold is 85 %
+  of rated capacity — well above the usual 70 % warranty floor, because a
+  message at the floor comes too late to prove anything: a claim needs
+  evidence that has been running for a while. It fires only once the data
+  supports it, at most once a month, and points at the battery report.
+
 ## [0.14.0] — 2026-08-01
 
 ### Added

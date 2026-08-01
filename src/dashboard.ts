@@ -44,7 +44,7 @@ import { analyzeIdle, idleStats } from './idle';
 import { buildReceipt, receiptCsv, receiptMonths, type Receipt } from './receipt';
 import { tripsCsv, sessionsCsv } from './csv';
 import { buildTripReport, tripMonths, type TripReport } from './tripReport';
-import { monthKey } from './format';
+import { monthKey, socSpan } from './format';
 import { readPrices, writePrice, costFrom, sanitize, type PriceStore } from './prices';
 import {
   archivePrice,
@@ -1507,6 +1507,13 @@ h1 button.cog.busy svg{animation:spin .9s linear infinite}
 .socbar i{display:block;height:100%;border-radius:4px;transition:width .3s;
  background:linear-gradient(90deg,#0a84ff,#35c77b)}
 .pills{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+/* Die laufende Ladung — direkt unter den Plaketten, im selben Kasten.
+   Abgesetzt durch eine Trennlinie, damit sie sich nicht mit dem
+   darüberstehenden Ladestand vermischt. */
+.live{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;
+ margin-top:11px;padding-top:10px;border-top:1px solid var(--line)}
+.live b{font-size:17px;font-weight:600;letter-spacing:-.01em}
+.live span{color:var(--dim);font-size:12.5px}
 .pill{font-size:12px;padding:5px 10px;border-radius:8px;background:var(--line);
  color:var(--fg);white-space:nowrap;line-height:1.2}
 .pill.ok{background:#1e9e5a;color:#fff}
@@ -1908,13 +1915,37 @@ ${placeTabs}${nav}${
       current && current.kwh > 0 && current.rangeAdded > 0
         ? ` · ${(current.rangeAdded / current.kwh).toFixed(1)} km/kWh`
         : ''
-    }</span></div>
+    }</span>
+  </div>${
+    // Die laufende Ladung gehört HIER hin und nicht in eine eigene Karte weit
+    // unten: Ladestand und Ziel stünden sonst doppelt an zwei Orten, und wer
+    // wissen will, was das Auto gerade tut, sieht nur nach oben.
+    //
+    // Das Ladeziel steht bereits eine Zeile höher und wird deshalb nicht
+    // wiederholt. Kabelzeit und echte Ladezeit dagegen gehören beide her:
+    // Die Energiemenge bildet nur die Minuten ab, in denen Strom floss,
+    // während der Beginn das Einstecken meint — nebeneinander gelesen sahen
+    // 10 kW und 2,5 kWh sonst falsch aus, obwohl beide stimmten.
+    running
+      ? `
+  <div class="live">${
+    running.energyKwh !== undefined ? `<b>${running.energyKwh.toFixed(1)} kWh</b>` : ''
+  }${
+    running.startSoc !== undefined
+      ? `<span>${esc(socSpan(running.startSoc, running.endSoc, ''))}</span>`
+      : ''
+  }<span>${esc(L.dashSince)} ${esc(fmtDate(running.startedAt, L.locale))}${
+    running.chargingMin > 0 && running.chargingMin < running.durationMin - 1
+      ? `, ${esc(L.dashOfWhichCharging)} ${esc(fmtDur(running.chargingMin))}`
+      : ''
+  }</span>${
+    etaText
+      ? `<span>${esc(etaText.replace(new RegExp(`^${L.dashTarget} \\d+ % · `), ''))}</span>`
+      : ''
+  }</div>`
+      : ''
+  }
 </div>
-${running ? `<div class="card" style="margin-bottom:16px"><span>${esc(L.dashRunning)}</span><b>${
-    running.startSoc !== undefined ? `${esc(L.dashFrom)} ${running.startSoc} %` : esc(L.dashActive)
-  }</b><span>${esc(L.dashSince)} ${esc(fmtDate(running.startedAt, L.locale))}${
-    etaText ? ` · ${esc(etaText)}` : ''
-  }</span></div>` : ''}
 ${
   quality
     ? `<div class="quality ${quality.level}">${esc(quality.text)}</div>`

@@ -15,6 +15,8 @@ import { PorscheClient } from './api/porscheClient';
 import { VehicleState } from './api/measurements';
 import { PorscheCommand } from './api/commands';
 import { clampPollInterval, effectivePollMinutes } from './wake';
+import { chargeWindowAction, parseWindow } from './chargeWindow';
+import { chargingStart, chargingStop } from './api/commands';
 import { appendSample } from './chargeLog';
 import { startDashboard, readSamples } from './dashboard';
 import { buildSessions } from './sessions';
@@ -41,6 +43,15 @@ export { PLATFORM_NAME };
 
 /** Wie lange nach einem Rate-Limit wieder regulär gepollt wird. */
 const RATE_LIMIT_COOLDOWN_MS = 30 * 60000;
+
+/**
+ * Mindestabstand zwischen zwei Ladefenster-Befehlen.
+ *
+ * Zehn Minuten, weil ein Befehl seinen Weg über das Backend ins Fahrzeug
+ * braucht und der nächste Poll sonst noch den alten Zustand sieht — und
+ * denselben Befehl nochmal schickte.
+ */
+const WINDOW_COMMAND_GAP_MS = 10 * 60000;
 
 /**
  * Wie lange ein zuletzt bekannter Steckerzustand weitergilt, wenn die API
@@ -417,6 +428,7 @@ export class PorschePlatform implements DynamicPlatformPlugin {
       appendSample(this.logDir, state, new Date(), atHome);
       this.checkChargeEnd(state.plugged);
       this.checkChargeStall(state.plugged);
+      void this.applyChargeWindow(state);
       if (state.plugged !== undefined) {
         this.lastKnown = { plugged: state.plugged, charging: state.charging, at: Date.now() };
       }
@@ -469,6 +481,58 @@ export class PorschePlatform implements DynamicPlatformPlugin {
    * Ladens: Bei preisgesteuertem Laden pausiert der Tarif ständig, das wäre
    * ein Dauerfeuer an Meldungen.
    */
+  /** Zeitpunkt des letzten Ladefenster-Befehls — schützt vor Dauerfeuer. */
+  private lastWindowCommandAt = 0;
+
+  /**
+   * Setzt das Ladefenster durch: starten, wenn es beginnt, stoppen, wenn es
+   * endet.
+   *
+   * Die Entscheidung selbst liegt in {@link chargeWindowAction} und ist rein
+   * — hier steht nur die Ausführung. Ohne konfiguriertes Fenster geschieht
+   * nichts; das ist der Standard.
+   *
+   * SPERRE GEGEN DAUERFEUER: Nach jedem Befehl vergehen mindestens
+   * {@link WINDOW_COMMAND_GAP_MS}, bevor ein nächster gesendet wird. Nimmt
+   * das Fahrzeug einen Befehl nicht an — weil die Wallbox klemmt oder die
+   * Ladung fremdgesteuert ist —, sähe der nächste Poll denselben Zustand und
+   * schickte denselben Befehl erneut. Am Kabel wären das alle drei Minuten
+   * einer, bis das Rate-Limit greift.
+   */
+  private async applyChargeWindow(state: VehicleState): Promise<void> {
+    const c = this.resolvedConfig;
+    const fenster = parseWindow(c.chargeWindowFrom ?? '', c.chargeWindowTo ?? '');
+    if (!fenster || !this.client || !this.vin) {
+      return;
+    }
+    const action = chargeWindowAction(new Date(), fenster, {
+      plugged: state.plugged,
+      charging: state.charging,
+      soc: state.soc,
+      targetSoc: state.targetSoc,
+      minSoc: state.minSocProfile,
+    });
+    if (!action) {
+      return;
+    }
+    if (Date.now() - this.lastWindowCommandAt < WINDOW_COMMAND_GAP_MS) {
+      return;
+    }
+    this.lastWindowCommandAt = Date.now();
+    try {
+      await this.client.sendCommand(this.vin, action === 'start' ? chargingStart() : chargingStop());
+      this.log.info(
+        `Charging window ${c.chargeWindowFrom}–${c.chargeWindowTo}: charging ${action}ed ` +
+          `(level ${state.soc} %).`,
+      );
+    } catch (err) {
+      // Nicht erneut versuchen: Die Sperre oben lässt den nächsten Versuch
+      // ohnehin erst später zu, und ein klemmender Befehl wird durch
+      // Wiederholung nicht besser.
+      this.log.warn(`Charging-window command failed: ${String(err)}`);
+    }
+  }
+
   /** Startzeitpunkt der Ladung, vor deren Hängen bereits gewarnt wurde. */
   private stallWarnedFor?: string;
 

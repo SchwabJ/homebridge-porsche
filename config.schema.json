@@ -259,6 +259,18 @@
         "maximum": 12,
         "description": "Hour at which a new day begins for the statistics. Default 0 splits an overnight charge across both days; set to e.g. 4 so a 22:00-06:00 charge counts towards the evening it started."
       },
+      "chargeWindowFrom": {
+        "title": "Charging window — start (HH:MM)",
+        "type": "string",
+        "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+        "description": "Charge only within this window, e.g. 00:30 for a night tariff. The car's own timer knows a departure time but no window. Leave both fields empty to disable — then the plugin never touches charging. The car's instant-charge threshold is always honoured: below it, charging happens whatever the clock says."
+      },
+      "chargeWindowTo": {
+        "title": "Charging window — end (HH:MM)",
+        "type": "string",
+        "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+        "description": "End of the charging window, e.g. 04:30. A window may span midnight (22:00 to 06:00)."
+      },
       "ntfyTopic": {
         "title": "ntfy topic (push notifications)",
         "type": "string",

@@ -146,6 +146,19 @@ export interface ResolvedPorscheConfig {
    */
   dayBoundaryHour: number;
   /** ntfy-Thema für Push-Meldungen. Leer = Push aus. */
+  /**
+   * Ladefenster als `HH:MM` — laden nur in diesem Zeitraum.
+   *
+   * Der Ladetimer des Fahrzeugs kennt nur eine Abfahrtszeit, kein Fenster;
+   * wer einen Nachttarif hat, will aber genau das. Leer = aus, und dann
+   * greift das Plugin dem Fahrzeug in keiner Weise ins Laden.
+   *
+   * Die Reserve des Fahrzeugs (Sofortlade-Schwelle) bleibt unangetastet:
+   * Darunter wird geladen, egal wie spät es ist.
+   */
+  chargeWindowFrom?: string;
+  /** Ende des Ladefensters als `HH:MM`. Siehe {@link chargeWindowFrom}. */
+  chargeWindowTo?: string;
   ntfyTopic?: string;
   /** ntfy-Server (Standard `https://ntfy.sh`). */
   ntfyServer: string;
@@ -186,6 +199,8 @@ export const DEFAULT_CONFIG: ResolvedPorscheConfig = {
   dashboardPort: 8099,
   pluggedPollMinutes: 1,
   dayBoundaryHour: 0,
+  chargeWindowFrom: undefined,
+  chargeWindowTo: undefined,
   ntfyTopic: undefined,
   ntfyServer: 'https://ntfy.sh',
   dailyPushHour: 8,

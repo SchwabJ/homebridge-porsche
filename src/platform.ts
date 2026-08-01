@@ -16,6 +16,7 @@ import { VehicleState } from './api/measurements';
 import { PorscheCommand } from './api/commands';
 import { clampPollInterval, effectivePollMinutes } from './wake';
 import { chargeWindowAction, externallyPaced, parseWindow } from './chargeWindow';
+import { capacityTrusted } from './capacityTrust';
 import { analyzeIdle, idleAlarm, idleStats, IDLE_ALARM_PCT_PER_DAY } from './idle';
 import { buildBatteryReport, healthAlarm, HEALTH_ALARM_PCT } from './batteryReport';
 import { estimateCapacity } from './capacity';
@@ -248,6 +249,14 @@ export class PorschePlatform implements DynamicPlatformPlugin {
         // Als Funktion: Das Dashboard startet, bevor die Fahrzeugliste
         // abgerufen ist. Ein hier eingefrorener Wert wäre immer „unbekannt".
         pureElectric: () => isPluginHybrid(this.vehicle) === false,
+        // Ebenfalls als Funktion, aus demselben Grund: Das Fahrzeug steht
+        // beim Start des Dashboards noch nicht fest.
+        capacityTrusted: () =>
+          capacityTrusted({
+            fromUser: c.capacityFromUser,
+            engine: this.vehicle?.engine,
+            model: this.vehicle?.model,
+          }),
         bindAddress: c.dashboardBind,
         logDir: this.logDir,
         capacityKwh: c.capacityKwh,

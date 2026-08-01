@@ -4,6 +4,31 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.20.0] — 2026-08-01
+
+### Fixed
+- **The default battery capacity is a Taycan figure, and the dashboard now
+  says so** when it does not belong to your car. 83.7 kWh feeds every energy
+  and cost calculation. On a Cayenne or Panamera E-Hybrid (about 21.8 kWh
+  usable) that is a factor of 3.8:
+
+  | | actual | shown |
+  |---|---|---|
+  | charge 15 → 95 % | 17.4 kWh, €5.20 | 66.96 kWh, €20.09 |
+  | monthly receipt, 20 charges | about €105 | about €400 |
+
+  Nothing about it looks broken — no error, no empty tile, no log line — and
+  the same figure ends up in the receipt someone hands to their employer. All
+  six evaluations examined fail **quietly**; not one fails visibly.
+
+  The question is therefore not whether a number is *present* but whether it
+  belongs to *this* car. It is trusted in exactly two cases: you entered it
+  yourself (anyone who does has looked it up), or the vehicle identifies as a
+  Taycan with a purely electric drive — for that one model the default *is*
+  correct. Otherwise a warning sits above every figure, names the configured
+  value and says what to do. With no drivetrain information at all nothing
+  changes, so existing installations are untouched.
+
 ## [0.19.0] — 2026-08-01
 
 ### Added

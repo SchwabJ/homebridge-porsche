@@ -112,6 +112,12 @@ function istElektrisch(o: DashboardOptions): boolean {
   return typeof o.pureElectric === 'function' ? o.pureElectric() : o.pureElectric === true;
 }
 
+/** Wie {@link istElektrisch}, aber für die Kapazität — Standard ist Vertrauen. */
+function kapazitaetTraegt(o: DashboardOptions): boolean {
+  const v = typeof o.capacityTrusted === 'function' ? o.capacityTrusted() : o.capacityTrusted;
+  return v !== false;
+}
+
 export interface DashboardOptions {
   port: number;
   logDir: string;
@@ -145,6 +151,13 @@ export interface DashboardOptions {
    * ist beim ersten Anlauf passiert und fiel erst am laufenden System auf.
    */
   pureElectric?: boolean | (() => boolean);
+  /**
+   * Darf mit der eingestellten Kapazität gerechnet werden?
+   *
+   * Ohne Angabe ja — bestehende Installationen sollen nicht plötzlich mit
+   * einer Warnung dastehen. Siehe {@link ./capacityTrust}.
+   */
+  capacityTrusted?: boolean | (() => boolean);
   /**
    * An welche Adresse das Dashboard bindet.
    *
@@ -2068,6 +2081,18 @@ ${placeTabs}${nav}${
     o.onCommand && o.password ? commandBar(st, L) : ''
   }
 </div>
+${
+  // Die Kapazitätswarnung steht VOR der Datenqualität und über allen Zahlen,
+  // weil sie alle betrifft: kWh, Kosten, Ersparnis, Verbrauch, Standverbrauch.
+  //
+  // Sie ist die einzige Warnung dieser Seite, die einen Faktor nennt statt
+  // einer Ungenauigkeit. Die Vorgabe von 83,7 kWh ist ein Taycan-Wert; bei
+  // einem Cayenne oder Panamera E-Hybrid mit rund 21,8 kWh netto stünde in
+  // jedem Beleg das Vierfache — ohne dass irgendetwas kaputt aussähe.
+  kapazitaetTraegt(o)
+    ? ''
+    : `<div class="quality bad">${esc(fill(L.capacityMismatch, o.capacityKwh.toFixed(1)))}</div>`
+}
 ${
   quality
     ? `<div class="quality ${quality.level}">${esc(quality.text)}</div>`

@@ -263,3 +263,29 @@ export function buildIdleMessage(
     ].join('\n'),
   };
 }
+
+/**
+ * Meldung, wenn die Batterie messbar nachgelassen hat.
+ *
+ * Sie sagt ausdrücklich, dass der Nachweis bereitliegt: Eine Zahl allein
+ * wäre nur beunruhigend, während der Hinweis auf die Seite ihr Handlung
+ * gibt. Genau dafür gibt es das Blatt unter /batterie.
+ */
+export function buildHealthMessage(
+  a: { healthPct: number; capacityKwh: number; lossKwh?: number },
+  L: Labels,
+  vehicleName: string,
+): { title: string; message: string } {
+  return {
+    title: `${vehicleName} — ${L.pushHealthTitle}`,
+    message: [
+      fill(
+        L.pushHealthLine,
+        a.capacityKwh.toFixed(1),
+        a.healthPct.toFixed(1),
+        a.lossKwh !== undefined ? ` (−${a.lossKwh.toFixed(1)} kWh)` : '',
+      ),
+      L.pushHealthAdvice,
+    ].join('\n'),
+  };
+}

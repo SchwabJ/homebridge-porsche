@@ -315,6 +315,23 @@ export interface Labels {
   /** Verlust je Tag, Energie und Beobachtungsdauer als Platzhalter. */
   pushIdleLine: string;
   pushIdleAdvice: string;
+  /** Warnung, wenn die Batterie messbar nachgelassen hat. */
+  pushHealthTitle: string;
+  /** Kapazitaet, Gesundheit und Verlust als Platzhalter. */
+  pushHealthLine: string;
+  pushHealthAdvice: string;
+  /** Jahresnachweis fuer die Dienstwagen-Erstattung. */
+  yrTitle: string;
+  yrBackToMonth: string;
+  yrHomeCharged: string;
+  yrCharges: string;
+  /** Jahressumme; {0} ist das Jahr. */
+  yrTotal: string;
+  yrAlsoAway: string;
+  yrAlsoUnknown: string;
+  yrEmpty: string;
+  yrNote: string;
+  yrLink: string;
   stRangeSuffix: string;
   stSecurity: string;
   stLocked: string;
@@ -627,6 +644,19 @@ export const LABELS_EN: Labels = {
   battBack: '‹ Back',
   pushIdleTitle: 'high idle drain',
   pushIdleLine: '{0} % per day while parked ({1} kWh), measured over {2} days of standstill.',
+  pushHealthTitle: 'battery has degraded',
+  pushHealthLine: 'Measured {0} kWh, which is {1} % of the rated capacity{2}.',
+  pushHealthAdvice: 'The report with trend and data basis is ready at /batterie - print it and keep it while the warranty still runs.',
+  yrTitle: 'Annual statement',
+  yrBackToMonth: '‹ Monthly receipt',
+  yrHomeCharged: 'Charged at home',
+  yrCharges: 'Charges',
+  yrTotal: 'Total {0} at home',
+  yrAlsoAway: 'for reference: away',
+  yrAlsoUnknown: 'for reference: place unknown',
+  yrEmpty: 'Nothing was charged in this year.',
+  yrNote: 'Stated is the energy charged at home — only that qualifies for reimbursement by an employer; away from home the charging provider bills you directly. The individual charges with their times and levels are in the monthly receipt. A charge is assigned by when it started: a night charge from the 31st into the 1st belongs entirely to the earlier month, because it was paid for as one.',
+  yrLink: 'Annual statement',
   pushIdleAdvice: 'Well under 1 % is normal. If preconditioning and auxiliary heating were off, this is worth showing to a workshop — reported cases came down to a single weak cell.',
   stRangeSuffix: 'km of range',
   stSecurity: 'Security',
@@ -936,6 +966,19 @@ export const LABELS_DE: Labels = {
   battBack: '‹ Zurück',
   pushIdleTitle: 'hoher Ruheverlust',
   pushIdleLine: '{0} % je Tag im Stehen ({1} kWh), gemessen über {2} Tage Stillstand.',
+  pushHealthTitle: 'Batterie hat nachgelassen',
+  pushHealthLine: 'Gemessen {0} kWh, das sind {1} % der Werksangabe{2}.',
+  pushHealthAdvice: 'Der Nachweis mit Verlauf und Datenbasis liegt unter /batterie bereit — ausdrucken und aufheben, solange die Garantie noch läuft.',
+  yrTitle: 'Jahresnachweis',
+  yrBackToMonth: '‹ Monatsbeleg',
+  yrHomeCharged: 'Zuhause geladen',
+  yrCharges: 'Ladungen',
+  yrTotal: 'Summe {0} zuhause',
+  yrAlsoAway: 'nachrichtlich: unterwegs',
+  yrAlsoUnknown: 'nachrichtlich: ohne Ortsangabe',
+  yrEmpty: 'In diesem Jahr wurde nicht geladen.',
+  yrNote: 'Ausgewiesen ist die zuhause geladene Energie — nur sie kommt für eine Erstattung durch den Arbeitgeber in Betracht; unterwegs rechnet der Ladeanbieter selbst ab. Die einzelnen Ladungen samt Zeitpunkt und Ladestand stehen im Monatsbeleg. Zugeordnet wird nach dem Beginn der Ladung: Eine Nachtladung vom 31. auf den 1. gehört vollständig in den alten Monat, weil sie als Ganzes bezahlt wurde.',
+  yrLink: 'Jahresnachweis',
   pushIdleAdvice: 'Normal ist deutlich unter 1 %. Wenn Vorklimatisierung und Standheizung aus waren, gehört das in der Werkstatt angesehen — gemeldete Fälle gingen auf eine einzelne schwache Zelle zurück.',
   stRangeSuffix: 'km Reichweite',
   stSecurity: 'Sicherung',

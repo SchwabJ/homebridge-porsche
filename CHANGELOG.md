@@ -4,6 +4,28 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.12.0] — 2026-08-01
+
+### Fixed
+- **The charging window now stays out of the way when a tariff is already
+  pacing the charge.** With Intelligent Octopus Go, Tibber, a controlling
+  wallbox or a plan in the car, a second window beside it is not a saving
+  scheme but a race: the provider starts, we stop, the provider starts again.
+  It is recognisable from the pauses in recent charges — a charge interrupted
+  repeatedly while still short of its target was interrupted by someone else.
+  What counts is the level *before* each pause, not at the end: a paced tariff
+  also charges up to the target eventually, so judging the charge as a whole
+  would miss the most common case entirely. With no history at all the answer
+  is "hands off".
+
+### Changed
+- **Four lines of height reclaimed in the header**, without losing a single
+  statement. Gone are the charging rate in km/min (the finish forecast one
+  line below answers the same question, better), the word "Monitoring" in
+  front of the age of the last reading, the date on a charge that is running
+  *right now*, and "instead of €19.41" in the cost tile — that is the saving
+  computed backwards, and the saving itself already stands next to it.
+
 ## [0.11.0] — 2026-08-01
 
 ### Changed

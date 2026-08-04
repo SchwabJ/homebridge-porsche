@@ -4,6 +4,22 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.22.0] — 2026-08-05
+
+### Fixed
+- **Tank level and total range are now actually requested.** The parser has
+  read both for a long time and the accessories create tiles for them — but
+  the keys were missing from the polling list, so on a Cayenne or Panamera
+  E-Hybrid those two tiles stayed empty forever. The doc comment above that
+  list promised the opposite; a test now holds the promise instead of merely
+  stating it.
+- **Idle drain is measured in kilowatt-hours, not percentage points.** The old
+  threshold of 2 % a day was a Taycan figure. Percentage points scale with
+  battery size, idle drain does not — it happens in the electronics, which are
+  the same in a Cayenne E-Hybrid: 2 % is 1.67 kWh on a Taycan and 0.44 kWh on
+  the hybrid. A perfectly healthy hybrid would have triggered "high idle
+  drain" — and the battery warning with it — on a regular basis.
+
 ## [0.21.0] — 2026-08-05
 
 ### Fixed

@@ -17,7 +17,7 @@ import { PorscheCommand } from './api/commands';
 import { clampPollInterval, effectivePollMinutes } from './wake';
 import { chargeWindowAction, externallyPaced, parseWindow } from './chargeWindow';
 import { capacityTrusted } from './capacityTrust';
-import { analyzeIdle, idleAlarm, idleStats, IDLE_ALARM_PCT_PER_DAY } from './idle';
+import { analyzeIdle, idleAlarm, idleStats, IDLE_ALARM_KWH_PER_DAY } from './idle';
 import { buildBatteryReport, healthAlarm, HEALTH_ALARM_PCT } from './batteryReport';
 import { estimateCapacity } from './capacity';
 import { chargingStart, chargingStop, climateStart, climateStop, lock } from './api/commands';
@@ -145,6 +145,19 @@ const STATE_KEYS: string[] = [
   // (kWh/100 km). Dient als unabhängige Gegenprobe zu unserer Rechnung aus
   // geladener Energie je gefahrenem Kilometer.
   'TRIP_STATISTICS_CYCLIC',
+  // Tank und Gesamtreichweite — nur Hybride und Verbrenner liefern sie.
+  //
+  // Der Parser las beide seit jeher, und die Accessories legen Kacheln dafür
+  // an — abgefragt wurden sie nie. Ein Cayenne- oder Panamera-E-Hybrid bekam
+  // damit zwei Kacheln, die dauerhaft leer blieben, und der Doc-Kommentar
+  // über dieser Liste versprach ausdrücklich das Gegenteil.
+  //
+  // Ein Schlüssel, den ein Fahrzeug nicht kennt, ist unschädlich: Am Taycan
+  // einzeln geprüft, antwortet die Schnittstelle darauf schlicht ohne diesen
+  // Wert, nicht mit einem Fehler. Der Test in test/stateKeys.test.ts hält die
+  // Zusage jetzt fest, statt sie nur zu behaupten.
+  'FUEL_LEVEL',
+  'RANGE',
 ];
 
 /**
@@ -711,7 +724,7 @@ export class PorschePlatform implements DynamicPlatformPlugin {
       // Ruhebilanz, und die hängt an keinem Preis.
       const samples = readSamples(this.logDir);
       const stats = idleStats(analyzeIdle(samples), c.capacityKwh);
-      const alarm = idleAlarm(stats, IDLE_ALARM_PCT_PER_DAY);
+      const alarm = idleAlarm(stats, IDLE_ALARM_KWH_PER_DAY);
       if (alarm && stats && jetzt - this.idleWarnedAt >= IDLE_WARN_GAP_MS) {
         this.idleWarnedAt = jetzt;
         const { title, message } = buildIdleMessage(

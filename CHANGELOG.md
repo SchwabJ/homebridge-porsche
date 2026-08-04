@@ -4,6 +4,46 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.21.0] — 2026-08-05
+
+### Fixed
+- **A charge that began between two polls lost its first percent.** Unplugged,
+  the plugin only asks every twenty minutes; plug in during that window and
+  charging has already started before it looks. The charge then began, for the
+  evaluation, a couple of percent too late. Summed over the log, the charge
+  list and the time series drifted apart by 1.67 kWh — which is what made
+  monthly costs "sometimes more, sometimes less right". A state of charge does
+  not rise on its own: if it is higher at the first reading with a cable than
+  at the last one without, charging happened in the gap.
+- **No more "stopped at 80 % instead of 100 %" where a tariff charges in time
+  windows.** Observed on the car: the owner's target was 80 %, five minutes
+  after plugging in the car reported 100 %, charging ran in five phases with
+  pauses of 91, 43 and 79 minutes, ending at 80 %. Arithmetically an abort;
+  in fact a provider whose window closed — and it had set that target itself.
+  The pause pattern gives it away: charging left alone runs through.
+- **The charge target is no longer carried forward.** After a charge that
+  stopped at 80 %, the dashboard kept showing "target 100 %". Odometer, charge
+  level and range are *states* — the last known one still holds. A charge
+  target is a *setting*: it changes without the car saying so, and the car
+  only reports it while plugged in. A value from two days ago is not "the last
+  known" but simply out of date.
+- **Battery health is only stated once the sample supports it.** It jumped
+  from 90 to 96 % within hours — a battery does not improve; what jumped was
+  the sample, since the figure is the median of a handful of readings. Three
+  different thresholds applied to the same number: the tile showed it from the
+  first cycle, the report called it reliable from ten, adoption also required
+  ten. Now one threshold everywhere. The measured capacity itself stays
+  visible — it carries its uncertainty with it, a percentage with a progress
+  bar does not.
+- **Switching the charge-limit accessory on no longer sets a target.** It is a
+  light bulb in HomeKit — there is no other percentage control — so every
+  scene and every "turn on all the lights" hits it. The switch arrives without
+  a brightness, and the plugin then sent whatever value was last *displayed*.
+  The target *is* the brightness; only that may change it.
+- **The cost tile named two savings figures** — "€13.96 saved (total €19.37)"
+  — without saying that one was the month and the other since the beginning. A
+  tile showing one period now names only that period's numbers.
+
 ## [0.20.0] — 2026-08-01
 
 ### Fixed

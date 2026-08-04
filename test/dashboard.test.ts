@@ -2236,13 +2236,16 @@ describe('currentStatus with partial API responses', () => {
     // recent reading — otherwise a fresh display was headed "as of 05:12".
     const st = currentStatus(
       [
-        { ts: at(29, 5, 12), targetSoc: 80, minSoc: 40 },
+        // Ein alter Messpunkt, der NUR den Kilometerstand trug. (Das Ladeziel
+        // taugt dafür nicht mehr: Es ist eine Einstellung, keine Zustandsgröße,
+        // und wird deshalb nicht fortgeschrieben.)
+        { ts: at(29, 5, 12), odometerKm: 52500 },
         { ts: at(31, 21, 11), soc: 55, rangeKm: 243, odometerKm: 52670 },
       ],
       Date.parse(at(31, 21, 15)),
     );
     expect(st.stateAt).toBe(at(31, 21, 11));
-    expect(st.state?.targetSoc).toBe(80);
+    expect(st.state?.odometerKm).toBe(52670);
   });
 
   it('leaves the raw last sample untouched', () => {

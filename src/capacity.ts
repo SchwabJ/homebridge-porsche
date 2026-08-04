@@ -338,6 +338,26 @@ export function stateOfHealth(
  */
 export const ADOPT_MIN_CYCLES = 10;
 
+/**
+ * Ab wann die Anzeige eine GESUNDHEIT in Prozent behaupten darf.
+ *
+ * Dieselbe Schwelle wie beim Übernehmen und im Batterie-Nachweis — vorher
+ * galten hier drei verschiedene Maßstäbe für dieselbe Zahl: Die Kachel zeigte
+ * sie ab dem ersten Zyklus, der Nachweis nannte sie erst ab zehn belastbar,
+ * und übernommen wurde sie ebenfalls erst ab zehn.
+ *
+ * Am Fahrzeug beobachtet, und der Grund für diese Konstante: Die Gesundheit
+ * sprang binnen Stunden von 90 auf 96 Prozent. Der Wert ist der MEDIAN der
+ * Einzelmessungen, und bei drei oder vier davon verschiebt ihn jede neue
+ * deutlich. Eine Batterie wird nicht besser — was da sprang, war die
+ * Stichprobe, nicht die Zelle.
+ *
+ * Die gemessene Kapazität selbst darf weiter dastehen: Sie trägt ihre
+ * Unsicherheit sichtbar mit sich. Eine Prozentzahl mit Fortschrittsbalken tut
+ * das nicht, sie liest sich wie ein Befund.
+ */
+export const HEALTH_MIN_CYCLES = ADOPT_MIN_CYCLES;
+
 /** Grenzen, in denen ein gemessener Kapazitätswert überhaupt plausibel ist. */
 const PLAUSIBLE_KWH = { min: 20, max: 200 };
 

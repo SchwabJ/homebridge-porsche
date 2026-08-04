@@ -236,8 +236,17 @@ function makeChargeLimit(
 
   onChar.onSet((value: CharacteristicValue) => {
     if (value === true) {
-      // Beim Einschalten den aktuell angezeigten Brightness-Wert übernehmen.
-      sendTarget(Number(brightnessChar.value ?? 0));
+      // BEIM EINSCHALTEN WIRD NICHTS GESENDET.
+      //
+      // Dieses Ladelimit ist in HomeKit eine Lampe — einen anderen
+      // Prozentregler gibt es dort nicht. Damit trifft es jede Szene und
+      // jedes „schalte alle Lichter ein": Der Schalter kommt ohne Helligkeit,
+      // und vorher schickte diese Zeile daraufhin den zuletzt ANGEZEIGTEN
+      // Wert ans Fahrzeug. Stand der auf 100, lud das Auto auf 100.
+      //
+      // Ein Einschalten ohne Wert ist keine Absicht, ein Ladeziel zu setzen.
+      // Das Ziel IST die Helligkeit; nur sie darf es verstellen.
+      log.info(`${name}: switching on alone sets no charge target — use the slider.`);
     } else {
       // Ladelimit lässt sich nicht „aus"-schalten — nach HAP-Commit wieder anzeigen.
       log.info(`${name}: ignoring off (charge limit is always active).`);

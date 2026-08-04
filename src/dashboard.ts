@@ -40,6 +40,7 @@ import {
   estimateCapacity,
   stateOfHealth,
   type CapacityEstimate,
+  HEALTH_MIN_CYCLES,
 } from './capacity';
 import { buildTrips, summarizeTrips, type Trip } from './trips';
 import { analyzeIdle, idleStats } from './idle';
@@ -808,7 +809,24 @@ export function optionsFor(o: DashboardOptions): {
  * fortgeschriebenes „eingesteckt" behauptete also ein Kabel am längst
  * abgefahrenen Auto.
  */
-const CARRY_FIELDS = ['soc', 'rangeKm', 'odometerKm', 'minSoc', 'targetSoc'] as const;
+const CARRY_FIELDS = ['soc', 'rangeKm', 'odometerKm'] as const;
+
+/**
+ * Warum Ladeziel und Sofortlade-Schwelle NICHT dabei sind.
+ *
+ * Sie standen hier und haben am Fahrzeug einen sichtbaren Fehler erzeugt:
+ * Nach einer Ladung, die bei 80 % stoppte, zeigte das Dashboard weiter
+ * „Ziel 100 %". Der Wert stammte aus einer früheren Ladung und wurde brav
+ * fortgeschrieben.
+ *
+ * Der Unterschied ist grundsätzlich. Kilometerstand, Ladestand und Reichweite
+ * sind ZUSTÄNDE: Der letzte bekannte gilt weiter, bis ein neuer kommt. Ein
+ * Ladeziel ist eine EINSTELLUNG — sie ändert sich, ohne dass das Fahrzeug es
+ * meldet, und gemeldet wird sie ohnehin nur am Kabel. Ein Wert von vorgestern
+ * ist deshalb nicht „der letzte bekannte", sondern schlicht überholt.
+ *
+ * Steht kein Ziel im jüngsten Messpunkt, ist die ehrliche Anzeige gar keine.
+ */
 
 export interface CurrentStatus {
   /** Roher letzter Messpunkt: Abfragezeitpunkt und Momentanwerte. */
@@ -1207,7 +1225,14 @@ function renderPage(
   // Gemessene Kapazität — die empfindlichste Größe der ganzen Auswertung.
   // Aus ALLEN Fahrten: Wo geladen wurde, ändert die Batterie nicht.
   const cap = stats.capacity;
-  const soh = stateOfHealth(cap.capacityKwh, cfg.capacityKwh);
+  // Die Gesundheit in Prozent erst ab belastbarer Datenbasis — siehe
+  // {@link ./capacity!HEALTH_MIN_CYCLES}. Am Fahrzeug sprang sie binnen
+  // Stunden von 90 auf 96 Prozent; eine Batterie wird nicht besser, was da
+  // sprang war die Stichprobe. Die gemessene Kapazität selbst darf früher
+  // stehen: Sie trägt ihre Unsicherheit sichtbar mit sich, eine Prozentzahl
+  // mit Fortschrittsbalken tut das nicht.
+  const soh =
+    cap.samples >= HEALTH_MIN_CYCLES ? stateOfHealth(cap.capacityKwh, cfg.capacityKwh) : undefined;
   // Verlauf über die Monate — schweigt, solange er nichts hergibt.
   const capTrend = capacityTrend(cap);
   // Abweichung der Messung von der eingestellten Kapazität, in Prozent.
@@ -1961,17 +1986,19 @@ ${placeTabs}${nav}${
         ? ''
         : `${(o.pricePerKwh * 100).toFixed(2)} ct/kWh`
     }${
-      // Die Ersparnis DES ZEITRAUMS, und die Gesamtsumme nur, wenn sie eine
-      // andere ist — sonst stünde dieselbe Zahl zweimal in einer Kachel.
+      // NUR die Ersparnis DES ZEITRAUMS.
+      //
+      // Daneben stand die Gesamtersparnis in Klammern: „13,96 € gespart (ges.
+      // 19,37 €)". Der Eigentümer fragte zu Recht, welche der beiden Zahlen
+      // denn nun gilt. Beide galten — die eine für den gezeigten Monat, die
+      // andere seit Beginn —, aber das stand nirgends.
+      //
+      // Eine Kachel, die einen Zeitraum zeigt, hat auch nur dessen Zahlen zu
+      // nennen. Alles seit Beginn gehört in die Ansicht „Alle", die es dafür
+      // gibt.
       hasBonus && current && current.saved > 0.005
-        ? ` · ${current.saved.toFixed(2)} € ${esc(L.dashSavedSuffix)}${
-            totalSaved > current.saved + 0.005
-              ? ` (${esc(L.dashTotal)} ${totalSaved.toFixed(2)} €)`
-              : ''
-          }`
-        : hasBonus && totalSaved > 0.005
-          ? ` · ${esc(L.dashTotal)} ${totalSaved.toFixed(2)} € ${esc(L.dashSavedSuffix)}`
-          : ''
+        ? ` · ${current.saved.toFixed(2)} € ${esc(L.dashSavedSuffix)}`
+        : ''
     }${
       // Auch hier: ohne Kosten im Zeitraum keine Kosten je Kilometer. „0,0
       // ct/km" ist keine günstige Fahrt, sondern eine fehlende Ladung.

@@ -92,6 +92,20 @@ export interface Bucket {
    * Verbrauch stillschweigend zu kurz darzustellen.
    */
   unratedKm: number;
+  /**
+   * Ladestand-Zuwachs in Prozentpunkten, der nicht in Energie umgerechnet
+   * werden konnte.
+   *
+   * Das Gegenstück zu {@link unratedKm} auf der Ladeseite. Ohne bekannte
+   * Batteriekapazität ist der Zuwachs zwar gemessen, aber nicht in
+   * Kilowattstunden ausdrückbar — und damit auch nicht in Euro. Ihn
+   * stillschweigend wegzulassen hieße, eine Ladung zu unterschlagen; ihn mit
+   * einer geratenen Kapazität zu rechnen hieße, einen Preis zu erfinden.
+   *
+   * Die Vorgabe von 83,7 kWh gilt für den Taycan. Bei einem Cayenne PHEV
+   * (21,8 kWh) ginge derselbe Zuwachs mit dem Faktor 3,8 in die Kosten ein.
+   */
+  unratedSocGain: number;
   /** Anzahl der Messpunkte — 0 bedeutet: aufgefüllte Lücke. */
   samples: number;
   /** Summe der Messlücken in Minuten (Abstände deutlich über dem Poll-Takt). */
@@ -101,7 +115,7 @@ export interface Bucket {
 }
 
 export interface AggregateOptions {
-  capacityKwh: number;
+  capacityKwh?: number;
   /** Lokalisierte Texte — bestimmt Monats-, Wochentags- und Wochenbeschriftung. */
   labels: Labels;
 
@@ -370,7 +384,7 @@ export function aggregate(
       b.from = ts;
     }
     if (!b) {
-      b = { key, from: '', label: labelOf(key, g, opts.labels), kwh: 0, cost: 0, costGross: 0, saved: 0, km: 0, rangeAdded: 0, usedKwh: 0, unratedKm: 0, samples: 0, gapMinutes: 0, spanMinutes: 0 };
+      b = { key, from: '', label: labelOf(key, g, opts.labels), kwh: 0, cost: 0, costGross: 0, saved: 0, km: 0, rangeAdded: 0, usedKwh: 0, unratedKm: 0, unratedSocGain: 0, samples: 0, gapMinutes: 0, spanMinutes: 0 };
       b.from = ts ?? '';
       buckets.set(key, b);
     }
@@ -506,12 +520,21 @@ export function aggregate(
       // bekannte überhaupt — ein Ladestand steigt nicht von selbst.
       const amKabel = cur.plugged ?? lastSoc?.plugged ?? lastPlugged;
       if (lastSoc?.soc !== undefined && cur.soc > lastSoc.soc && amKabel) {
-        const zuwachsKwh = ((cur.soc - lastSoc.soc) / 100) * opts.capacityKwh;
-        b.kwh += zuwachsKwh;
-        if (opts.priceFor) {
-          const p = opts.priceFor(cur.ts);
-          b.cost += zuwachsKwh * p.pricePerKwh;
-          b.costGross += zuwachsKwh * p.grossPricePerKwh;
+        const zuwachs = cur.soc - lastSoc.soc;
+        // HIER schlägt die Kapazität in Euro um — und nur hier. Fehlt sie,
+        // entsteht keine Energie- und keine Kostenzahl. Der Zuwachs ist
+        // gemessen und wird ausgewiesen; was er in Kilowattstunden bedeutet,
+        // hängt an einer Batteriegröße, die wir nicht kennen.
+        if (opts.capacityKwh === undefined) {
+          b.unratedSocGain += zuwachs;
+        } else {
+          const zuwachsKwh = (zuwachs / 100) * opts.capacityKwh;
+          b.kwh += zuwachsKwh;
+          if (opts.priceFor) {
+            const p = opts.priceFor(cur.ts);
+            b.cost += zuwachsKwh * p.pricePerKwh;
+            b.costGross += zuwachsKwh * p.grossPricePerKwh;
+          }
         }
       }
       lastSoc = cur;

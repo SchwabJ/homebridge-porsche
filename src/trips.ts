@@ -77,6 +77,28 @@ const KWH100_STEP = 0.1;
  */
 const MIN_KM_FOR_RANGE_FACTOR = 100;
 
+/**
+ * Größter Kilometer-Zuwachs am Kabel, der noch als Meldeverzug durchgeht.
+ *
+ * Ein Auto, das lädt, fährt nicht. Steigt der Kilometerstand trotzdem, hat das
+ * Fahrzeug ihn verspätet gemeldet — die Strecke wurde vor dem Einstecken
+ * gefahren, die Antwort kam nur später. Am eigenen Mitschrieb dreimal
+ * beobachtet, jedes Mal genau ein Kilometer:
+ *
+ *     22:10:13   52602 km   kein Kabel
+ *     22:10:37   52602 km   Kabel steckt, lädt
+ *     22:11:35   52603 km   Kabel steckt, lädt
+ *
+ * Ohne Nachtrag blieb die Fahrtenliste um diese Kilometer hinter dem
+ * Kilometerstand zurück: 682 statt 685 über zwei Wochen.
+ *
+ * Die Grenze hält den Fall klein. Wächst der Stand am Kabel um zweistellige
+ * Kilometer, ist keine Meldung verspätet, sondern eine Fahrt gar nicht
+ * mitgeschrieben worden — die dann einer alten Fahrt zuzuschlagen, verfälschte
+ * deren Verbrauch, statt eine Lücke zu schließen.
+ */
+const ODO_LAG_MAX_KM = 2;
+
 export interface Trip {
   /** Letzter Messpunkt VOR der Bewegung — dort stand das Fahrzeug noch. */
   startedAt: string;
@@ -269,6 +291,36 @@ export function buildTrips(
     open = undefined;
   };
 
+  /**
+   * Verbucht einen Kilometerstand, der erst am Kabel eintraf.
+   *
+   * Läuft noch eine Fahrt, gehört der Punkt schlicht zu ihr. Ist sie bereits
+   * geschlossen — der Regelfall, weil der erste Ladepunkt sie beendet —, wächst
+   * die letzte Fahrt um den Zuwachs.
+   *
+   * Die Zeitangaben bleiben, wie sie sind: Gefahren wurde vor dem Einstecken,
+   * und `endedAt` auf den Ladepunkt zu ziehen machte aus vierzig Minuten
+   * Standzeit vierzig Minuten Fahrt.
+   */
+  const nachtragen = (p: Point, prev: Point | undefined): void => {
+    if (prev === undefined) return;
+    const zuwachs = p.odometerKm - prev.odometerKm;
+    if (zuwachs <= 0 || zuwachs > ODO_LAG_MAX_KM) return;
+    if (open !== undefined) {
+      open.push(p);
+      return;
+    }
+    const letzte = trips[trips.length - 1];
+    // Der Kilometerstand muss seit dem Fahrtende unverändert sein, sonst
+    // schließt der Nachtrag nicht lückenlos an und gehört woanders hin.
+    if (letzte === undefined || letzte.odometerKm !== prev.odometerKm) return;
+    letzte.km += zuwachs;
+    letzte.odometerKm = p.odometerKm;
+    if (letzte.energyKwh !== undefined) {
+      letzte.kwhPer100km = Math.round((letzte.energyKwh / letzte.km) * 1000) / 10;
+    }
+  };
+
   // Die Messpunkte werden EINZELN verarbeitet, nicht erst zu einer Liste
   // aufgesammelt: `samples` darf ein Generator über die Tagesdateien sein, und
   // eine Zwischenliste hätte die ganze Historie wieder im Speicher.
@@ -304,6 +356,10 @@ export function buildTrips(
     // Der Kilometerstand ändert sich beim Laden nicht, deshalb darf jeder
     // Lade-Messpunkt den Zyklusanfang setzen.
     if (p.charging === true) {
+      // ERST den Kilometerstand verbuchen, dann schließen: Danach ist die
+      // Fahrt in der Liste und der Zuwachs hätte niemanden mehr, zu dem er
+      // gehört.
+      nachtragen(p, prev);
       close();
       cycleStartKm = p.odometerKm;
       prevCycleKwh = undefined;

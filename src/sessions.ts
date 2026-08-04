@@ -359,7 +359,12 @@ function finish(
     open.targetSoc !== undefined &&
     endSoc !== undefined &&
     endSoc <= open.targetSoc - TARGET_TOLERANCE &&
-    minutesBetween(lastCharge.ts, open.last.ts) >= ABORT_IDLE_MIN
+    minutesBetween(lastCharge.ts, open.last.ts) >= ABORT_IDLE_MIN &&
+    // NICHT bei tarifgesteuertem Laden: Ein Anbieter, der in Zeitfenstern
+    // lädt, hört auf, wenn sein Fenster endet, und er hatte das Ziel selbst
+    // gesetzt. Ein Abbruch ist etwas anderes — da hört etwas auf, das
+    // weitermachen wollte. Verraten wird er von der Pausenstruktur.
+    !getaktet(phases, open.targetSoc)
   ) {
     session.aborted = true;
   }
@@ -447,12 +452,104 @@ function finish(
  * Samples ohne `plugged`-Angabe werden übersprungen, statt eine laufende
  * Session zu beenden — ein fehlgeschlagener Poll ist kein Ausstecken.
  */
+/**
+ * Wurde diese Ladung in Zeitfenstern getaktet?
+ *
+ * Dieselbe Frage wie in {@link ./chargeWindow!externallyPaced}, aber für EINE
+ * Ladung und ohne deren Historie: Hier zählt allein, ob zwischen den
+ * Ladephasen substanzielle Pausen liegen, obwohl das Ziel noch fern war.
+ *
+ * Die Schwelle ist dieselbe — kurze Aussetzer entstehen auch ohne fremde
+ * Steuerung, ein Tarif-Slot dauert länger.
+ */
+function getaktet(phases: ChargePhase[], targetSoc: number): boolean {
+  for (let i = 1; i < phases.length; i++) {
+    const pause =
+      (Date.parse(phases[i].startedAt) - Date.parse(phases[i - 1].endedAt)) / 60000;
+    if (pause < PACED_PAUSE_MIN) {
+      continue;
+    }
+    // Der Ladestand VOR der Pause: War das Ziel da schon erreicht, hat das
+    // Fahrzeug von selbst aufgehört, und die Pause sagt nichts über einen
+    // fremden Takt.
+    const davor = phases[i - 1].endSoc;
+    if (davor === undefined || davor < targetSoc) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Wie lang eine Ladepause sein muss, um als fremder Takt zu gelten. */
+const PACED_PAUSE_MIN = 20;
+
+/**
+ * Wie groß ein Ladestand-Sprung in der Abfragelücke höchstens sein darf.
+ *
+ * Nach einer langen Pause ohne Messpunkte ist die Zuordnung nicht mehr
+ * belegt — dann lieber die Ladung kleiner ausweisen als etwas erfinden.
+ */
+const GAP_MAX_SOC_JUMP = 15;
+
+/**
+ * Wie weit das Fahrzeug in der Lücke gefahren sein darf.
+ *
+ * Am Fahrzeug beobachtet: Zwischen dem letzten Messpunkt ohne Kabel und dem
+ * ersten mit Kabel stand ein Kilometer — in die Garage rangiert. Eine
+ * Bedingung auf exakt gleichen Kilometerstand griff deshalb nie.
+ *
+ * Fahren SENKT den Ladestand; steigt er trotzdem, wurde geladen. Die Grenze
+ * schützt allein vor der Ausnahme: Bergab rekuperiert der Wagen, und über
+ * längere Strecken kann das mehrere Prozentpunkte ausmachen. Fünf Kilometer
+ * bringen selbst bergab kaum einen — die Zuordnung bleibt eindeutig.
+ */
+const GAP_MAX_KM = 5;
+
+/**
+ * Begann die Ladung schon vor dem ersten Messpunkt mit Kabel?
+ *
+ * Ohne Kabel fragt das Plugin nur alle zwanzig Minuten nach. Wer in dieser
+ * Lücke einsteckt, lädt schon, bevor wir hinsehen — und der Zuwachs fehlte
+ * der Ladung. Am Fahrzeug beobachtet: 19:50 Uhr 20 % ohne Kabel, 20:30 Uhr
+ * 22 % mit Kabel. Über den Mitschrieb summiert liefen Ladungsliste und
+ * Zeitreihe dadurch um 1,67 kWh auseinander — sichtbar als „mal fehlt ein
+ * Prozent".
+ *
+ * Ein Ladestand STEIGT nicht von selbst. Blieb der Kilometerstand dabei
+ * stehen, gibt es nur eine Erklärung: Es wurde geladen. Fuhr das Auto
+ * dagegen, ist der Sprung nicht erklärt — und Raten wäre schlechter als
+ * Schweigen.
+ */
+function ladungBegannFrueher(
+  vorher: ChargeLogSample | undefined,
+  ersterMitKabel: ChargeLogSample,
+): ChargeLogSample | undefined {
+  if (
+    vorher?.soc === undefined ||
+    ersterMitKabel.soc === undefined ||
+    vorher.odometerKm === undefined ||
+    ersterMitKabel.odometerKm === undefined
+  ) {
+    return undefined;
+  }
+  const zuwachs = ersterMitKabel.soc - vorher.soc;
+  if (zuwachs <= 0 || zuwachs > GAP_MAX_SOC_JUMP) {
+    return undefined;
+  }
+  // Weit gefahren? Dann könnte Rekuperation den Sprung erklären, und die
+  // Zuordnung wäre geraten. Ein paar Kilometer Rangieren dagegen senken den
+  // Ladestand höchstens — sie sprechen also FÜR eine Ladung, nicht dagegen.
+  return ersterMitKabel.odometerKm - vorher.odometerKm <= GAP_MAX_KM ? vorher : undefined;
+}
+
 export function buildSessions(
   samples: Iterable<ChargeLogSample>,
   opts: BuildOptions = {},
 ): ChargeSession[] {
   const sessions: ChargeSession[] = [];
   let open: Open | undefined;
+  /** Letzter Messpunkt OHNE Kabel — siehe {@link ladungBegannFrueher}. */
+  let letzterOhneKabel: ChargeLogSample | undefined;
 
   for (const s of samples) {
     if (s.plugged === undefined) {
@@ -461,8 +558,11 @@ export function buildSessions(
 
     if (s.plugged) {
       if (!open) {
+        // Begann die Ladung schon in der Abfragelücke davor? Dann gehört
+        // deren Ladestand-Zuwachs zu dieser Ladung.
+        const frueher = ladungBegannFrueher(letzterOhneKabel, s);
         open = {
-          first: s,
+          first: frueher ?? s,
           last: s,
           socValues: [],
           rangeValues: [],
@@ -475,6 +575,12 @@ export function buildSessions(
           sawAway: false,
           count: 0,
         };
+        if (frueher?.soc !== undefined) {
+          // Der Zuwachs aus der Lücke gehört zur Ladung: Ein Ladestand steigt
+          // nicht von selbst.
+          open.socValues.push(frueher.soc);
+          open.lastIdle = frueher;
+        }
       }
       open.last = s;
       open.count++;
@@ -519,6 +625,7 @@ export function buildSessions(
         open.lastIdle = s;
       }
     } else if (open) {
+      letzterOhneKabel = s;
       // Ausgesteckt: das erste nicht-eingesteckte Sample markiert das Ende.
       open.last = s;
       if (s.soc !== undefined) {
@@ -529,6 +636,8 @@ export function buildSessions(
       }
       sessions.push(finish(open, true, opts));
       open = undefined;
+    } else {
+      letzterOhneKabel = s;
     }
   }
 

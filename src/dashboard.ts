@@ -361,7 +361,13 @@ let statsCache:
   | {
       sig: string;
       dir: string;
-      capacityKwh: number;
+      /**
+       * Teil des Schlüssels, auch wenn sie fehlt: `undefined` ist ein eigener
+       * Zustand, kein fehlender Eintrag. Ein Wechsel zwischen „bekannt" und
+       * „unbekannt" muss den Cache verwerfen — sonst überlebte eine in Euro
+       * gerechnete Auswertung den Moment, in dem die Grundlage dafür wegfiel.
+       */
+      capacityKwh?: number;
       pricePerKwh: number;
       capacity: CapacityEstimate;
       trips: Trip[];
@@ -767,7 +773,7 @@ export function effective(o: DashboardOptions): {
 }
 
 export function optionsFor(o: DashboardOptions): {
-  capacityKwh: number;
+  capacityKwh?: number;
   pricePerKwh: number;
   grossPricePerKwh: number;
   dayBoundaryHour: number;
@@ -778,7 +784,18 @@ export function optionsFor(o: DashboardOptions): {
   // von dort kommen.
   const { values } = effective(o);
   return {
-    capacityKwh: values.capacityKwh,
+    // Die Vertrauensfrage wird HIER entschieden, nicht bei jedem Aufrufer.
+    //
+    // Vorher erzeugte sie nur einen Warntext, und darunter standen dieselben
+    // falschen Euro-Beträge weiter. Das war keine Prüfung, sondern eine
+    // Fußnote: `optionsFor` reichte die Taycan-Vorgabe ungefragt an jeden
+    // Auswerter durch — an Zeitreihe, Ladungen, Fahrten, Ruheverlust und
+    // Batterie-Nachweis.
+    //
+    // An einer Stelle `undefined` einzusetzen wirkt dagegen überall zugleich.
+    // Was ohne Kapazität nicht rechenbar ist, entsteht dann gar nicht erst —
+    // statt gerechnet und mit einer Warnung überschrieben zu werden.
+    capacityKwh: kapazitaetTraegt(o) ? values.capacityKwh : undefined,
     pricePerKwh: Math.max(0, values.priceCt - values.bonusCt) / 100,
     grossPricePerKwh: values.priceCt / 100,
     dayBoundaryHour: values.dayBoundaryHour,
@@ -1104,7 +1121,11 @@ function renderPage(
       // Stückweise zusammengesetzt und dann verbunden: Vorher entstand bei
       // fehlender Reichweite ein doppelter Trenner („0,00 € ·  · 6 km").
       detail: [
-        hasPrice ? `${b.cost.toFixed(2)} €` : '',
+        // Ohne Kapazität keine Kostenzahl — dort stünde sonst „0,00 €", und
+        // das behauptet „nichts geladen". Was gemessen wurde, ist der
+        // Ladestand-Zuwachs; der tritt an die Stelle des Betrags.
+        hasPrice && b.unratedSocGain === 0 ? `${b.cost.toFixed(2)} €` : '',
+        b.unratedSocGain > 0 ? `+${b.unratedSocGain} % geladen` : '',
         b.rangeAdded > 0 ? `+${b.rangeAdded} km` : '',
         b.km > 0 ? `${b.km} km ${L.dashDriven.toLowerCase()}` : '',
       ]
@@ -1974,9 +1995,16 @@ ${placeTabs}${nav}${
 }
 <div class="grid">
   <div class="card"><span>${esc(current ? current.label : GRAN_LABEL[gran])}</span>
-    <b>${current ? current.kwh.toFixed(1) : '0'} kWh</b>${trend}</div>
+    <b>${
+      // Ohne belastbare Kapazität steht hier der gemessene Ladestand-Zuwachs
+      // statt einer Kilowattstundenzahl, die es nicht gibt. „0,0 kWh" wäre
+      // die einzige Alternative gewesen — und die ist schlicht falsch.
+      current && current.unratedSocGain > 0 && current.kwh === 0
+        ? `+${current.unratedSocGain} %`
+        : `${current ? current.kwh.toFixed(1) : '0'} kWh`
+    }</b>${trend}</div>
   ${
-    hasPrice
+    hasPrice && !(current && current.unratedSocGain > 0 && current.kwh === 0)
       ? `<div class="card"><span>${esc(L.dashCost)}</span><b>${current ? current.cost.toFixed(2) : '0.00'} €</b>
     <span>${
       // Der Bruttopreis stand hier als „statt 19,41 €" — dieselbe Aussage wie

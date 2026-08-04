@@ -272,14 +272,14 @@ describe('dayBoundaryHour', () => {
 describe('efficiency', () => {
   it('computes consumption and cost per kilometre', () => {
     const e = efficiency([
-      { key: 'a', from: '', label: 'a', kwh: 20, cost: 4, costGross: 6.5, saved: 2.5, rangeAdded: 0, usedKwh: 0, unratedKm: 0, km: 100, samples: 1, gapMinutes: 0, spanMinutes: 60 },
+      { key: 'a', from: '', label: 'a', kwh: 20, cost: 4, costGross: 6.5, saved: 2.5, rangeAdded: 0, usedKwh: 0, unratedKm: 0, unratedSocGain: 0, km: 100, samples: 1, gapMinutes: 0, spanMinutes: 60 },
     ]);
     expect(e.kwhPer100km).toBe(20);
     expect(e.centPerKm).toBe(4);
   });
 
   it('omits the ratios without driven distance (no division by zero)', () => {
-    const e = efficiency([{ key: 'a', from: '', label: 'a', kwh: 20, cost: 4, costGross: 6.5, saved: 2.5, rangeAdded: 0, usedKwh: 0, unratedKm: 0, km: 0, samples: 1, gapMinutes: 0, spanMinutes: 60 }]);
+    const e = efficiency([{ key: 'a', from: '', label: 'a', kwh: 20, cost: 4, costGross: 6.5, saved: 2.5, rangeAdded: 0, usedKwh: 0, unratedKm: 0, unratedSocGain: 0, km: 0, samples: 1, gapMinutes: 0, spanMinutes: 60 }]);
     expect(e.kwhPer100km).toBeUndefined();
     expect(e.centPerKm).toBeUndefined();
   });

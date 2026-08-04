@@ -30,7 +30,7 @@ export type Place = 'all' | 'home' | 'away';
  * Falschwerte.
  */
 export interface EffectiveOptions extends AggregateOptions {
-  capacityKwh: number;
+  capacityKwh?: number;
   pricePerKwh: number;
   grossPricePerKwh: number;
   dayBoundaryHour: number;
@@ -287,7 +287,13 @@ let statsCache:
   | {
       sig: string;
       dir: string;
-      capacityKwh: number;
+      /**
+       * Teil des Schlüssels, auch wenn sie fehlt: `undefined` ist ein eigener
+       * Zustand, kein fehlender Eintrag. Ein Wechsel zwischen „bekannt" und
+       * „unbekannt" muss den Cache verwerfen — sonst überlebte eine in Euro
+       * gerechnete Auswertung den Moment, in dem die Grundlage dafür wegfiel.
+       */
+      capacityKwh?: number;
       pricePerKwh: number;
       priceSig: string;
       capacity: CapacityEstimate;

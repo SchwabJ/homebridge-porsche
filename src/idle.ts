@@ -329,8 +329,11 @@ export interface IdleStats {
  * Der Ruheverlust als Tagesrate — `undefined`, solange die beobachtete
  * Ruhezeit unter {@link MIN_OBSERVED_HOURS} liegt.
  */
-export function idleStats(a: IdleAnalysis, capacityKwh: number): IdleStats | undefined {
-  if (a.idleMinutes < MIN_OBSERVED_HOURS * 60 || capacityKwh <= 0) {
+export function idleStats(a: IdleAnalysis, capacityKwh?: number): IdleStats | undefined {
+  // Ohne Kapazität bleibt der Verlust unbewertet. Er wäre in Prozentpunkten
+  // zwar messbar, die Warnschwelle steht aber in Kilowattstunden — und was
+  // zwei Prozentpunkte bedeuten, hängt an genau der Zahl, die hier fehlt.
+  if (a.idleMinutes < MIN_OBSERVED_HOURS * 60 || capacityKwh === undefined || capacityKwh <= 0) {
     return undefined;
   }
   const days = a.idleMinutes / 1440;

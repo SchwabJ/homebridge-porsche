@@ -355,9 +355,26 @@ export function idleStats(a: IdleAnalysis, capacityKwh: number): IdleStats | und
  * einzelne schwache Zelle. Ein zweiter meldete 3 % über wenige Tage. Beide
  * merkten es erst, als die Reichweite fehlte.
  *
- * Zwei Prozentpunkte liegen weit genug über dem Normalfall, um nicht bei
- * jedem kalten Wochenende anzuschlagen, und weit genug unter den gemeldeten
- * Schäden, um sie zu erwischen.
+ * GEMESSEN WIRD IN KILOWATTSTUNDEN, nicht in Prozentpunkten. Prozentpunkte
+ * hängen an der Batteriegröße, der Ruheverlust selbst nicht — er entsteht in
+ * der Bordelektronik, und die ist in einem Cayenne E-Hybrid dieselbe wie in
+ * einem Taycan:
+ *
+ *   Taycan  (83,7 kWh):  2 % je Tag = 1,67 kWh
+ *   Cayenne (21,8 kWh):  2 % je Tag = 0,44 kWh
+ *
+ * Eine Prozentschwelle hätte einen völlig gesunden Hybrid regelmäßig gemeldet.
+ * 1,6 kWh je Tag liegen weit genug über dem Normalfall (deutlich unter einer
+ * Kilowattstunde), um nicht bei jedem kalten Wochenende anzuschlagen, und weit
+ * genug unter den gemeldeten Schäden, um sie zu erwischen — und sie gelten für
+ * jedes Fahrzeug gleich.
+ */
+export const IDLE_ALARM_KWH_PER_DAY = 1.6;
+
+/**
+ * @deprecated Die Schwelle wird in Kilowattstunden gemessen — siehe
+ * {@link IDLE_ALARM_KWH_PER_DAY}. Prozentpunkte hängen an der Batteriegröße,
+ * der Ruheverlust nicht.
  */
 export const IDLE_ALARM_PCT_PER_DAY = 2;
 
@@ -377,14 +394,14 @@ const ALARM_MIN_DAYS = 3;
  */
 export function idleAlarm(
   stats: IdleStats | undefined,
-  thresholdPctPerDay: number,
+  thresholdKwhPerDay: number,
 ): { socPerDay: number; kwhPerDay: number } | undefined {
   if (
     !stats ||
-    thresholdPctPerDay <= 0 ||
+    thresholdKwhPerDay <= 0 ||
     stats.obergrenze ||
     stats.observedDays < ALARM_MIN_DAYS ||
-    stats.socPerDay <= thresholdPctPerDay
+    stats.kwhPerDay <= thresholdKwhPerDay
   ) {
     return undefined;
   }

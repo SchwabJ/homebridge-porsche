@@ -17,7 +17,7 @@ own dashboard on your network.
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg)](https://nodejs.org)
 [![Homebridge](https://img.shields.io/badge/homebridge-%E2%89%A51.6-purple.svg)](https://homebridge.io)
-[![Tests](https://img.shields.io/badge/tests-460%20passing-success.svg)](#-development)
+[![Tests](https://img.shields.io/badge/tests-907%20passing-success.svg)](#-development)
 
 <img src="https://raw.githubusercontent.com/SchwabJ/homebridge-porsche/main/docs/img/dashboard-cards.png" alt="Charging dashboard: state of charge, energy, cost and savings per period, with the charge curve of each session" width="360">
 
@@ -286,12 +286,22 @@ alongside the log.
 ### 🎯 Accuracy, honestly
 
 - Energy comes from the **state-of-charge delta**, not from integrating power. That survives missed
-  polls, but it depends on `capacityKwh` being right for *your* car — the dashboard measures your
-  real capacity from driving data and shows it, so you can correct the setting.
+  polls, but it depends on `capacityKwh` being right for *your* car — so the dashboard measures the
+  real capacity itself and shows it, letting you correct the setting.
+- That measurement is taken **from the charges**, not from driving: charging power summed over time
+  gives the energy that went in, divided by the state-of-charge gained. No consumption figure, no
+  distance, no standby losses to subtract — the three error sources of the driving-side method, all
+  of which pull the result the same way (down).
 - The figures are the energy that reached the **battery**, while your meter bills what left the
   **wall**. Expect real cost to run a few percent above what's shown.
 - Where the data is too thin to say anything useful, the dashboard says so rather than printing a
-  confident-looking number.
+  confident-looking number. Short trips are the visible case: a two-kilometre drive is about
+  0.4 kWh, which the integer state-of-charge cannot show at all — the consumption figure is still
+  given, marked `≈` because its rounding error is larger than usual.
+- One thing is genuinely open, and the plugin says so instead of hiding it: whether the reported
+  charging power is measured **at the cable or in the battery**. Both readings fit the data equally
+  well and differ by roughly eight percent. The midpoint is shown and half the difference is folded
+  into the uncertainty.
 
 ### 🚗 Vehicle status page
 

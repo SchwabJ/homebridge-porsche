@@ -138,11 +138,17 @@ describe('Zyklus statt Messabstand', () => {
   });
 
   it('verwirft einen Zyklus, wenn nach dem Standabzug zu wenig übrig bleibt', () => {
-    // Fast alles im Stand verloren: Was bleibt, trägt die Rundung nicht.
+    // Viel im Stand verloren: Was bleibt, trägt die Rundung nicht.
+    //
+    // Der Standanteil muss über eine Zeit verteilt sein, in der er
+    // physikalisch entstehen KANN — fünf Punkte über eine Stunde sind rund
+    // 2 kW und damit Standklima. Frühere Fassung verlor 18 Punkte in dreißig
+    // Minuten; das wären 14 kW, und seit der Leistungsgrenze gilt so etwas
+    // als verspätet gemeldeter Kilometerstand statt als Stillstand.
     const rows = [
       at(0, { soc: 80, odometerKm: 50000, tripKwh100: 20, plugged: false }),
-      at(30, { soc: 62, odometerKm: 50000, tripKwh100: 20, plugged: false }),
-      at(90, { soc: 55, odometerKm: 50100, tripKwh100: 20, plugged: false }),
+      at(60, { soc: 75, odometerKm: 50000, tripKwh100: 20, plugged: false }),
+      at(120, { soc: 62, odometerKm: 50100, tripKwh100: 20, plugged: false }),
     ];
     expect(estimateCapacity(rows).samples).toBe(0);
   });

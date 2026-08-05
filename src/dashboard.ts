@@ -32,6 +32,7 @@ import * as path from 'path';
 import { buildSessions, type ChargeSession } from './sessions';
 import { aggregate, efficiency, keyOf, SUB, type Granularity, type Bucket} from './aggregate';
 import type { ChargeLogSample } from './chargeLog';
+import { capacityFromCharging, type ChargeCapacityEstimate } from './chargeCapacity';
 import { ICONS } from './icons';
 import { fill, type Labels } from './i18n';
 import { tyreTrend } from './tyres';
@@ -370,6 +371,7 @@ let statsCache:
       capacityKwh?: number;
       pricePerKwh: number;
       capacity: CapacityEstimate;
+      chargeCapacity: ChargeCapacityEstimate;
       trips: Trip[];
       pollMin: number;
     }
@@ -377,6 +379,12 @@ let statsCache:
 
 interface HistoryStats {
   capacity: CapacityEstimate;
+  /**
+   * Dieselbe Größe von der LADESEITE gemessen — siehe `chargeCapacity.ts`.
+   * Sie ist die Grundlage des Batterie-Nachweises; der fahrseitige Weg irrt
+   * systematisch nach unten und liefert nur noch den Monatsverlauf.
+   */
+  chargeCapacity: ChargeCapacityEstimate;
   trips: Trip[];
   pollMin: number;
 }
@@ -396,7 +404,10 @@ function statsFor(o: DashboardOptions): HistoryStats {
   ) {
     return statsCache;
   }
-  const capacity = estimateCapacity(streamSamples(o.logDir));
+  const capacity = estimateCapacity(streamSamples(o.logDir), { ratedKwh: eff.ratedKwh });
+  const chargeCapacity = capacityFromCharging(streamSamples(o.logDir), {
+    ratedKwh: eff.ratedKwh,
+  });
   const trips = buildTrips(streamSamples(o.logDir), { pricePerKwh: eff.pricePerKwh });
   const pollMin = pollIntervalMinutes(streamSamples(o.logDir));
   statsCache = {
@@ -405,6 +416,7 @@ function statsFor(o: DashboardOptions): HistoryStats {
     capacityKwh: eff.capacityKwh,
     pricePerKwh: eff.pricePerKwh,
     capacity,
+    chargeCapacity,
     trips,
     pollMin,
   };
@@ -774,6 +786,8 @@ export function effective(o: DashboardOptions): {
 
 export function optionsFor(o: DashboardOptions): {
   capacityKwh?: number;
+  /** Werksangabe als Bezug der Plausibilitätsprüfungen — siehe unten. */
+  ratedKwh?: number;
   pricePerKwh: number;
   grossPricePerKwh: number;
   dayBoundaryHour: number;
@@ -796,6 +810,10 @@ export function optionsFor(o: DashboardOptions): {
     // Was ohne Kapazität nicht rechenbar ist, entsteht dann gar nicht erst —
     // statt gerechnet und mit einer Warnung überschrieben zu werden.
     capacityKwh: kapazitaetTraegt(o) ? values.capacityKwh : undefined,
+    // Die Werksangabe als BEZUG für die Plausibilitätsprüfungen der
+    // Kapazitätsmessung — getrennt von der Zahl, mit der gerechnet wird.
+    // Fielen sie zusammen, prüfte sich die Messung an sich selbst.
+    ratedKwh: kapazitaetTraegt(o) ? values.capacityKwh : undefined,
     pricePerKwh: Math.max(0, values.priceCt - values.bonusCt) / 100,
     grossPricePerKwh: values.priceCt / 100,
     dayBoundaryHour: values.dayBoundaryHour,
@@ -3778,7 +3796,7 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
           // Schätzung gar nicht erst weitergereicht: Der Nachweis soll nicht
           // eine Zahl zeigen, die er im nächsten Absatz einschränken muss.
           istElektrisch(o)
-            ? buildBatteryReport(st.capacity, o.capacityKwh)
+            ? buildBatteryReport(st.capacity, o.capacityKwh, st.chargeCapacity)
             : buildBatteryReport(
                 { samples: 0, cyclesSeen: 0, km: 0, values: [], points: [] },
                 o.capacityKwh,

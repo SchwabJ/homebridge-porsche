@@ -64,6 +64,32 @@ import type { ChargeLogSample } from './chargeLog';
  */
 const MAX_REL_ERROR = 0.15;
 
+/**
+ * Bis hierher wird der Verbrauch noch gezeigt — aber als UNGEFÄHR.
+ *
+ * Gemeldet wurden Fahrten wie diese:
+ *
+ *     Di., 04.08., 23:30    1 km    78 → 78 %    —
+ *     Di., 04.08., 21:01    2 km    79 → 79 %    —
+ *
+ * „Das sind leere Fahrten, ich bin hier tatsächlich gefahren."
+ *
+ * Beide Spalten waren aus demselben Grund leer: Zwei Kilometer sind bei
+ * 20 kWh/100 km rund 0,4 kWh, also 0,5 Prozentpunkte — der Ladestand kommt
+ * ganzzahlig und bleibt stehen. Der Verbrauch dagegen war rechenbar
+ * (0,41 ± 0,09 kWh), nur überschritt sein relativer Fehler mit 22 % die
+ * Schranke darüber.
+ *
+ * Eine Zahl mit 22 % Unsicherheit ist keine gute Zahl, aber sie ist eine
+ * Aussage. „Ungefähr 20 kWh/100 km" trifft zu; „—" behauptet, man wisse
+ * nichts. Auf einer Fahrt von zwei Kilometern ist das der Unterschied
+ * zwischen einer groben und gar keiner Auskunft.
+ *
+ * Jenseits dieser zweiten Grenze bleibt es beim Schweigen: Ab etwa der Hälfte
+ * relativen Fehlers ist auch „ungefähr" keine Beschreibung mehr.
+ */
+const MAX_APPROX_ERROR = 0.5;
+
 /** Rundungsschritt von `tripKwh100` laut Fahrzeug, in kWh/100 km. */
 const KWH100_STEP = 0.1;
 
@@ -121,6 +147,14 @@ export interface Trip {
   energyKwh?: number;
   /** Verbrauch in kWh/100 km. */
   kwhPer100km?: number;
+  /**
+   * Der Verbrauch ist nur ungefähr — sein Rundungsfehler liegt über
+   * {@link MAX_REL_ERROR}, aber noch unter {@link MAX_APPROX_ERROR}.
+   *
+   * Trifft praktisch nur Kurzstrecken: Der Fehler des Zyklus-Zählers wirkt
+   * absolut, sein Anteil an einer Fahrt wächst also, je kürzer sie ist.
+   */
+  approximate?: boolean;
   /** Kosten in EUR, sofern ein Arbeitspreis gilt. */
   costEur?: number;
   /** Ladestand am Anfang und am Ende, wenn bekannt. */
@@ -249,9 +283,13 @@ export function buildTrips(
       } else {
         if (energy > 0) {
           const err = errorKwh(cycleKm) + errorKwh(Math.max(0, cycleKm - km));
-          if (err / energy <= MAX_REL_ERROR) {
+          const rel = err / energy;
+          if (rel <= MAX_APPROX_ERROR) {
             trip.energyKwh = Math.round(energy * 100) / 100;
             trip.kwhPer100km = Math.round((energy / km) * 1000) / 10;
+            if (rel > MAX_REL_ERROR) {
+              trip.approximate = true;
+            }
             const price = opts.priceFor
               ? opts.priceFor(trip.startedAt).pricePerKwh
               : opts.pricePerKwh;

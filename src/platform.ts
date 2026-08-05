@@ -19,6 +19,7 @@ import { chargeWindowAction, externallyPaced, parseWindow } from './chargeWindow
 import { capacityTrusted } from './capacityTrust';
 import { analyzeIdle, idleAlarm, idleStats, IDLE_ALARM_KWH_PER_DAY } from './idle';
 import { buildBatteryReport, healthAlarm, HEALTH_ALARM_PCT } from './batteryReport';
+import { capacityFromCharging } from './chargeCapacity';
 import { estimateCapacity } from './capacity';
 import { chargingStart, chargingStop, climateStart, climateStop, lock } from './api/commands';
 import { appendSample } from './chargeLog';
@@ -746,7 +747,13 @@ export class PorschePlatform implements DynamicPlatformPlugin {
         isPluginHybrid(this.vehicle) === false &&
         jetzt - this.healthWarnedAt >= HEALTH_WARN_GAP_MS
       ) {
-        const bericht = buildBatteryReport(estimateCapacity(samples), c.capacityKwh);
+        const bericht = buildBatteryReport(
+          estimateCapacity(samples, { ratedKwh: c.capacityKwh }),
+          c.capacityKwh,
+          // Auch die Warnung urteilt über die ladeseitige Zahl — sonst
+          // meldete sie eine Alterung, die nur der fahrseitige Abwärtsdrift ist.
+          capacityFromCharging(samples, { ratedKwh: c.capacityKwh }),
+        );
         const h = healthAlarm(bericht, HEALTH_ALARM_PCT);
         if (h) {
           this.healthWarnedAt = jetzt;

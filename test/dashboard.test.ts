@@ -1745,6 +1745,18 @@ describe('Kapazitätsverlauf auf der Seite', () => {
     const iso = (h: number): string =>
       `${month}-${String(day).padStart(2, '0')}T${String(h).padStart(2, '0')}:00:00.000Z`;
     return [
+      // Ladepunkte mit Leistung: Die Kachel, in der der Verlauf steht, wird
+      // ladeseitig gespeist — ohne sie erscheint sie gar nicht.
+      ...Array.from({ length: 13 }, (_, i) => ({
+        ts: `${month}-${String(day).padStart(2, '0')}T04:${String(i * 10).padStart(2, '0')}:00.000Z`,
+        soc: 60 + Math.round(i * (20 / 12)),
+        odometerKm: odo,
+        plugged: true,
+        charging: true,
+        atHome: true,
+        powerKw: 8 + (i % 2) * 0.1,
+        rangeKm: 200 + i * 7,
+      })),
       { ts: iso(6), soc: 80, odometerKm: odo, plugged: true, charging: true, atHome: true },
       { ts: iso(7), soc: 80, odometerKm: odo, plugged: false },
       { ts: iso(9), soc: 50, odometerKm: odo + 100, plugged: false, tripKwh100: kwh100 },
@@ -1806,7 +1818,7 @@ describe('Kapazitätsverlauf auf der Seite', () => {
 
   it('zeichnet den Verlauf ab vier Monaten', async () => {
     await serve(['2026-01', '2026-02', '2026-03', '2026-04'], 19400);
-    const html = await (await fetch(`${url}/?g=year`)).text();
+    const html = await (await fetch(`${url}/status`)).text();
     expect(html).toContain('class="captrend"');
     expect(html).toContain('over 4 months');
     // 84,0 → 81,0 kWh: Anfang und Ende stehen als Zahl daneben, damit die

@@ -1647,40 +1647,7 @@ h1 button.cog.busy svg{animation:spin .9s linear infinite}
 .card.driven b{color:#e8833a}
 .card.charged b{color:var(--accent)}
 @media(prefers-color-scheme:dark){.card.save b{color:#35c77b}}
-.cap{background:var(--card);border:1px solid var(--line);border-radius:12px;
- padding:14px;margin-bottom:16px;position:relative;overflow:hidden}
-.cap::after{content:"";position:absolute;inset:0;pointer-events:none;
- background:radial-gradient(120% 90% at 100% 0%,rgba(10,132,255,.10),transparent 60%)}
-.caphead{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
-.caphead span{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
-/* Der Weg zum Nachweis führt über die Überschrift der Kachel — dort steht die
-   Zahl, über die er Auskunft gibt. Dezent unterstrichen statt als Knopf: Die
-   Seite braucht kaum jemand täglich, aber wer sie sucht, sucht sie hier. */
-.caphead a.plain{color:inherit;text-decoration:underline;text-underline-offset:3px;
- text-decoration-color:var(--line)}
-.caphead em{font-style:normal;color:var(--dim);font-size:11.5px}
-.capmain{display:flex;align-items:baseline;gap:10px;margin-bottom:10px}
-.capmain b{font-size:30px;font-weight:600;letter-spacing:-.03em;
- font-variant-numeric:tabular-nums}
-.capmain b i{font-style:normal;font-size:15px;font-weight:500;color:var(--dim);margin-left:4px}
-.soh{font-size:12px;font-weight:600;color:#1e9e5a;background:rgba(30,158,90,.14);
- padding:3px 9px;border-radius:7px}
-@media(prefers-color-scheme:dark){.soh{color:#35c77b;background:rgba(53,199,123,.16)}}
-.capbar{position:relative;height:8px;background:var(--line);border-radius:5px;
- overflow:hidden;margin-bottom:8px}
-.capbar i{display:block;height:100%;border-radius:5px;
- background:linear-gradient(90deg,#0a84ff,#35c77b)}
-/* Streuung als helle Zone über dem Balken — zeigt die Unsicherheit mit an. */
-.capbar u{position:absolute;top:0;height:100%;background:rgba(255,255,255,.45);
- border-radius:5px;mix-blend-mode:overlay}
-.capfoot{color:var(--dim);font-size:11.5px}
-/* Verlauf über die Monate: Linie und Spanne nebeneinander, damit die Karte
-   nicht in die Höhe wächst. */
-.captrend{display:flex;align-items:center;gap:10px;margin:2px 0 8px}
-.captrend em{font-style:normal;color:var(--dim);font-size:11.5px}
-/* Die Unsicherheit steht direkt an der Zahl, nicht im Kleingedruckten: Eine
-   Kapazität ohne ihre Spanne lädt dazu ein, sie für einen Messwert zu halten. */
-.capunc{color:var(--dim);font-size:14px;font-style:normal;margin-left:-2px}
+${CAP_CSS}
 .quality{border-radius:10px;padding:9px 12px;font-size:12.5px;margin-bottom:12px;
  border:1px solid var(--line)}
 .quality.warn{background:rgba(200,129,26,.14);color:#c8811a;border-color:rgba(200,129,26,.35)}
@@ -1688,7 +1655,13 @@ h1 button.cog.busy svg{animation:spin .9s linear infinite}
 @media(prefers-color-scheme:dark){.quality.warn{color:#e0a54a}.quality.bad{color:#e07a68}}
 .status{background:var(--card);border:1px solid var(--line);border-radius:12px;
  padding:13px;margin-bottom:12px}
-.soc{margin-bottom:10px}
+/* Ladestand links, Steckerzustand rechts — in EINER Zeile. Vorher standen
+   die Plaketten darunter und kosteten eine eigene Zeile, obwohl „nicht
+   eingesteckt" nur ein Status ist. Der Balken bleibt darüber in voller
+   Breite, er ist die Hauptaussage. */
+.socrow{display:flex;justify-content:space-between;align-items:baseline;
+ gap:10px;flex-wrap:wrap}
+.soc{min-width:0}
 .soc b{font-size:26px;font-weight:600;letter-spacing:-.02em;margin-right:8px}
 .soc span{color:var(--dim);font-size:13px}
 .socbar{height:7px;background:var(--line);border-radius:4px;overflow:hidden;margin-bottom:9px}
@@ -1927,8 +1900,9 @@ ${CHART_CSS}${BARS_CSS}${SPARK_CSS}${REFRESH_CSS}
  fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
  ><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 8.9 19a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 5 8.9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9.5a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></a></em></h1>
 <div class="status">
+  <div class="socbar"><i style="width:${st.state?.soc ?? 0}%"></i></div>
+  <div class="socrow">
   <div class="soc">
-    <div class="socbar"><i style="width:${st.state?.soc ?? 0}%"></i></div>
     <b>${st.state?.soc !== undefined ? `${st.state.soc} %` : '—'}</b>
     <span>${st.state?.rangeKm !== undefined ? `${st.state.rangeKm} km` : ''}${
       st.state?.minSoc !== undefined ? ` · ${esc(L.dashInstantTo)} ${st.state.minSoc} %` : ''
@@ -1949,59 +1923,9 @@ ${CHART_CSS}${BARS_CSS}${SPARK_CSS}${REFRESH_CSS}
           : esc(L.dashNoDataYet)
     }</span>
   </div>
+  </div>
 </div>
-<!-- Über den Filtern: Die gemessene Kapazität ändert sich weder mit dem
-     Zeitraum noch mit dem Ort. Darunter gelesen wirkte sie gefiltert. -->
-${
-  // Nur bei gesichert rein elektrischem Antrieb: Bei allem anderen wäre die
-  // Zahl still falsch — siehe {@link DashboardOptions.pureElectric}.
-  cap.capacityKwh !== undefined && istElektrisch(o)
-    ? `<div class="cap">
-        <div class="caphead">
-          <span><a href="/batterie" class="plain">${esc(L.dashMeasuredCapacity)}</a></span>
-          <em>${cap.samples} ${esc(cap.samples === 1 ? L.capDrive : L.capDrives)} · ${cap.km} km</em>
-        </div>
-        <div class="capmain">
-          <b>${cap.capacityKwh.toFixed(1)}<i>kWh</i></b>
-          ${
-            cap.uncertaintyKwh !== undefined
-              ? `<i class="capunc">± ${cap.uncertaintyKwh.toFixed(1)}</i>`
-              : ''
-          }
-          ${soh !== undefined ? `<span class="soh">${soh.toFixed(0)} % ${esc(L.dashHealth)}</span>` : ''}
-        </div>
-        <div class="capbar">
-          <i style="width:${Math.max(0, Math.min(100, soh ?? 0))}%"></i>
-          ${
-            cap.spreadKwh !== undefined
-              ? `<u style="left:${Math.max(0, Math.min(96, (soh ?? 0) - 2))}%;width:${Math.min(
-                  20,
-                  (cap.spreadKwh / cfg.capacityKwh) * 100,
-                )}%"></u>`
-              : ''
-          }
-        </div>
-        ${
-          capTrend.length
-            ? `<div class="captrend">${sparkline(
-                capTrend.map((m) => ({ t: Date.parse(`${m.month}-15T12:00:00Z`), v: m.kwh })),
-                { minSpan: 2 },
-              )}<em>${esc(
-                L.capTrendOver
-                  .replace('%a', capTrend[0].kwh.toFixed(1))
-                  .replace('%b', capTrend[capTrend.length - 1].kwh.toFixed(1))
-                  .replace('%n', String(capTrend.length)),
-              )}</em></div>`
-            : ''
-        }
-        <div class="capfoot">${esc(L.dashConfigured)} ${cfg.capacityKwh} kWh${
-          capDelta !== undefined
-            ? ` · ${esc(L.dashMeasurement)} ${capDelta > 0 ? '+' : ''}${capDelta.toFixed(1)} %`
-            : ''
-        }${cap.spreadKwh !== undefined ? ` · ${esc(L.dashSpread)} ±${(cap.spreadKwh / 2).toFixed(1)} kWh` : ''}</div>
-      </div>`
-    : ''
-}
+
 ${REFRESH_NOTE}
 <nav class="tabs">${tabs}</nav>
 ${placeTabs}${nav}${
@@ -2440,6 +2364,46 @@ tr.sum td{font-weight:600;border-top:2px solid var(--line);border-bottom:0;paddi
  * hörte das Symbol dort einfach auf zu drehen — keine Erklärung, kein
  * Hinweis, ob überhaupt etwas passiert ist.
  */
+/**
+ * Die Kapazitätskachel — von der Zustandsseite gebraucht, das Markup selbst
+ * steht dort. Als Konstante, weil eine Kachel, deren Stil nur auf einer Seite
+ * geladen wird, auf der anderen als nackte Textzeilen rendert.
+ */
+const CAP_CSS = `.cap{background:var(--card);border:1px solid var(--line);border-radius:12px;
+ padding:14px;margin-bottom:16px;position:relative;overflow:hidden}
+.cap::after{content:"";position:absolute;inset:0;pointer-events:none;
+ background:radial-gradient(120% 90% at 100% 0%,rgba(10,132,255,.10),transparent 60%)}
+.caphead{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+.caphead span{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+/* Der Weg zum Nachweis führt über die Überschrift der Kachel — dort steht die
+   Zahl, über die er Auskunft gibt. Dezent unterstrichen statt als Knopf: Die
+   Seite braucht kaum jemand täglich, aber wer sie sucht, sucht sie hier. */
+.caphead a.plain{color:inherit;text-decoration:underline;text-underline-offset:3px;
+ text-decoration-color:var(--line)}
+.caphead em{font-style:normal;color:var(--dim);font-size:11.5px}
+.capmain{display:flex;align-items:baseline;gap:10px;margin-bottom:10px}
+.capmain b{font-size:30px;font-weight:600;letter-spacing:-.03em;
+ font-variant-numeric:tabular-nums}
+.capmain b i{font-style:normal;font-size:15px;font-weight:500;color:var(--dim);margin-left:4px}
+.soh{font-size:12px;font-weight:600;color:#1e9e5a;background:rgba(30,158,90,.14);
+ padding:3px 9px;border-radius:7px}
+@media(prefers-color-scheme:dark){.soh{color:#35c77b;background:rgba(53,199,123,.16)}}
+.capbar{position:relative;height:8px;background:var(--line);border-radius:5px;
+ overflow:hidden;margin-bottom:8px}
+.capbar i{display:block;height:100%;border-radius:5px;
+ background:linear-gradient(90deg,#0a84ff,#35c77b)}
+/* Streuung als helle Zone über dem Balken — zeigt die Unsicherheit mit an. */
+.capbar u{position:absolute;top:0;height:100%;background:rgba(255,255,255,.45);
+ border-radius:5px;mix-blend-mode:overlay}
+.capfoot{color:var(--dim);font-size:11.5px}
+/* Verlauf über die Monate: Linie und Spanne nebeneinander, damit die Karte
+   nicht in die Höhe wächst. */
+.captrend{display:flex;align-items:center;gap:10px;margin:2px 0 8px}
+.captrend em{font-style:normal;color:var(--dim);font-size:11.5px}
+/* Die Unsicherheit steht direkt an der Zahl, nicht im Kleingedruckten: Eine
+   Kapazität ohne ihre Spanne lädt dazu ein, sie für einen Messwert zu halten. */
+.capunc{color:var(--dim);font-size:14px;font-style:normal;margin-left:-2px}`;
+
 const REFRESH_NOTE = '<div id="rfnote" class="rfnote" hidden></div>';
 
 const REFRESH_CSS = `
@@ -2807,7 +2771,7 @@ function renderStatus(
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 ${THEME_META}
 <title>${esc(o.vehicleName)} — ${esc(L.stTitle)}</title>
-<style>${BASE_CSS}${SPARK_CSS}
+<style>${BASE_CSS}${SPARK_CSS}${CAP_CSS}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
 .card span{display:block;color:var(--dim);font-size:11px;text-transform:uppercase;
  letter-spacing:.04em;margin-bottom:4px}
@@ -2855,6 +2819,67 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim)
     : ''
 }<a class="back" href="/">‹ ${esc(L.stBackToCharging)}</a></em></h1>
 ${REFRESH_NOTE}
+${
+  // Die Batterie steht ÜBER dem Reifendruck: Sie ist der Zustand, der den
+  // Wert des Fahrzeugs bestimmt, und der einzige, den man nicht selbst
+  // nachsehen kann. Gemessen wird über die LADUNGEN — der fahrseitige Weg
+  // irrt systematisch nach unten und liefert nur noch den Monatsverlauf.
+  stats.chargeCapacity.capacityKwh !== undefined && istElektrisch(o)
+    ? `<div class="cap">
+        <div class="caphead">
+          <span><a href="/batterie" class="plain">${esc(L.dashMeasuredCapacity)}</a></span>
+          <em>${stats.chargeCapacity.samples} / ${stats.chargeCapacity.seen}</em>
+        </div>
+        <div class="capmain">
+          <b>${stats.chargeCapacity.capacityKwh.toFixed(1)}<i>kWh</i></b>
+          ${
+            stats.chargeCapacity.uncertaintyKwh !== undefined
+              ? `<i class="capunc">± ${stats.chargeCapacity.uncertaintyKwh.toFixed(1)}</i>`
+              : ''
+          }
+          ${
+            o.capacityKwh
+              ? `<span class="soh">${(
+                  (stats.chargeCapacity.capacityKwh / o.capacityKwh) *
+                  100
+                ).toFixed(0)}${
+                  stats.chargeCapacity.uncertaintyKwh !== undefined
+                    ? ` ± ${((stats.chargeCapacity.uncertaintyKwh / o.capacityKwh) * 100).toFixed(0)}`
+                    : ''
+                } %</span>`
+              : ''
+          }
+        </div>
+        ${
+          o.capacityKwh
+            ? `<div class="capbar"><i style="width:${Math.max(
+                0,
+                Math.min(100, (stats.chargeCapacity.capacityKwh / o.capacityKwh) * 100),
+              )}%"></i></div>`
+            : ''
+        }
+        ${
+          // Der Monatsverlauf kommt aus der FAHRSEITIGEN Messung — sie reicht
+          // weiter zurück. Für „wird die Batterie schlechter?" zählt die
+          // Richtung, und ein systematischer Fehler kürzt sich heraus.
+          capacityTrend(stats.capacity).length >= 2
+            ? (() => {
+                const t = capacityTrend(stats.capacity);
+                return `<div class="captrend">${sparkline(
+                  t.map((m) => ({ t: Date.parse(`${m.month}-15T12:00:00Z`), v: m.kwh })),
+                  { minSpan: 2 },
+                )}<em>${esc(
+                  L.capTrendOver
+                    .replace('%a', t[0].kwh.toFixed(1))
+                    .replace('%b', t[t.length - 1].kwh.toFixed(1))
+                    .replace('%n', String(t.length)),
+                )}</em></div>`;
+              })()
+            : ''
+        }
+      </div>`
+    : ''
+}
 ${
   tyre
     ? `<h2>${esc(L.stTyrePressure)} · ${esc(ago(tyre.at))}</h2>${

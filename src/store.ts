@@ -14,6 +14,7 @@ import * as path from 'path';
 import type { ChargeLogSample } from './chargeLog';
 import { aggregate, type AggregateOptions, type Bucket, type Granularity } from './aggregate';
 import { estimateCapacity, type CapacityEstimate } from './capacity';
+import { capacityFromCharging, type ChargeCapacityEstimate } from './chargeCapacity';
 import { buildTrips, type Trip } from './trips';
 import { analyzeIdle, type IdleAnalysis } from './idle';
 
@@ -30,6 +31,17 @@ export type Place = 'all' | 'home' | 'away';
  * Falschwerte.
  */
 export interface EffectiveOptions extends AggregateOptions {
+  /**
+   * Die vom Nutzer EINGESTELLTE Werkskapazität in kWh — nicht die gemessene
+   * und nicht die aufgelöste.
+   *
+   * Getrennt von {@link AggregateOptions.capacityKwh}, weil beide
+   * verschiedene Fragen beantworten: `capacityKwh` ist die Zahl, mit der
+   * gerechnet WIRD (und die nach genug Zyklen die gemessene sein kann),
+   * `ratedKwh` ist der Bezug, gegen den eine Messung auf Plausibilität
+   * geprüft wird. Fielen sie zusammen, prüfte sich die Messung an sich selbst.
+   */
+  ratedKwh?: number;
   capacityKwh?: number;
   pricePerKwh: number;
   grossPricePerKwh: number;
@@ -297,6 +309,7 @@ let statsCache:
       pricePerKwh: number;
       priceSig: string;
       capacity: CapacityEstimate;
+      chargeCapacity: ChargeCapacityEstimate;
       trips: Trip[];
       pollMin: number;
       idle: IdleAnalysis;
@@ -311,20 +324,47 @@ let statsCache:
  * als Schlüssel. Genau das löst den Zirkelbezug, der sonst entstünde:
  * `optionsFor` braucht die Messung, `statsFor` braucht `optionsFor`.
  */
-let measuredCache: { sig: string; dir: string; est: CapacityEstimate } | undefined;
+let measuredCache:
+  | { sig: string; dir: string; ratedKwh?: number; est: CapacityEstimate }
+  | undefined;
 
-export function measuredCapacity(dir: string): CapacityEstimate {
+/**
+ * Die gemessene Kapazität, gecacht über die Verzeichnissignatur.
+ *
+ * `ratedKwh` ist die vom Nutzer EINGESTELLTE Werkskapazität — nie die
+ * gemessene. Sonst filterte die Messung sich selbst, und der Zirkel, den der
+ * Kommentar über dem Cache beschreibt, wäre wieder da. Sie gehört in den
+ * Cache-Schlüssel: Ändert der Nutzer die Angabe, ändern sich beide Prüfungen,
+ * die daran hängen (Leistungsgrenze des Standabzugs und Plausibilitäts-
+ * Obergrenze), und ein alter Eintrag wäre still falsch.
+ */
+export function measuredCapacity(dir: string, ratedKwh?: number): CapacityEstimate {
   const sig = signature(dir);
-  if (measuredCache && measuredCache.dir === dir && measuredCache.sig === sig) {
+  if (
+    measuredCache &&
+    measuredCache.dir === dir &&
+    measuredCache.sig === sig &&
+    measuredCache.ratedKwh === ratedKwh
+  ) {
     return measuredCache.est;
   }
-  const est = estimateCapacity(streamSamples(dir));
-  measuredCache = { sig, dir, est };
+  const est = estimateCapacity(streamSamples(dir), { ratedKwh });
+  measuredCache = { sig, dir, ratedKwh, est };
   return est;
 }
 
 export interface HistoryStats {
   capacity: CapacityEstimate;
+  /**
+   * Dieselbe Größe, von der LADESEITE gemessen — siehe `chargeCapacity.ts`.
+   *
+   * Getrennt geführt und nicht verrechnet: Die beiden Wege haben verschiedene
+   * systematische Fehler, und zwei Zahlen nebeneinander sagen darüber mehr aus
+   * als ein Mittelwert, der beide verwischt. Der fahrseitige Weg irrt nach
+   * unten (Standverbrauch, Verbrauchsangabe, Ladestandskennlinie), der
+   * ladeseitige hat diese Quellen nicht.
+   */
+  chargeCapacity: ChargeCapacityEstimate;
   trips: Trip[];
   pollMin: number;
   /** Ruhe- und Standklima-Bilanz — siehe {@link ./idle}. */
@@ -346,7 +386,8 @@ export function statsFor(dir: string, eff: EffectiveOptions): HistoryStats {
   ) {
     return statsCache;
   }
-  const capacity = estimateCapacity(streamSamples(dir));
+  const capacity = estimateCapacity(streamSamples(dir), { ratedKwh: eff.ratedKwh });
+  const chargeCapacity = capacityFromCharging(streamSamples(dir), { ratedKwh: eff.ratedKwh });
   const trips = buildTrips(streamSamples(dir), {
     pricePerKwh: eff.pricePerKwh,
     priceFor: eff.priceFor,
@@ -366,6 +407,7 @@ export function statsFor(dir: string, eff: EffectiveOptions): HistoryStats {
     pricePerKwh: eff.pricePerKwh,
     priceSig: eff.priceSig,
     capacity,
+    chargeCapacity,
     trips,
     pollMin,
     idle,

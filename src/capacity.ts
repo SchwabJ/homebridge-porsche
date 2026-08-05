@@ -88,6 +88,54 @@ const IDLE_MAX_GAP_MIN = 120;
 const PLAUSIBLE_MIN_KWH = 40;
 const PLAUSIBLE_MAX_KWH = 120;
 
+/**
+ * Höchste Leistung, die ein STEHENDES Fahrzeug ziehen kann, in kW.
+ *
+ * ## Warum es diese Grenze braucht
+ *
+ * Die Standerkennung fragt allein den Kilometerstand: bleibt er gleich und
+ * fällt der Ladestand, gilt das als Stillstand. Das Backend frischt den
+ * Kilometerstand aber **erst zum Fahrtende** auf, während der Ladestand
+ * laufend aktualisiert wird. Am eigenen Mitschrieb gemessen: Von 81
+ * Messabständen, die eine Fahrt überlappen, zeigen **54 einen unveränderten
+ * Kilometerstand** (67 %).
+ *
+ * Fahrenergie wandert dadurch in den Standabzug. Weil der Abzug den Nenner
+ * verkleinert, wird die Kapazität zu GROSS geschätzt — am eigenen Fahrzeug
+ * entstand eine Einzelmessung von 100,9 kWh bei 83,7 kWh Werksangabe.
+ *
+ * ## Warum die Leistung und nicht die Fahrt selbst
+ *
+ * Fahrt und Stand sicher zu unterscheiden geht mit den vorliegenden Feldern
+ * nicht: Die Restreichweite trennt nicht (im Stand bis −9 km, in der Fahrt ab
+ * −0 km), und `tripEnd`/`tripMin` liegen nur auf 5 % der Messpunkte — sie
+ * sind zudem KUMULATIV je Ladezyklus, nicht je Fahrt.
+ *
+ * Die beantwortbare Frage ist deshalb nicht „steht das Auto?", sondern „kann
+ * ein stehendes Auto so viel ziehen?". Vorklimatisieren mit Heizung erreicht
+ * beim Taycan rund 7 kW, der Ruheverbrauch liegt bei Bruchteilen davon.
+ *
+ * An den 17 Standsegmenten des echten Mitschriebs trennt das sauber:
+ *
+ *     15 Segmente    0,6 – 4,5 kW    plausibel, bleiben
+ *      2 Segmente   10,3 / 12,5 kW   unmöglich, fallen weg
+ *
+ * Genau diese beiden verursachten die Fehlmessung.
+ */
+const MAX_IDLE_KW = 7;
+
+/**
+ * Wie weit eine Messung über der Werksangabe liegen darf, bevor sie als
+ * Datenfehler gilt.
+ *
+ * Die Werksangabe ist die NETTO nutzbare Kapazität und wird konservativ
+ * angegeben — beim Taycan stehen 83,7 kWh netto rund 93,4 kWh brutto
+ * gegenüber. Wie viel vom Puffer tatsächlich nutzbar ist, schwankt mit
+ * Temperatur und Softwarestand, weshalb eine Messung leicht darüber möglich
+ * ist. 100,9 kWh sind dagegen 120 % der Angabe: dafür reicht kein Puffer.
+ */
+const RATED_HEADROOM = 1.1;
+
 export interface CapacityEstimate {
   /** Geschätzte nutzbare Kapazität in kWh (Median). */
   capacityKwh?: number;
@@ -132,6 +180,26 @@ const median = (sorted: number[]): number => {
 };
 
 /**
+ * Quartilsabstand einer SORTIERTEN Reihe, mit interpolierten Quantilen.
+ *
+ * Interpoliert, weil die frühere Index-Variante `sorted[⌊(n-1)·p⌋]` bei
+ * kleinen Reihen gar nicht die Quartile trifft: bei vier Werten deckte sie
+ * 20 % bis 60 % ab statt 25 % bis 75 %, bei sechs 29 % bis 57 %. Der
+ * abgedeckte Anteil sprang also mit der Anzahl der Zyklen — und damit sprang
+ * eine Größe, die eigentlich ruhig werden soll, je nachdem wie viele
+ * Messungen gerade vorliegen.
+ */
+const quartilsabstand = (sorted: number[]): number => {
+  const q = (p: number): number => {
+    const pos = (sorted.length - 1) * p;
+    const unten = Math.floor(pos);
+    const oben = Math.ceil(pos);
+    return sorted[unten] + (pos - unten) * (sorted[oben] - sorted[unten]);
+  };
+  return q(0.75) - q(0.25);
+};
+
+/**
  * Schätzt die Kapazität aus den ENTLADEZYKLEN des Mitschriebs.
  *
  * Ein Zyklus ist eine zusammenhängende Spanne ohne Kabel — vom Ausstecken bis
@@ -147,7 +215,25 @@ const median = (sorted: number[]): number => {
  * Ein „unbekannt" (leere API-Antwort) unterbricht einen Zyklus NICHT: Solche
  * Zeilen tragen keinen Messwert und sagen nichts über den Stecker.
  */
-export function estimateCapacity(samples: Iterable<ChargeLogSample>): CapacityEstimate {
+export interface CapacityOptions {
+  /**
+   * Werkskapazität dieses Fahrzeugs in kWh, sofern sie zu ihm gehört.
+   *
+   * Zwei Prüfungen hängen daran, und beide fallen ohne sie milder aus:
+   * die Leistungsgrenze des Standabzugs ({@link MAX_IDLE_KW}) und die
+   * Obergrenze der Plausibilität. Eine gealterte Batterie wird nicht größer
+   * als neu — ohne Werksangabe lässt sich das aber nicht sagen, und dann ist
+   * eine fragwürdige Messung besser als gar keine.
+   *
+   * Weglassen, wo die Zahl nicht belegt ist (siehe `capacityTrust.ts`).
+   */
+  ratedKwh?: number;
+}
+
+export function estimateCapacity(
+  samples: Iterable<ChargeLogSample>,
+  opts: CapacityOptions = {},
+): CapacityEstimate {
   const values: number[] = [];
   const points: { at: string; kwh: number }[] = [];
   const uncertainties: number[] = [];
@@ -245,9 +331,25 @@ export function estimateCapacity(samples: Iterable<ChargeLogSample>): CapacityEs
       const b = usable[i];
       const km = (b.odometerKm as number) - (a.odometerKm as number);
       const d = (a.soc as number) - (b.soc as number);
-      if (km === 0 && d > 0) {
-        idleDrop += d;
+      if (km !== 0 || d <= 0) {
+        continue;
       }
+      const minuten = (Date.parse(b.ts) - Date.parse(a.ts)) / 60000;
+      // Ein Messabstand von Stunden ist keine BEOBACHTETE Standzeit — was
+      // in der Lücke geschah, weiß niemand. Die Konstante war bisher nur
+      // dokumentiert und nirgends angewandt.
+      if (minuten <= 0 || minuten > IDLE_MAX_GAP_MIN) {
+        continue;
+      }
+      // Kann ein stehendes Auto so viel ziehen? Ohne Werksangabe wird mit
+      // der kleinsten plausiblen Batterie gerechnet — dann greift die Grenze
+      // nur, wo der Abfall selbst für die kleinste Batterie unmöglich wäre.
+      const bezugKwh = opts.ratedKwh ?? PLAUSIBLE_MIN_KWH;
+      const kw = ((d / 100) * bezugKwh) / (minuten / 60);
+      if (kw > MAX_IDLE_KW) {
+        continue;
+      }
+      idleDrop += d;
     }
     const drivingDrop = socDrop - idleDrop;
     if (drivingDrop < MIN_SOC_DROP) {
@@ -256,7 +358,21 @@ export function estimateCapacity(samples: Iterable<ChargeLogSample>): CapacityEs
 
     const usedKwh = (drivenKm * kwh100) / 100;
     const capacity = usedKwh / (drivingDrop / 100);
-    if (capacity < PLAUSIBLE_MIN_KWH || capacity > PLAUSIBLE_MAX_KWH) {
+    // Die Obergrenze hängt an der Werksangabe, wo sie bekannt ist. Die feste
+    // Grenze von 120 kWh sind 143 % der Taycan-Werksangabe — sie ließ die
+    // 100,9 kWh durch, die den Median um 2,5 kWh nach oben zogen.
+    //
+    // Der Zuschlag ist nötig, nicht großzügig: Die Werksangabe ist die NETTO
+    // nutzbare Kapazität, und Hersteller geben sie konservativ an. Beim
+    // Taycan stehen 83,7 kWh netto rund 93,4 kWh brutto gegenüber; wie viel
+    // vom Puffer tatsächlich nutzbar ist, schwankt mit Temperatur und
+    // Software. Eine Messung leicht über der Angabe ist deshalb kein
+    // Datenfehler. Erst deutlich darüber wird sie einer: 100,9 kWh sind
+    // 120 % der Angabe, die verworfene Grenze liegt bei 110 %.
+    const maxKwh = opts.ratedKwh !== undefined
+      ? opts.ratedKwh * RATED_HEADROOM
+      : PLAUSIBLE_MAX_KWH;
+    if (capacity < PLAUSIBLE_MIN_KWH || capacity > maxKwh) {
       return;
     }
     values.push(capacity);
@@ -302,12 +418,43 @@ export function estimateCapacity(samples: Iterable<ChargeLogSample>): CapacityEs
       values.reduce((a, b) => a + (b - mean) ** 2, 0) / (values.length - 1);
     statistical = Math.max(roundingErr / Math.sqrt(values.length), Math.sqrt(variance / values.length));
   }
+  if (values.length >= 4) {
+    // Ab vier Zyklen wird die Streuung ROBUST bestimmt — aus dem
+    // Quartilsabstand statt aus der Varianz um den Mittelwert.
+    //
+    // Der ausgewiesene Wert ist der Median. Eine Unsicherheit, die aus der
+    // Varianz um den MITTELWERT kommt, misst deshalb etwas anderes als der
+    // Wert: Ein einzelner Datenfehler kann den Median nur um eine Position
+    // verschieben, den Fehlerbalken aber beliebig weit aufblähen. Genau das
+    // ist am Fahrzeug passiert — ein unmöglicher Zyklus (100,9 kWh bei 83,7
+    // kWh Werksangabe) trieb die Anzeige von ±2,3 auf ±4,8, ohne dass sich
+    // an der Kenntnis über die Batterie irgendetwas verschlechtert hätte.
+    //
+    // Der Quartilsabstand ist der Abstand ZWEIER Ordnungsstatistiken und
+    // bezieht sich nicht auf den Median. Er erbt damit auch nicht dessen
+    // Wanderung, wenn ein weiterer Wert die Medianposition verschiebt —
+    // daran scheitert die sonst naheliegende MAD-Variante, die hier trotz
+    // Robustheit von ±2,4 auf ±3,3 gestiegen wäre.
+    //
+    // /1.349 rechnet den Quartilsabstand auf eine Standardabweichung um,
+    // /√n macht daraus den Fehler des Mittelpunkts. Unter vier Zyklen ist
+    // kein Quartilsabstand definiert; dort bleibt es bei der beobachteten
+    // Streuung, die nach oben irrt und damit auf der sicheren Seite liegt.
+    //
+    // Was der Quartilsabstand NICHT leistet: den Ausreißer erkennen. Bei
+    // fünf Messungen ist das statistisch nicht möglich — ein Zaun, der die
+    // 100,9 verwirft, verwirft auch in 13 % der sauberen Fünferreihen eine
+    // gute Messung. Unmögliche Werte gehören an der Quelle aussortiert
+    // (siehe PLAUSIBLE_MAX_KWH), nicht in der Fehlerrechnung.
+    const iqr = quartilsabstand(est.values);
+    est.spreadKwh = Math.round(iqr * 10) / 10;
+    statistical = Math.max(
+      roundingErr / Math.sqrt(values.length),
+      iqr / 1.349 / Math.sqrt(values.length),
+    );
+  }
   est.uncertaintyKwh =
     Math.round(Math.max(statistical, est.capacityKwh * SYSTEMATIC_FLOOR) * 10) / 10;
-  if (values.length >= 4) {
-    const q = (p: number): number => est.values[Math.floor((est.values.length - 1) * p)];
-    est.spreadKwh = Math.round((q(0.75) - q(0.25)) * 10) / 10;
-  }
   return est;
 }
 
@@ -317,6 +464,30 @@ export function estimateCapacity(samples: Iterable<ChargeLogSample>): CapacityEs
  * Bewusst getrennt von der Schätzung selbst: Der Bezugswert ist eine Annahme
  * über das Neufahrzeug, die Schätzung dagegen eine Messung.
  */
+/**
+ * Die Unsicherheit der Gesundheitsangabe in PROZENTPUNKTEN.
+ *
+ * Neben der Kapazität steht ohnehin ihre Spanne — „73,6 kWh ± 2,2". Dieselbe
+ * Messung als „87,9 %" ohne Spanne auszuweisen behauptet eine Auflösung, die
+ * sie nicht hat: Bei ± 2,2 kWh von 83,7 sind es ± 2,6 Prozentpunkte, der wahre
+ * Wert liegt also irgendwo zwischen 85,3 und 90,5 %.
+ *
+ * Die Alternative — die Prozentzahl ganz zu unterdrücken, solange die
+ * Stichprobe dünn ist — sah in der Anzeige schlechter aus als das Problem:
+ * Der Gesundheitsbalken stand daraufhin auf null, was sich wie eine Gesundheit
+ * von null liest, und zwei Zeilen tiefer stand dieselbe Aussage weiterhin als
+ * „Messung −12,1 %".
+ */
+export function healthSpread(
+  uncertaintyKwh: number | undefined,
+  factoryKwh: number | undefined,
+): number | undefined {
+  if (uncertaintyKwh === undefined || factoryKwh === undefined || factoryKwh <= 0) {
+    return undefined;
+  }
+  return Math.round((uncertaintyKwh / factoryKwh) * 1000) / 10;
+}
+
 export function stateOfHealth(
   estimated: number | undefined,
   factoryKwh: number,
@@ -374,15 +545,58 @@ const PLAUSIBLE_KWH = { min: 20, max: 200 };
  * hängt JEDE kWh- und Kostenzahl: Ein Auswertungsfehler dürfte niemals
  * stillschweigend die ganze Historie umschreiben.
  */
+/**
+ * Wie weit die beiden Messwege auseinanderliegen dürfen, damit übernommen wird.
+ *
+ * Ab {@link ADOPT_MIN_CYCLES} ersetzt die gemessene Kapazität die eingestellte
+ * — und geht ab dann in jede kWh-, Kosten- und Ersparniszahl ein, rückwirkend
+ * über die ganze Historie. Eine hohe Zyklenzahl belegt aber nur, dass VIEL
+ * gemessen wurde, nicht dass RICHTIG gemessen wurde.
+ *
+ * Am eigenen Fahrzeug liefern die beiden Wege
+ *
+ *     über die Fahrten     73,6 kWh   (87,9 % der Werksangabe)
+ *     über die Ladungen    81,0 kWh   (96,8 %)
+ *
+ * also zehn Prozent Unterschied. Welcher näher an der Wahrheit liegt, ist
+ * offen — und solange das so ist, darf keiner von beiden still die
+ * Kostenrechnung übernehmen.
+ *
+ * Stimmen sie dagegen überein, stützen sich zwei Verfahren mit
+ * unterschiedlichen systematischen Fehlern gegenseitig. Das ist ein weit
+ * stärkerer Beleg als jede Zyklenzahl.
+ *
+ * Fünf Prozent liegen in der Größenordnung der Einzelfehler beider Verfahren:
+ * eng genug, um Widersprüche zu fangen, weit genug, um normale Streuung
+ * durchzulassen.
+ */
+export const ADOPT_MAX_DISAGREEMENT = 0.05;
+
 export function resolveCapacity(opts: {
   configured: number;
   auto?: boolean;
   measured?: number;
   cycles: number;
+  /**
+   * Dieselbe Größe auf dem ANDEREN Weg gemessen — siehe `chargeCapacity.ts`.
+   *
+   * Fehlt sie (zu wenige Ladungen, keine Leistungsangaben), bleibt es beim
+   * bisherigen Verhalten: Wer keine Gegenprobe hat, verliert die Automatik
+   * nicht.
+   */
+  crossCheck?: number;
 }): { capacityKwh: number; source: 'gemessen' | 'eingestellt' } {
-  const { configured, auto, measured, cycles } = opts;
+  const { configured, auto, measured, cycles, crossCheck } = opts;
+  // Widersprechen sich die beiden Wege, ist die Messung nicht belastbar —
+  // egal wie viele Zyklen dahinterstehen.
+  const einig =
+    crossCheck === undefined ||
+    measured === undefined ||
+    Math.abs(measured - crossCheck) / Math.max(measured, crossCheck) <=
+      ADOPT_MAX_DISAGREEMENT;
   if (
     auto &&
+    einig &&
     measured !== undefined &&
     cycles >= ADOPT_MIN_CYCLES &&
     measured >= PLAUSIBLE_KWH.min &&

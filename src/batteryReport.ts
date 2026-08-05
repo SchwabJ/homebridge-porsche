@@ -23,6 +23,7 @@
  * Aussage, die jemand prüfen kann. Deshalb trägt der Bericht sie mit — und
  * sagt ausdrücklich, wenn sie noch nicht trägt.
  */
+import type { ChargeCapacityEstimate } from './chargeCapacity';
 import { capacityTrend, type CapacityEstimate, type CapacityMonth } from './capacity';
 
 /**
@@ -82,7 +83,23 @@ export interface BatteryReport {
 const round1 = (n: number): number => Math.round(n * 10) / 10;
 
 /** Baut den Batterie-Nachweis aus der laufenden Kapazitätsschätzung. */
-export function buildBatteryReport(est: CapacityEstimate, ratedKwh: number): BatteryReport {
+export function buildBatteryReport(
+  est: CapacityEstimate,
+  ratedKwh: number,
+  /**
+   * Die LADESEITIGE Messung — seit sie existiert, ist sie die Grundlage des
+   * Nachweises. Der fahrseitige Weg (`est`) irrt systematisch nach unten:
+   * nicht erfasster Standverbrauch, die Güte der Verbrauchsangabe des
+   * Fahrzeugs, die nichtlineare Ladestandskennlinie — drei Quellen, alle in
+   * dieselbe Richtung. Er liefert weiterhin den Monatsverlauf, weil dort nur
+   * die RICHTUNG zählt und ein systematischer Fehler sich herauskürzt.
+   *
+   * Fehlt sie (zu wenige Ladungen, keine Leistungsangaben), fällt der
+   * Nachweis auf den fahrseitigen Weg zurück.
+   */
+  lade?: ChargeCapacityEstimate,
+): BatteryReport {
+  const ladeseitig = lade?.capacityKwh !== undefined;
   const first = est.points[0];
   const last = est.points[est.points.length - 1];
   const days =
@@ -90,21 +107,29 @@ export function buildBatteryReport(est: CapacityEstimate, ratedKwh: number): Bat
       ? Math.round((Date.parse(last.at) - Date.parse(first.at)) / 86400000)
       : undefined;
 
-  const genugZyklen = est.samples >= TRUST_MIN_CYCLES;
+  // Gezählt wird, worauf die ausgewiesene Zahl beruht: Ladungen, wo
+  // ladeseitig gemessen wurde, sonst Entladezyklen.
+  const einzelmessungen = ladeseitig ? (lade as ChargeCapacityEstimate).samples : est.samples;
+  const kapazitaet = ladeseitig ? (lade as ChargeCapacityEstimate).capacityKwh : est.capacityKwh;
+  const unsicherheit = ladeseitig
+    ? (lade as ChargeCapacityEstimate).uncertaintyKwh
+    : est.uncertaintyKwh;
+
+  const genugZyklen = einzelmessungen >= TRUST_MIN_CYCLES;
   const genugZeit = days !== undefined && days >= TRUST_MIN_DAYS;
-  const trustworthy = est.capacityKwh !== undefined && genugZyklen && genugZeit;
+  const trustworthy = kapazitaet !== undefined && genugZyklen && genugZeit;
 
   const report: BatteryReport = {
-    capacityKwh: est.capacityKwh,
-    uncertaintyKwh: est.uncertaintyKwh,
+    capacityKwh: kapazitaet,
+    uncertaintyKwh: unsicherheit,
     ratedKwh,
-    cycles: est.samples,
+    cycles: einzelmessungen,
     km: est.km,
     months: capacityTrend(est),
     trustworthy,
   };
-  if (est.capacityKwh !== undefined && ratedKwh > 0) {
-    report.healthPct = round1((est.capacityKwh / ratedKwh) * 100);
+  if (kapazitaet !== undefined && ratedKwh > 0) {
+    report.healthPct = round1((kapazitaet / ratedKwh) * 100);
   }
   if (first) {
     report.firstAt = first.at;
@@ -123,10 +148,10 @@ export function buildBatteryReport(est: CapacityEstimate, ratedKwh: number): Bat
   }
   if (!trustworthy) {
     report.why =
-      est.capacityKwh === undefined
+      kapazitaet === undefined
         ? { reason: 'no-measurement' }
         : !genugZyklen
-          ? { reason: 'few-cycles', cycles: est.samples, needed: TRUST_MIN_CYCLES }
+          ? { reason: 'few-cycles', cycles: einzelmessungen, needed: TRUST_MIN_CYCLES }
           : { reason: 'short-period', days: days ?? 0, needed: TRUST_MIN_DAYS };
   }
   return report;

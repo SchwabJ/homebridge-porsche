@@ -25,8 +25,21 @@ describe('Auswertungen bei nicht rein elektrischem Antrieb', () => {
     fs.writeFileSync(
       path.join(dir, '2026-07-20.jsonl'),
       [
-        { ts: t(0), soc: 80, odometerKm: 50000, plugged: true, charging: true },
-        { ts: t(1), soc: 80, odometerKm: 50000, plugged: false, tripKwh100: 20 },
+        // Eine Ladung MIT Leistungsangabe: Die Kapazität wird ladeseitig
+        // gemessen. Dafür braucht es powerKw, einen Hub von mindestens zehn
+        // Punkten UND einen feinen Takt — über Lücken von mehr als einer
+        // Viertelstunde wird bewusst keine Energie gebucht.
+        ...Array.from({ length: 13 }, (_, i) => ({
+          ts: new Date(Date.UTC(2026, 6, 20, 0, i * 10)).toISOString(),
+          soc: 60 + Math.round(i * (20 / 12)),
+          odometerKm: 50000,
+          plugged: true,
+          charging: true,
+          // 8 kW über zwei Stunden sind 16 kWh auf 20 Punkte = 80 kWh.
+          powerKw: 8 + (i % 2) * 0.1,
+          rangeKm: 200 + i * 7,
+        })),
+        { ts: t(3), soc: 80, odometerKm: 50000, plugged: false, tripKwh100: 20 },
         { ts: t(10), soc: 40, odometerKm: 50170, plugged: false, tripKwh100: 20 },
       ]
         .map((r) => JSON.stringify(r))
@@ -66,18 +79,18 @@ describe('Auswertungen bei nicht rein elektrischem Antrieb', () => {
   };
 
   it('zeigt die gemessene Kapazität bei einem Elektrofahrzeug', async () => {
-    expect(await seite('/', true)).toContain('Measured capacity');
+    expect(await seite('/status', true)).toContain('Measured capacity');
   });
 
   it('zeigt sie NICHT, wenn der Antrieb nicht rein elektrisch ist', async () => {
-    expect(await seite('/', false)).not.toContain('Measured capacity');
+    expect(await seite('/status', false)).not.toContain('Measured capacity');
   });
 
   it('zeigt sie NICHT bei unbekanntem Antrieb, statt zu raten', async () => {
     // Der wichtigste Fall: Ein älteres Konto liefert womöglich keine
     // Antriebsangabe. Dann ist Schweigen richtig — eine falsche Kapazität
     // fällt niemandem auf, weil sie plausibel aussieht.
-    expect(await seite('/')).not.toContain('Measured capacity');
+    expect(await seite('/status')).not.toContain('Measured capacity');
   });
 
   it('erklärt auf dem Batterie-Nachweis, warum dort nichts steht', async () => {
@@ -104,8 +117,21 @@ describe('Antriebsart, die erst nach dem Start feststeht', () => {
     fs.writeFileSync(
       path.join(dir, '2026-07-20.jsonl'),
       [
-        { ts: t(0), soc: 80, odometerKm: 50000, plugged: true, charging: true },
-        { ts: t(1), soc: 80, odometerKm: 50000, plugged: false, tripKwh100: 20 },
+        // Eine Ladung MIT Leistungsangabe: Die Kapazität wird ladeseitig
+        // gemessen. Dafür braucht es powerKw, einen Hub von mindestens zehn
+        // Punkten UND einen feinen Takt — über Lücken von mehr als einer
+        // Viertelstunde wird bewusst keine Energie gebucht.
+        ...Array.from({ length: 13 }, (_, i) => ({
+          ts: new Date(Date.UTC(2026, 6, 20, 0, i * 10)).toISOString(),
+          soc: 60 + Math.round(i * (20 / 12)),
+          odometerKm: 50000,
+          plugged: true,
+          charging: true,
+          // 8 kW über zwei Stunden sind 16 kWh auf 20 Punkte = 80 kWh.
+          powerKw: 8 + (i % 2) * 0.1,
+          rangeKm: 200 + i * 7,
+        })),
+        { ts: t(3), soc: 80, odometerKm: 50000, plugged: false, tripKwh100: 20 },
         { ts: t(10), soc: 40, odometerKm: 50170, plugged: false, tripKwh100: 20 },
       ]
         .map((r) => JSON.stringify(r))
@@ -141,11 +167,11 @@ describe('Antriebsart, die erst nach dem Start feststeht', () => {
     await new Promise((r) => server.once('listening', r));
     const a = server.address();
     const p = typeof a === 'object' && a ? a.port : 0;
-    const vorher = await (await fetch(`http://127.0.0.1:${p}/`)).text();
+    const vorher = await (await fetch(`http://127.0.0.1:${p}/status`)).text();
     expect(vorher).not.toContain('Measured capacity');
 
     elektrisch = true;
-    const nachher = await (await fetch(`http://127.0.0.1:${p}/`)).text();
+    const nachher = await (await fetch(`http://127.0.0.1:${p}/status`)).text();
     expect(nachher).toContain('Measured capacity');
     server.close();
   });

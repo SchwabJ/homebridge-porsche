@@ -1429,7 +1429,13 @@ function renderPage(
           : '—';
       const cost = t.costEur !== undefined ? `${t.costEur.toFixed(2)} €` : '';
       return `<tr class="trip">
-        <td>${esc(fmtDate(t.endedAt, L.locale))}</td>
+        <td>${
+          // Der BEGINN, nicht das Ende: Das Ende hängt am Kilometerstand, und
+          // den meldet das Fahrzeug erst nach der Fahrt — bei einer Fahrt um
+          // 23 Uhr stand hier „00:01" und damit der falsche Tag. Der Beginn
+          // wird aus dem Ladestand-Abfall bestimmt und trifft zu.
+          esc(fmtDate(t.startedAt, L.locale))
+        }</td>
         <td>${t.km.toLocaleString(L.locale)} km</td>
         <td>${esc(soc)}</td>
         <td class="num">${use}</td>

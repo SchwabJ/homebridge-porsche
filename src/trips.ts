@@ -125,6 +125,32 @@ const MIN_KM_FOR_RANGE_FACTOR = 100;
  */
 const ODO_LAG_MAX_KM = 2;
 
+/**
+ * Wie weit der Fahrtbeginn zurückgezogen werden darf, wenn der Kilometerstand
+ * verspätet kam — in Minuten.
+ *
+ * Gemeldet wurde:
+ *
+ *     Do., 06.08., 00:01    1 km    69 → 68 %    —
+ *     „Wieder eine Phantomfahrt. Ich bin ca. 23 Uhr 1 km gefahren!"
+ *
+ * Es war seine Fahrt, nur mit falscher Uhrzeit:
+ *
+ *     23:01   70 %   53124 km
+ *     23:21   69 %   53124 km    Ladestand fällt: HIER wurde gefahren
+ *     00:01   68 %   53125 km    Kilometerstand kommt erst jetzt
+ *
+ * Der Ladestand reagiert sofort, der Kilometerstand erst zum Fahrtende. Die
+ * Fahrterkennung hängt am Kilometerstand und datierte deshalb vierzig Minuten
+ * zu spät — über die Tagesgrenze hinweg sogar in den falschen Tag.
+ *
+ * Zurückgezogen wird nur über EINEN Messabstand: Über Stunden fällt der
+ * Ladestand auch im Stehen, und eine Fahrt rückwirkend über eine Nacht zu
+ * ziehen wäre schlimmer als eine um vierzig Minuten verschobene. Fünfzig
+ * Minuten decken den langsamsten regulären Takt (40 min) mit Reserve ab.
+ */
+const SOC_LEAD_MAX_MIN = 50;
+
 export interface Trip {
   /** Letzter Messpunkt VOR der Bewegung — dort stand das Fahrzeug noch. */
   startedAt: string;
@@ -363,6 +389,8 @@ export function buildTrips(
   // aufgesammelt: `samples` darf ein Generator über die Tagesdateien sein, und
   // eine Zwischenliste hätte die ganze Historie wieder im Speicher.
   let prev: Point | undefined;
+  /** Der Punkt VOR `prev` — für den zurückgezogenen Fahrtbeginn. */
+  let vorletzter: Point | undefined;
   for (const raw of samples) {
     if (raw.odometerKm === undefined) {
       // Ein LADE-Messpunkt schneidet den Verbrauchszyklus auch ohne
@@ -407,13 +435,25 @@ export function buildTrips(
     if (prev !== undefined) {
       if (p.odometerKm > prev.odometerKm) {
         if (open === undefined) {
-          open = [prev];
+          // Der Ladestand fällt VOR dem Kilometerstand — siehe
+          // SOC_LEAD_MAX_MIN. Fiel er schon im Messabstand davor, begann die
+          // Fahrt dort, und der Beginn wird um einen Punkt zurückgezogen.
+          const davor = vorletzter;
+          const zurueck =
+            davor !== undefined &&
+            davor.soc !== undefined &&
+            prev.soc !== undefined &&
+            davor.soc > prev.soc &&
+            davor.odometerKm === prev.odometerKm &&
+            (Date.parse(prev.ts) - Date.parse(davor.ts)) / 60000 <= SOC_LEAD_MAX_MIN;
+          open = zurueck ? [davor as Point, prev] : [prev];
         }
         open.push(p);
       } else if (open !== undefined) {
         close();
       }
     }
+    vorletzter = prev;
     prev = p;
   }
   close();

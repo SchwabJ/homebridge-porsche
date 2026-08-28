@@ -61,13 +61,13 @@ export interface PorscheClientOptions {
 /** Ein einzelnes Fahrzeug aus der Fahrzeugliste. */
 export interface VehicleListEntry {
   vin: string;
-  /** Werblicher Name, etwa „Taycan 4 Cross Turismo". */
+  /** Werblicher Name, etwa „Taycan". */
   modelName?: string;
   /**
    * Antriebsart laut Fahrzeug: `BEV`, `PHEV` und was Porsche sonst vergibt.
    *
-   * Am 01.08.2026 an einem Taycan gemessen — die Fahrzeugliste trägt ein
-   * `modelType`-Objekt mit `{ code, year, body, generation, model, engine }`.
+   * Die Fahrzeugliste trägt zu jedem Eintrag ein `modelType`-Objekt mit
+   * `{ code, year, body, generation, model, engine }`.
    * Diese eine Angabe entscheidet, ob mehrere Auswertungen überhaupt etwas
    * aussagen dürfen.
    */

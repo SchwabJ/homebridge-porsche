@@ -238,11 +238,11 @@ describe('Gegenbalken: geladen nach oben, verbraucht nach unten', () => {
 
   it('nennt in einem Tooltip beide Richtungen', () => {
     const svg = barChart([
-      { label: 'Di', value: 20.1, down: 22.1, downDetail: '88 km ohne belastbaren Verbrauch' },
+      { label: 'Di', value: 20.5, down: 22.5, downDetail: '80 km ohne belastbaren Verbrauch' },
     ], LABELS_DE);
-    expect(svg).toContain('20.1 kWh geladen');
-    expect(svg).toContain('22.1 kWh verbraucht');
-    expect(svg).toContain('88 km ohne belastbaren Verbrauch');
+    expect(svg).toContain('20.5 kWh geladen');
+    expect(svg).toContain('22.5 kWh verbraucht');
+    expect(svg).toContain('80 km ohne belastbaren Verbrauch');
   });
 
   it('lässt zwischen den Füllungen Luft, statt sie zu verschmelzen', () => {

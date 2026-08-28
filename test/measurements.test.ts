@@ -6,22 +6,22 @@ function ppaResponse(measurements: Array<{ key: string; value: unknown }>): unkn
 }
 
 describe('parseMeasurements (echte PPA-Struktur)', () => {
-  it('parst das echte Live-Beispiel (ladend, verriegelt, Klima aus, GPS-String)', () => {
+  it('parst eine ladende Antwort (verriegelt, Klima aus, GPS-String)', () => {
     const res = ppaResponse([
-      { key: 'GPS_LOCATION', value: { location: '48.137154,11.576124', direction: 164 } },
+      { key: 'GPS_LOCATION', value: { location: '50.5,10.5', direction: 90 } },
       {
         key: 'CHARGING_SUMMARY',
         value: { status: 'CHARGING', mode: 'PROFILE', type: 'AC', chargingProfile: { minSoC: 80 } },
       },
-      { key: 'E_RANGE', value: { kilometers: 199, isRouteBasedRange: false } },
-      { key: 'BATTERY_LEVEL', value: { percent: 52 } },
+      { key: 'E_RANGE', value: { kilometers: 200, isRouteBasedRange: false } },
+      { key: 'BATTERY_LEVEL', value: { percent: 50 } },
       { key: 'CLIMATIZER_STATE', value: { isOn: false, targetTemperature: 295.15 } },
       { key: 'LOCK_STATE_VEHICLE', value: { isLocked: true } },
     ]);
 
     const s = parseMeasurements(res);
-    expect(s.soc).toBe(52);
-    expect(s.rangeKm).toBe(199);
+    expect(s.soc).toBe(50);
+    expect(s.rangeKm).toBe(200);
     expect(s.charging).toBe(true);
     expect(s.plugged).toBe(true); // aus Lade-Status abgeleitet (kein plugState beim Laden)
     expect(s.chargingType).toBe('AC');
@@ -29,9 +29,9 @@ describe('parseMeasurements (echte PPA-Struktur)', () => {
     expect(s.locked).toBe(true);
     expect(s.climateOn).toBe(false);
     expect(s.targetTempC).toBe(22); // 295.15 K → 22 °C
-    expect(s.lat).toBe(48.137154);
-    expect(s.lon).toBe(11.576124);
-    expect(s.heading).toBe(164);
+    expect(s.lat).toBe(50.5);
+    expect(s.lon).toBe(10.5);
+    expect(s.heading).toBe(90);
   });
 
   it('parst Verbrenner-Werte: FUEL_LEVEL → fuelLevel, RANGE → fuelRangeKm', () => {
@@ -64,28 +64,28 @@ describe('parseMeasurements (echte PPA-Struktur)', () => {
     expect(s.fuelRangeKm).toBe(600);
   });
 
-  it('parst ALLE Felder aus einer vollständigen echten Antwort', () => {
-    const nowMs = Date.parse('2026-06-18T12:00:00Z');
+  it('parst ALLE Felder aus einer vollständig belegten Antwort', () => {
+    const nowMs = Date.parse('2026-01-01T12:00:00Z');
     const res = {
-      vin: 'WP0ZZZ99ZTS900000',
+      vin: 'WP0TEST',
       modelName: 'Taycan',
-      timestamp: '2026-06-18T11:59:30Z',
+      timestamp: '2026-01-01T11:59:30Z',
       measurements: [
-        { key: 'BATTERY_LEVEL', status: { isEnabled: true }, value: { percent: 52 } },
-        { key: 'E_RANGE', value: { kilometers: 199 } },
-        { key: 'MILEAGE', value: { kilometers: 34210 } },
+        { key: 'BATTERY_LEVEL', status: { isEnabled: true }, value: { percent: 50 } },
+        { key: 'E_RANGE', value: { kilometers: 200 } },
+        { key: 'MILEAGE', value: { kilometers: 50000 } },
         {
           key: 'CHARGING_SUMMARY',
           value: {
             status: 'CHARGING',
             type: 'DC',
-            targetDateTimeWithOffset: '2026-06-18T13:30:00Z',
+            targetDateTimeWithOffset: '2026-01-01T13:30:00Z',
             chargingProfile: { minSoC: 80 },
           },
         },
         {
           key: 'CHARGING_RATE',
-          value: { chargingPowerkW: 11.2, maxChargingPowerkW: 270, chargingRatekmPerMin: 1.4 },
+          value: { chargingPowerkW: 100, maxChargingPowerkW: 270, chargingRatekmPerMin: 5 },
         },
         {
           key: 'CHARGING_PROFILES',
@@ -127,21 +127,21 @@ describe('parseMeasurements (echte PPA-Struktur)', () => {
           },
         },
         { key: 'MAIN_SERVICE_RANGE', value: { kilometers: 1500 } },
-        { key: 'GPS_LOCATION', value: { location: '48.137154,11.576124', direction: 164 } },
+        { key: 'GPS_LOCATION', value: { location: '50.5,10.5', direction: 90 } },
         { key: 'GLOBAL_PRIVACY_MODE', value: { isEnabled: false } },
         { key: 'REMOTE_ACCESS_AUTHORIZATION', value: { isEnabled: true } },
       ],
     };
 
     const s = parseMeasurements(res, nowMs);
-    expect(s.soc).toBe(52);
-    expect(s.rangeKm).toBe(199);
-    expect(s.odometerKm).toBe(34210);
+    expect(s.soc).toBe(50);
+    expect(s.rangeKm).toBe(200);
+    expect(s.odometerKm).toBe(50000);
     expect(s.charging).toBe(true);
     expect(s.chargingType).toBe('DC');
-    expect(s.chargingPowerKw).toBe(11.2);
+    expect(s.chargingPowerKw).toBe(100);
     expect(s.maxChargingPowerKw).toBe(270);
-    expect(s.chargeRateKmMin).toBe(1.4);
+    expect(s.chargeRateKmMin).toBe(5);
     expect(s.chargeEtaMinutes).toBe(90); // 13:30 - 12:00 = 90 min
     expect(s.targetSoc).toBe(80);
     expect(s.activeProfileName).toBe('Zuhause'); // das isEnabled-Profil
@@ -158,18 +158,18 @@ describe('parseMeasurements (echte PPA-Struktur)', () => {
     expect(s.tirePressureBar).toEqual({ fl: 2.5, fr: 2.4, rl: 2.6, rr: 2.1 });
     expect(s.tireDiffBar).toEqual({ fl: 0.0, fr: -0.1, rl: 0.1, rr: -0.4 });
     expect(s.serviceKm).toBe(1500);
-    expect(s.heading).toBe(164);
+    expect(s.heading).toBe(90);
     expect(s.privacyMode).toBe(false);
     expect(s.remoteAccess).toBe(true);
-    expect(s.dataTimestamp).toBe(Date.parse('2026-06-18T11:59:30Z'));
+    expect(s.dataTimestamp).toBe(Date.parse('2026-01-01T11:59:30Z'));
   });
 
   it('chargeEtaMinutes ist nie negativ (Ziel in der Vergangenheit → 0)', () => {
-    const nowMs = Date.parse('2026-06-18T14:00:00Z');
+    const nowMs = Date.parse('2026-01-01T14:00:00Z');
     const res = ppaResponse([
       {
         key: 'CHARGING_SUMMARY',
-        value: { status: 'CHARGING', targetDateTimeWithOffset: '2026-06-18T13:30:00Z' },
+        value: { status: 'CHARGING', targetDateTimeWithOffset: '2026-01-01T13:30:00Z' },
       },
     ]);
     expect(parseMeasurements(res, nowMs).chargeEtaMinutes).toBe(0);
@@ -216,8 +216,8 @@ describe('parseMeasurements (echte PPA-Struktur)', () => {
   });
 
   it('akzeptiert auch ein bloßes Array (Rückwärtskompatibilität)', () => {
-    const s = parseMeasurements([{ key: 'BATTERY_LEVEL', value: { percent: 41 } }]);
-    expect(s.soc).toBe(41);
+    const s = parseMeasurements([{ key: 'BATTERY_LEVEL', value: { percent: 40 } }]);
+    expect(s.soc).toBe(40);
   });
 
   it('leere measurements / fehlendes Feld / null → Defaults, kein Throw', () => {
@@ -247,38 +247,40 @@ describe('parseMeasurements (echte PPA-Struktur)', () => {
 });
 
 describe('TRIP_STATISTICS_CYCLIC — die Bauform, die die Schnittstelle wirklich liefert', () => {
-  // An der Live-API gemessen (2026-08-01). Der Eintrag ist der ZURÜCKSETZBARE
+  // Die BAUFORM stammt aus einer echten Antwort der Live-Schnittstelle,
+  // die Werte hier sind konstruiert. Der Eintrag ist der ZURÜCKSETZBARE
   // Zyklus-Zähler des Fahrzeugs, nicht eine Monatshistorie: genau ein Eintrag,
-  // fünf Felder. Die Monatszahlen der Porsche-App (1586 km im Juli) stammen aus
-  // einer serverseitigen Aggregation, an die der Messwert-Endpunkt nicht
+  // fünf Felder. Die Monatszahlen der Porsche-App (eine Summe über viele
+  // Fahrten, um Größenordnungen über diesem einen Eintrag) stammen aus einer
+  // serverseitigen Aggregation, an die der Messwert-Endpunkt nicht
   // heranreicht — TRIP_STATISTICS_LONG_TERM, _SHORT_TERM und TRIP_STATISTICS
   // wurden einzeln probiert und antworten nicht.
-  const live = {
+  const zyklusEintrag = {
     key: 'TRIP_STATISTICS_CYCLIC',
     value: {
       list: [
         {
-          avgKwhPerHundredKm: 22.5,
-          avgSpeedKmh: 19,
-          distanceKm: 66,
-          drivingTimeMinutes: 217,
-          tripEndTime: '2026-07-31T15:17:29Z',
+          avgKwhPerHundredKm: 25,
+          avgSpeedKmh: 20,
+          distanceKm: 100,
+          drivingTimeMinutes: 300,
+          tripEndTime: '2026-01-31T12:00:00Z',
         },
       ],
     },
   };
 
   it('liest alle fünf Felder des Eintrags', () => {
-    const s = parseMeasurements(ppaResponse([live])) as VehicleState;
-    expect(s.tripConsumptionKwhPer100Km).toBe(22.5);
-    expect(s.tripDistanceKm).toBe(66);
-    expect(s.tripDrivingMinutes).toBe(217);
-    expect(s.tripAvgSpeedKmh).toBe(19);
-    expect(s.tripEndTime).toBe('2026-07-31T15:17:29Z');
+    const s = parseMeasurements(ppaResponse([zyklusEintrag])) as VehicleState;
+    expect(s.tripConsumptionKwhPer100Km).toBe(25);
+    expect(s.tripDistanceKm).toBe(100);
+    expect(s.tripDrivingMinutes).toBe(300);
+    expect(s.tripAvgSpeedKmh).toBe(20);
+    expect(s.tripEndTime).toBe('2026-01-31T12:00:00Z');
   });
 
   it('hält die Bauform fest, damit ein Formatwechsel auffällt', () => {
-    const s = parseMeasurements(ppaResponse([live])) as VehicleState;
+    const s = parseMeasurements(ppaResponse([zyklusEintrag])) as VehicleState;
     expect(s.tripShape).toEqual({
       count: 1,
       fields: ['avgKwhPerHundredKm', 'avgSpeedKmh', 'distanceKm', 'drivingTimeMinutes', 'tripEndTime'],
@@ -289,7 +291,7 @@ describe('TRIP_STATISTICS_CYCLIC — die Bauform, die die Schnittstelle wirklich
     // Die Schnittstelle hat historisch beide Formen geliefert; der Parser
     // akzeptiert weiterhin beide.
     const s = parseMeasurements(
-      ppaResponse([{ key: 'TRIP_STATISTICS_CYCLIC', value: { distanceKm: 40, avgKwhPerHundredKm: 19.5 } }]),
+      ppaResponse([{ key: 'TRIP_STATISTICS_CYCLIC', value: { distanceKm: 40, avgKwhPerHundredKm: 20 } }]),
     ) as VehicleState;
     expect(s.tripDistanceKm).toBe(40);
     expect(s.tripShape?.count).toBe(1);

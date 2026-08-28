@@ -28,16 +28,17 @@ import type { ChargeLogSample } from './chargeLog';
  * Größter Messabstand, der noch als lückenlos gilt, in Minuten.
  *
  * Bewusst großzügiger als die 35 min der Zeitreihen-Lückenerkennung, und
- * zwar aus einer Messung: Ohne Kabel pollt das Plugin alle 20 min, ein
- * einzelner ausgefallener Poll ergibt also 40 min Abstand. An 94 h echtem
- * Mitschrieb war 40 min exakt der größte vorkommende Abstand (p90 = p99 =
- * max = 40); mit einer 35er-Schwelle fielen 29 Intervalle mit zusammen
- * 19,3 h Ruhezeit heraus — mehr als ein Drittel der Beobachtung.
+ * zwar aus dem Abfragetakt: Ohne Kabel pollt das Plugin alle 20 min, ein
+ * einzelner ausgefallener Poll ergibt also 40 min Abstand. Beurteilen lässt
+ * sich so ein Intervall trotzdem — beide Enden tragen Kabelzustand,
+ * Ladestand und Kilometerstand, es fehlt nur der Punkt dazwischen. Eine
+ * 35er-Schwelle würfe jeden verpassten Poll heraus und mit ihm Ruhezeit, die
+ * durch ihre Enden belegt ist.
  *
- * Nach oben ist die Wahl unkritisch: Ab 45 min ändert sich am Ergebnis
- * nichts mehr, weil es keine Abstände zwischen 45 min und einer echten
- * Datenlücke gibt. 45 fängt den verpassten Poll ein und weist alles ab, was
- * wirklich unbeobachtet war.
+ * Nach oben ist die Wahl unkritisch: Der nächstgrößere Abstand des Takts ist
+ * der doppelte Ausfall mit 60 min, dazwischen liegt nichts. 45 fängt den
+ * einzelnen verpassten Poll ein; alles Längere fehlt an mehr als einer
+ * Abfrage und gilt zu Recht als Lücke.
  *
  * Die Zeitreihe darf enger bleiben: Sie MISST die Lücke als Datenqualität,
  * hier geht es darum, ob ein Intervall überhaupt verwertbar ist.
@@ -69,12 +70,12 @@ export interface IdleAnalysis {
 /**
  * Wie lange nach Fahrt, Kabel oder Klima noch NICHT von Ruhe gesprochen wird.
  *
- * Der wichtigste Befund aus den echten Daten: Ohne diesen Ausschluss misst
- * man das Abkühlen und nennt es Ruhe. Über 94 h Mitschrieb stammte der
- * GESAMTE beobachtete Abfall von 4 Prozentpunkten aus den Minuten direkt
- * nach Fahrten — die drei langen Phasen danach (7,8 h, 7,3 h und 10,0 h,
- * darunter zwei ganze Nächte) verloren zusammen null. Die daraus gerechneten
- * „1,38 kWh/Tag" waren damit reines Nachlauf-Artefakt.
+ * Ohne diesen Ausschluss misst man das Abkühlen und nennt es Ruhe: Was in den
+ * Minuten direkt nach einer Fahrt verschwindet, ziehen die noch laufende
+ * Bordelektronik und die Batterietemperierung — nicht das ruhende Fahrzeug.
+ * Eine Tagesrate, die diese Minuten mitzählt, misst den Nachlauf und schreibt
+ * ihn der Standzeit zu; sie kann um ein Vielfaches danebenliegen, ohne dass
+ * man es der Zahl ansieht.
  *
  * Eine Stunde ist konservativ gewählt: Sie deckt Steuergeräte-Nachlauf und
  * Batterietemperierung ab, ohne von der eigentlichen Standzeit mehr
@@ -154,10 +155,10 @@ export function analyzeIdle(
    * Teleskopiert über den ganzen Lauf statt Einzeldifferenzen zu summieren.
    * Der Ladestand kommt ganzzahlig und zittert an der Rundungsgrenze; wer
    * die Beträge aller Rückgänge addiert, macht aus 80→81→80 einen
-   * Prozentpunkt Verlust, obwohl netto nichts fehlt. Über sechzig Stunden
-   * Pendeln waren das sechzig Punkte — hochgerechnet 19,9 kWh/Tag aus
-   * reinem Rauschen, und die Obergrenzen-Sicherung kippte gleich mit, weil
-   * die erfundene Summe ihre Schwelle überschritt.
+   * Prozentpunkt Verlust, obwohl netto nichts fehlt. Jedes Auf und Ab legt
+   * einen Punkt drauf: Über eine lange Standzeit summiert sich daraus ein
+   * Verlust, den es nie gab — groß genug, dass auch die Obergrenzen-Sicherung
+   * kippt, weil die erfundene Summe ihre Schwelle überschreitet.
    *
    * Nur die Buchung hängt am Lauf, nicht die Aufnahme in die Liste: Auch ein
    * kurzer Lauf, der die Mindestlänge für {@link IdleAnalysis.phases}
@@ -191,10 +192,12 @@ export function analyzeIdle(
     // Leere Antwort (nur `ts`) überspringen, statt die Phase zu zerschneiden.
     //
     // Dieselbe Regel wie in buildSessions: Ein fehlgeschlagener Poll ist kein
-    // Ausstecken. An den echten Daten gemessen ist das kein Randfall — in 20
-    // von 94 Stunden fehlt `plugged`. Zerschnitte jede solche Zeile die
-    // Phase, fiele ein Fünftel der Betriebszeit aus der Auswertung, und die
-    // Ruhezeit sähe nach einem Bruchteil dessen aus, was sie ist.
+    // Ausstecken. Leere Antworten liefert die Schnittstelle regelmäßig und
+    // nicht nur im Ausnahmefall — würde eine solche Zeile zum `prev`, fielen
+    // ihre beiden Nachbarintervalle durch die Prüfung „beide Enden
+    // ausdrücklich ohne Kabel" und zählten in gar keinen Topf. Die gemessene
+    // Ruhezeit sähe dann nach einem Bruchteil dessen aus, was sie ist,
+    // obwohl nie jemand ausgesteckt hat.
     //
     // Der Zeitbezug geht dabei nicht verloren: `prev` bleibt der letzte
     // Messpunkt MIT Aussage, das nächste Intervall überspannt also die
@@ -211,8 +214,9 @@ export function analyzeIdle(
     //
     // Vorher galt „nicht gefahren", sobald der Kilometerstand fehlte — und
     // eine Fahrt ohne gemeldeten Zählerstand wurde damit zur Ruhephase, ihr
-    // Fahrverbrauch zum Ruheverlust. Nachgestellt ergab das 8 statt 0
-    // Prozentpunkte, also ein Vielfaches der gesuchten Größe.
+    // Fahrverbrauch zum Ruheverlust. Fahren kostet je Stunde ein Vielfaches
+    // dessen, was Stehen kostet: Ein einziges solches Intervall verschiebt
+    // das Ergebnis um mehr als die gesuchte Größe selbst.
     const stillstand =
       prevOdo !== undefined && cur.odometerKm !== undefined && cur.odometerKm === prevOdo;
     // Ein Intervall zählt nur mit BEIDEN Enden ausdrücklich ohne Kabel —

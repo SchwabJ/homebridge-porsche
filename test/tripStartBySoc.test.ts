@@ -7,15 +7,17 @@ import type { ChargeLogSample } from '../src/chargeLog';
  *
  * ## Der gemeldete Fall
  *
- *     Do., 06.08., 00:01    1 km    69 → 68 %    —
+ *     00:01    1 km    60 → 59 %    —
  *
- * „Wieder eine Phantomfahrt. Ich bin ca. 23 Uhr 1 km gefahren!"
+ * Eine Fahrt kurz nach Mitternacht, die es so nicht gab: Gefahren wurde
+ * am Abend davor.
  *
- * Es ist keine Phantomfahrt, sondern seine — mit falscher Uhrzeit:
+ * Es ist keine Phantomfahrt, sondern eine wirklich gefahrene Strecke — nur
+ * mit falscher Uhrzeit:
  *
- *     23:01   70 %   53124 km
- *     23:21   69 %   53124 km    Ladestand fällt: HIER wurde gefahren
- *     00:01   68 %   53125 km    Kilometerstand kommt erst jetzt
+ *     23:01   61 %   51124 km
+ *     23:21   60 %   51124 km    Ladestand fällt: HIER wurde gefahren
+ *     00:01   59 %   51125 km    Kilometerstand kommt erst jetzt
  *
  * Das Backend frischt `odometerKm` erst zum Fahrtende auf, der Ladestand
  * läuft mit. Die Fahrterkennung hängt am Kilometerstand und datiert deshalb
@@ -43,17 +45,17 @@ const p = (
   tripKwh100: 20.5,
 });
 
-/** Der reale Verlauf des 5. August, abends. */
+/** Ein Abendverlauf, bei dem der Kilometerstand nachläuft. */
 const verlauf: ChargeLogSample[] = [
-  { ...p(16, 0, 80, 53100), plugged: true, charging: true },
-  p(17, 0, 80, 53100),
-  p(19, 0, 71, 53124),
-  p(20, 1, 70, 53124),
-  p(20, 41, 70, 53124),
-  p(21, 1, 70, 53124),
-  p(21, 21, 69, 53124), // Ladestand fällt — hier wurde gefahren
-  p(22, 1, 68, 53125), // Kilometerstand kommt vierzig Minuten später
-  p(22, 21, 68, 53125),
+  { ...p(16, 0, 80, 51100), plugged: true, charging: true },
+  p(17, 0, 80, 51100),
+  p(19, 0, 71, 51124),
+  p(20, 1, 70, 51124),
+  p(20, 41, 70, 51124),
+  p(21, 1, 70, 51124),
+  p(21, 21, 69, 51124), // Ladestand fällt — hier wurde gefahren
+  p(22, 1, 68, 51125), // Kilometerstand kommt vierzig Minuten später
+  p(22, 21, 68, 51125),
 ];
 
 describe('Fahrtbeginn bei verspätetem Kilometerstand', () => {
@@ -69,13 +71,13 @@ describe('Fahrtbeginn bei verspätetem Kilometerstand', () => {
     // Fällt der Ladestand Stunden vorher, war das Standverbrauch — die Fahrt
     // dorthin zu ziehen erfände eine Fahrtdauer von Stunden.
     const langerStand: ChargeLogSample[] = [
-      { ...p(4, 0, 80, 53100), plugged: true, charging: true },
-      p(5, 0, 80, 53100),
-      p(6, 0, 79, 53100), // Ladestand fällt — aber Stunden vor der Fahrt
-      p(12, 0, 78, 53100),
-      p(18, 0, 77, 53100),
-      p(19, 0, 76, 53101), // erst hier die Fahrt
-      p(19, 20, 76, 53101),
+      { ...p(4, 0, 80, 51100), plugged: true, charging: true },
+      p(5, 0, 80, 51100),
+      p(6, 0, 79, 51100), // Ladestand fällt — aber Stunden vor der Fahrt
+      p(12, 0, 78, 51100),
+      p(18, 0, 77, 51100),
+      p(19, 0, 76, 51101), // erst hier die Fahrt
+      p(19, 20, 76, 51101),
     ];
     const t = buildTrips(langerStand, {});
     const kurz = t.find((x) => x.km === 1);
@@ -88,10 +90,10 @@ describe('Fahrtbeginn bei verspätetem Kilometerstand', () => {
     // Steigt der Kilometerstand mit dem Ladestand-Abfall zusammen, ist nichts
     // verspätet und nichts zu korrigieren.
     const normal: ChargeLogSample[] = [
-      { ...p(6, 0, 80, 53100), plugged: true, charging: true },
-      p(7, 0, 80, 53100),
-      p(8, 0, 72, 53140),
-      p(8, 30, 72, 53140),
+      { ...p(6, 0, 80, 51100), plugged: true, charging: true },
+      p(7, 0, 80, 51100),
+      p(8, 0, 72, 51140),
+      p(8, 30, 72, 51140),
     ];
     const t = buildTrips(normal, {});
     expect(t[0]?.startedAt).toBe(new Date(Date.UTC(2026, 7, 5, 7, 0)).toISOString());

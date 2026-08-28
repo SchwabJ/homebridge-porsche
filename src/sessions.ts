@@ -7,10 +7,10 @@
  *
  * ## Warum die Sessiongrenze am Stecker hängt, nicht am Laden
  *
- * Bei preisgesteuertem Laden (Octopus & Co.) schaltet der Tarif in 15-Minuten-
- * Slots ein und aus. Eine Nachtladung zerfiele über `charging` in ein Dutzend
- * Fragmente. `plugged` bleibt dagegen über die gesamte Standzeit true – von
- * Einstecken bis Ausstecken – und liefert damit genau eine Session pro Nacht.
+ * Bei preisgesteuertem Laden schaltet der Tarif in 15-Minuten-Slots ein und
+ * aus. Eine Nachtladung zerfiele über `charging` in ein Dutzend Fragmente.
+ * `plugged` bleibt dagegen über die gesamte Standzeit true – von Einstecken
+ * bis Ausstecken – und liefert damit genau eine Session pro Nacht.
  *
  * ## Warum die Energie aus dem SoC-Delta kommt
  *
@@ -23,7 +23,7 @@
 
 import type { ChargeLogSample } from './chargeLog';
 
-/** Nutzbare Netto-Kapazität in kWh (Taycan Performance Battery Plus). */
+/** Nutzbare Netto-Kapazität in kWh (Taycan, Datenblattwert). */
 export const DEFAULT_CAPACITY_KWH = 83.7;
 
 /**
@@ -82,7 +82,7 @@ export interface ChargeSession {
    *
    * Gehört zur SESSION, nicht zum einzelnen Messpunkt: Beim Anstecken trägt
    * die zwischengespeicherte Fahrzeugantwort oft noch die Position von
-   * unterwegs — beobachtet wurden elf Minuten, bis „zuhause" ankam. Wer nach
+   * unterwegs, und es dauert mehrere Polls, bis „zuhause" ankommt. Wer nach
    * Messpunkten filtert, verliert den Anfang jeder Ladung.
    *
    * Ein einziges „zuhause" während der Kabelzeit genügt deshalb: Das Fahrzeug
@@ -117,9 +117,10 @@ export interface ChargeSession {
    *
    * Das Gegenstück zu {@link ChargeSession.aborted}, aber VOR dem Ausstecken —
    * nur so kann eine Warnung noch in der Nacht kommen statt am Morgen. Die
-   * Schwelle ist bewusst doppelt so hoch wie beim rückblickenden Abbruch:
-   * Tarifgesteuertes Laden pausiert real bis ~94 Minuten, und eine Warnung,
-   * die bei normalen Slot-Pausen kommt, wird ignoriert.
+   * Schwelle ist bewusst doppelt so hoch wie beim rückblickenden Abbruch: Die
+   * Pausen zwischen den Slots eines Nachttarifs können weit über eine Stunde
+   * dauern, und eine Warnung, die bei normalen Slot-Pausen kommt, wird
+   * ignoriert.
    */
   stalled?: boolean;
   /** false, wenn das Ausstecken nie beobachtet wurde (Session läuft noch / Daten enden). */
@@ -180,8 +181,9 @@ const ABORT_IDLE_MIN = 60;
 /**
  * Stromlose Zeit, ab der eine LAUFENDE Ladung als hängend gilt — siehe
  * {@link ChargeSession.stalled}. Höher als {@link ABORT_IDLE_MIN}, weil hier
- * noch niemand ausgesteckt hat: Beobachtete Octopus-Slot-Pausen von 94 Minuten
- * dürfen keine Warnung auslösen.
+ * noch niemand ausgesteckt hat: Die Pausen zwischen den Slots eines
+ * Nachttarifs können weit über eine Stunde dauern und dürfen keine Warnung
+ * auslösen.
  */
 const STALL_IDLE_MIN = 120;
 
@@ -213,10 +215,10 @@ const RATE_TOLERANCE = 1.5;
  * ## Warum hier NICHT auf Sprünge geprüft wird
  *
  * Der naheliegende Ort für eine Plausibilitätsprüfung ist der einzelne
- * Messabstand — und genau dort funktioniert sie nicht. Nachgemessen an einer
- * echten Wallbox-Ladung mit 10 kW: Die Restreichweite steigt in Schritten von
- * vier bis sieben Kilometern, bei einem Poll-Abstand von drei Minuten also um
- * 1,3 bis 2,3 km/min. Physikalisch möglich wären 0,8. Der Grund ist keine
+ * Messabstand — und genau dort funktioniert sie nicht. Die Restreichweite
+ * steigt in Schritten von mehreren Kilometern; bei einem Poll-Abstand von
+ * drei Minuten liegt die daraus errechnete Rate am Wechselstromkabel um ein
+ * Mehrfaches über dem, was physikalisch möglich wäre. Der Grund ist keine
  * Fehlmessung: Die Anzeige ist grob quantisiert und folgt einer Prognose, die
  * mit dem Ladestand ihre Meinung ändert.
  *
@@ -320,10 +322,11 @@ function finish(
   // Vorher wurden die Abstände zwischen aufeinanderfolgenden Lade-Messpunkten
   // summiert. Diese Summe teleskopiert zu „letzter minus erster" und enthält
   // damit genau das, was sie ausschließen sollte: die stromlosen Pausen. Bei
-  // tarifgesteuertem Laden mit zwei Pausen von 34 und 94 Minuten stand unter
-  // „davon 4 h 55 min laden" ein Wert, den die Phasenliste derselben Zeile mit
-  // 2 h 47 min widerlegte — Faktor 1,8. Die Gegenprobe über die Physik gibt
-  // den Phasen recht: 26,8 kWh bei 9,9 kW sind 162 Minuten.
+  // tarifgesteuertem Laden wies eine Ladung deshalb eine Ladezeit aus, die
+  // deutlich über der Summe ihrer eigenen Phasen lag — sichtbar in derselben
+  // Zeile, die beides anzeigt. Recht haben die Phasen, und das braucht keinen
+  // Messwert: Geladene Energie geteilt durch die mittlere Ladeleistung ergibt
+  // der Größenordnung nach die Phasensumme, nicht die Spanne.
   const chargingMin = phases.reduce((a, p) => a + p.durationMin, 0);
 
   const session: ChargeSession = {
@@ -397,10 +400,10 @@ function finish(
   //
   // Ein einzelner Cache-Sprung reicht, um beides zu verderben: Nach einem Poll
   // ohne frische Daten springt die Restreichweite gelegentlich um dreistellige
-  // Kilometer, sobald der Cache aufholt. Nachgestellt ergab 100 → 340 km in
-  // drei Minuten eine Laderate von 4,3 km/min — bei 11 kW sind höchstens 0,9
-  // möglich. Deshalb wird der ANFANGSWERT auf den ersten Messpunkt gelegt,
-  // dessen Sprung zum nächsten physikalisch erklärbar ist.
+  // Kilometer, sobald der Cache aufholt. Über drei Minuten gerechnet ergibt
+  // ein solcher Sprung eine Laderate um ein Vielfaches über dem, was an einem
+  // 11-kW-Anschluss möglich ist. Deshalb wird der ANFANGSWERT auf den ersten
+  // Messpunkt gelegt, dessen Sprung zum nächsten physikalisch erklärbar ist.
   const firstRange = open.rangeValues[0];
   const lastRange = open.rangeValues[open.rangeValues.length - 1];
   if (firstRange !== undefined && lastRange !== undefined) {
@@ -494,8 +497,8 @@ const GAP_MAX_SOC_JUMP = 15;
 /**
  * Wie weit das Fahrzeug in der Lücke gefahren sein darf.
  *
- * Am Fahrzeug beobachtet: Zwischen dem letzten Messpunkt ohne Kabel und dem
- * ersten mit Kabel stand ein Kilometer — in die Garage rangiert. Eine
+ * Zwischen dem letzten Messpunkt ohne Kabel und dem ersten mit Kabel steht
+ * regelmäßig ein Kilometer — die letzten Meter bis zum Ladepunkt. Eine
  * Bedingung auf exakt gleichen Kilometerstand griff deshalb nie.
  *
  * Fahren SENKT den Ladestand; steigt er trotzdem, wurde geladen. Die Grenze
@@ -510,10 +513,11 @@ const GAP_MAX_KM = 5;
  *
  * Ohne Kabel fragt das Plugin nur alle zwanzig Minuten nach. Wer in dieser
  * Lücke einsteckt, lädt schon, bevor wir hinsehen — und der Zuwachs fehlte
- * der Ladung. Am Fahrzeug beobachtet: 19:50 Uhr 20 % ohne Kabel, 20:30 Uhr
- * 22 % mit Kabel. Über den Mitschrieb summiert liefen Ladungsliste und
- * Zeitreihe dadurch um 1,67 kWh auseinander — sichtbar als „mal fehlt ein
- * Prozent".
+ * der Ladung: Der letzte Messpunkt ohne Kabel und der erste mit Kabel liegen
+ * bis zu vierzig Minuten auseinander, und in dieser Lücke steigt der
+ * Ladestand bereits. Über einen ganzen Mitschrieb summiert laufen
+ * Ladungsliste und Zeitreihe dadurch auseinander — sichtbar als „mal fehlt
+ * ein Prozent".
  *
  * Ein Ladestand STEIGT nicht von selbst. Blieb der Kilometerstand dabei
  * stehen, gibt es nur eine Erklärung: Es wurde geladen. Fuhr das Auto

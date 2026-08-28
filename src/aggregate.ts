@@ -43,7 +43,7 @@ export const SUB: Record<Granularity, Granularity> = {
 };
 
 export interface Bucket {
-  /** Sortierbarer Schlüssel: `2026-07-27`, `2026-W31`, `2026-07`, `2026`. */
+  /** Sortierbarer Schlüssel: `2026-01-05`, `2026-W02`, `2026-01`, `2026`. */
   key: string;
   /**
    * Zeitstempel des ersten Messpunkts in diesem Abschnitt (ISO).
@@ -73,7 +73,7 @@ export interface Bucket {
    * Je MESSPUNKT gerechnet, nicht je Fahrt: Eine zweistündige Fahrt verteilt
    * sich damit über die Stunden, die sie tatsächlich gedauert hat. Wird die
    * Energie einer ganzen Fahrt dem Abschnitt ihres Endes zugeschlagen, steht
-   * in der Stundenansicht ein 46-kWh-Balken in einer Stunde, während die
+   * in der Stundenansicht ein einzelner hoher Balken, während die
    * Stunde davor mit 100 gefahrenen Kilometern auf null steht.
    *
    * Quelle ist `TRIP_STATISTICS_CYCLIC`: der Verbrauchsschnitt seit dem
@@ -156,10 +156,12 @@ export interface AggregateOptions {
  *
  * Die Fahrzeugantwort ist zwischengespeichert: Nach einem Poll ohne frische
  * Daten springt die Restreichweite gelegentlich um dreistellige Kilometer,
- * sobald der Cache aufholt. Nachgestellt: 100 → 340 km in drei Minuten, also
- * 80 km/min. Physikalisch geht das nicht — selbst 270 kW Ladeleistung ergeben
- * bei fünf km je kWh rund 22 km/min. Wer solche Sprünge mitzählt, bekommt
- * „4,3 km/min" als Laderate und eine dreifach zu hohe geladene Reichweite.
+ * sobald der Cache aufholt. Auf die wenigen Minuten seit dem letzten
+ * Messpunkt gerechnet ergibt das eine Rate, die physikalisch nicht möglich
+ * ist — selbst 270 kW Ladeleistung ergeben bei fünf km je kWh rund
+ * 22 km/min. Der Grenzwert liegt knapp darüber. Wer solche Sprünge mitzählt,
+ * bekommt eine überhöhte Laderate ausgewiesen und eine geladene Reichweite,
+ * die deutlich über dem liegt, was tatsächlich in die Batterie ging.
  */
 const MAX_RANGE_GAIN_PER_MIN = 25;
 
@@ -167,8 +169,8 @@ const MAX_RANGE_GAIN_PER_MIN = 25;
  * Höchste Geschwindigkeit, die ein Kilometerstands-Sprung ergeben darf (km/min).
  *
  * 4,5 km/min sind 270 km/h. Darüber liegt kein Fahrzeug, wohl aber ein
- * Zählerfehler: Ein einzelner verrutschter Kilometerstand ergab in der
- * Auswertung 998.000 gefahrene Kilometer.
+ * Zählerfehler: Ein einzelner verrutschter Kilometerstand ergibt in der
+ * Auswertung eine sechsstellige Fahrleistung.
  */
 const MAX_SPEED_PER_MIN = 4.5;
 
@@ -180,7 +182,7 @@ const GAP_THRESHOLD_MIN = 35;
  * Über die KALENDERFELDER, nicht über Millisekunden: An den beiden
  * Zeitumstellungen ist ein Tag 23 bzw. 25 Stunden lang. Absolut gerechnet
  * wanderte am Sommerzeitbeginn das lokale Fenster 04:00–05:00 in den Vortag
- * — nachgemessen landete der 29.03. um 04:30 im Abschnitt des 28.03. Bei
+ * — nachgerechnet landete der 29.03. um 04:30 im Abschnitt des 28.03. Bei
  * Nachtladung liegt genau dieses Fenster mitten in der Ladung.
  *
  * Die Regel ist einfach: Liegt die Stunde vor der Grenze, gehört der
@@ -277,7 +279,7 @@ export function labelOf(key: string, g: Granularity, L: Labels): string {
  * Der Beginn eines Abschnitts aus seinem Schlüssel.
  *
  * Braucht die Tagesgrenze: Bei `boundaryHour = 4` beginnt der Abschnitt
- * `2026-07-28` um 04:00 Ortszeit, nicht um Mitternacht. Echte Abschnitte
+ * `2026-01-05` um 04:00 Ortszeit, nicht um Mitternacht. Echte Abschnitte
  * tragen diesen Beginn ohnehin (er kommt vom ersten Messpunkt); aufgefüllte
  * bekamen ihn vorher nicht — und wer danach filtert, sortierte die Lücke in
  * die falsche Woche oder den falschen Monat.
@@ -405,9 +407,12 @@ export function aggregate(
   // Grund: Die API liefert regelmäßig Zeilen ohne jeden Messwert. Verglichen
   // man nur Nachbarn, fiele jeder Sprung über eine solche Lücke hinweg aus der
   // Rechnung: 70 % → (leer) → 75 % ergäbe zweimal „kein Vergleich möglich" und
-  // die fünf Prozentpunkte zählte niemand. Am 2026-07-28 fehlten dadurch
-  // 5,9 der 20,1 geladenen kWh in der Tagesansicht, während die Session-
-  // Rechnung (nur Anfang und Ende) korrekt blieb.
+  // die fünf Prozentpunkte zählte niemand. Der Verlust entsteht je
+  // Messintervall und trifft damit jede Ansicht, die aus Messpunkten
+  // aufsummiert wird — von der Stunde bis zum Jahr: Überall fiele ein Teil
+  // der geladenen kWh unter den Tisch. Die Session-Rechnung bliebe davon
+  // unberührt, weil sie nur Anfang und Ende der Ladung vergleicht und die
+  // Lücken dazwischen gar nicht ansieht.
   let lastSoc: ChargeLogSample | undefined;
   /**
    * Letzter BEKANNTER Steckerzustand.
@@ -787,7 +792,7 @@ export function efficiency(buckets: Bucket[]): Efficiency {
   //
   // Geladene Energie und gefahrene Strecke fallen nicht gleichzeitig an: Ein
   // gewöhnlicher Tag mit fünf gefahrenen Kilometern und einer vollen
-  // Nachtladung ergab „800 kWh/100 km" und „240 ct/km" — rechnerisch
+  // Nachtladung ergibt „800 kWh/100 km" und „240 ct/km" — rechnerisch
   // richtig, als Aussage Unsinn. Erst über eine nennenswerte Strecke gleicht
   // sich der Versatz aus. Dieselbe Regel wie in {@link monthlyConsumption},
   // nur an der kleineren Grundlage eines einzelnen Zeitraums bemessen.

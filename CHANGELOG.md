@@ -26,37 +26,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **A charge that began between two polls lost its first percent.** Unplugged,
   the plugin only asks every twenty minutes; plug in during that window and
   charging has already started before it looks. The charge then began, for the
-  evaluation, a couple of percent too late. Summed over the log, the charge
-  list and the time series drifted apart by 1.67 kWh — which is what made
-  monthly costs "sometimes more, sometimes less right". A state of charge does
-  not rise on its own: if it is higher at the first reading with a cable than
-  at the last one without, charging happened in the gap.
+  evaluation, a couple of percent too late — energy the charge list misses
+  while the time series still has it. Monthly costs are summed up from that
+  list, so they came out too low, by a different amount each month. A state of
+  charge does not rise on its own: if it is higher at the first reading with a
+  cable than at the last one without, charging happened in the gap.
 - **No more "stopped at 80 % instead of 100 %" where a tariff charges in time
-  windows.** Observed on the car: the owner's target was 80 %, five minutes
-  after plugging in the car reported 100 %, charging ran in five phases with
-  pauses of 91, 43 and 79 minutes, ending at 80 %. Arithmetically an abort;
-  in fact a provider whose window closed — and it had set that target itself.
-  The pause pattern gives it away: charging left alone runs through.
+  windows.** The pattern it guards against: the target is set to 80 %, shortly
+  after plugging in the car reports 100 %, charging runs in several phases
+  separated by pauses well above the twenty-minute pacing threshold, and ends
+  at 80 %. Arithmetically an abort; in fact a provider whose window closed —
+  and it had set that target itself. The pause pattern gives it away:
+  charging left alone runs through.
 - **The charge target is no longer carried forward.** After a charge that
   stopped at 80 %, the dashboard kept showing "target 100 %". Odometer, charge
   level and range are *states* — the last known one still holds. A charge
   target is a *setting*: it changes without the car saying so, and the car
   only reports it while plugged in. A value from two days ago is not "the last
   known" but simply out of date.
-- **Battery health is only stated once the sample supports it.** It jumped
-  from 90 to 96 % within hours — a battery does not improve; what jumped was
-  the sample, since the figure is the median of a handful of readings. Three
-  different thresholds applied to the same number: the tile showed it from the
-  first cycle, the report called it reliable from ten, adoption also required
-  ten. Now one threshold everywhere. The measured capacity itself stays
-  visible — it carries its uncertainty with it, a percentage with a progress
-  bar does not.
+- **Battery health is only stated once the sample supports it.** It jumped by
+  several percentage points within hours — a battery does not improve; what
+  jumped was the sample, since the figure is the median of a handful of
+  readings. Three different thresholds applied to the same number: the tile
+  showed it from the first cycle, the report called it reliable from ten,
+  adoption also required ten. Now one threshold everywhere. The measured
+  capacity itself stays visible — it carries its uncertainty with it, a
+  percentage with a progress bar does not.
 - **Switching the charge-limit accessory on no longer sets a target.** It is a
   light bulb in HomeKit — there is no other percentage control — so every
   scene and every "turn on all the lights" hits it. The switch arrives without
   a brightness, and the plugin then sent whatever value was last *displayed*.
   The target *is* the brightness; only that may change it.
-- **The cost tile named two savings figures** — "€13.96 saved (total €19.37)"
+- **The cost tile named two savings figures** — "€10.00 saved (total €25.00)"
   — without saying that one was the month and the other since the beginning. A
   tile showing one period now names only that period's numbers.
 
@@ -90,8 +91,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 - **The drivetrain is now detected**, and evaluations that cannot hold for it
   stay quiet. The vehicle list — which the plugin never fetched once a VIN was
-  configured — carries a `modelType` object; measured on a Taycan it reads
-  `{ code: 'Y1BBD1', year: '2023', body: 'CUV', generation: 'J1',
+  configured — carries a `modelType` object for every entry, of the form
+  `{ code: 'MODELCODE', year: '2000', body: 'BODYTYPE', generation: 'GEN',
   model: 'TAYCAN', engine: 'BEV' }`. The `engine` field says it outright.
 
   This matters because measured capacity is computed from the distance
@@ -263,7 +264,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   statement. Gone are the charging rate in km/min (the finish forecast one
   line below answers the same question, better), the word "Monitoring" in
   front of the age of the last reading, the date on a charge that is running
-  *right now*, and "instead of €19.41" in the cost tile — that is the saving
+  *right now*, and "instead of €20.00" in the cost tile — that is the saving
   computed backwards, and the saving itself already stands next to it.
 
 ## [0.11.0] — 2026-08-01
@@ -278,19 +279,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   That is the number which grows during a charge; the starting level stands
   still and says nothing about how much is already in the battery.
 - **Cable time and actual charging time are now shown separately.** Seeing
-  "2.5 kWh" next to "charging at 10.1 kW" invites the wrong arithmetic: the
-  cable had been connected for 24 minutes, but current had only been flowing
-  for 17. Both numbers were right; side by side they looked wrong. The charge
-  list has made this distinction for a while.
+  the energy charged so far next to the current power invites the wrong
+  arithmetic: the cable may have been connected far longer than current has
+  been flowing, so dividing one by the other matches neither. Both numbers
+  were right; side by side they looked wrong. The charge list has made this
+  distinction for a while.
 
 ## [0.10.0] — 2026-08-01
 
 ### Added
 - **Charging window.** Charge only between two times you choose — `00:30` to
   `04:30` for a night tariff, for instance. The car's own timer knows a
-  departure time but no window, which owners have been asking for for years;
-  one put it plainly: *"all I require is a timer to only charge in this time
-  range. i didn't realise it would be so complicated."* There are also
+  departure time but no window, which owners have been asking for for years —
+  all they want is a timer that confines charging to one time range, and they
+  are puzzled that something so plain is not on offer. There are also
   documented cases of a working charging plan silently reverting to instant
   charging, and of a running charge that cannot be stopped from the app at
   all. This plugin runs in your house and polls every three minutes while
@@ -350,12 +352,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 - **An unknown plug state was claimed to be "not plugged in."** `!undefined`
   is `true`, so a poll the API answered without any readings read as unplugged.
-  Measured over a week of logs: at 14 samples the cable was demonstrably
-  connected — they sit between two `plugged: true` readings, and across two of
-  them about 10 kW kept flowing. The badge now says the state is unknown and
-  stays grey; carrying the last known value forward was rejected because it
-  only trades this false claim for the opposite one. The same branch also
-  covers the state before the first sample ever arrives.
+  Such samples are demonstrably wrong: some sit between two `plugged: true`
+  readings, and across some of them charging power kept flowing — the cable
+  was connected while the badge said otherwise. The badge now says the state
+  is unknown and stays grey; carrying the last known value forward was
+  rejected because it only trades this false claim for the opposite one. The
+  same branch also covers the state before the first sample ever arrives.
 
 ## [0.8.1] — 2026-07-31
 
@@ -363,18 +365,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **State of charge and range disappeared from the header**, showing `—` with
   the bar at zero, and the charge-level tile vanished from the status page —
   while the value was minutes old. The API answers part of the polls with the
-  charging state only; measured over five days, 7 % of samples carry no state
-  of charge. A missing field there means *not sent*, not *not present*, but
-  the header read the last sample verbatim. Whether you saw a number depended
-  on which kind of sample happened to be last.
+  charging state only, and those samples carry no state of charge at all. A
+  missing field there means *not sent*, not *not present*, but the header read
+  the last sample verbatim. Whether you saw a number depended on which kind
+  of sample happened to be last.
 - **"As of HH:MM" now names the time of the reading**, not of the poll. How
   fresh the poll is already stands next to it.
 
 ## [0.8.0] — 2026-07-31
 
 Charging history release: monthly reports, CSV exports, tariff history — and a
-round of fixes that came out of running the dashboard against real data for a
-week.
+round of fixes that came out of a week of testing the dashboard.
 
 ### Added
 - **Monthly reports for both lists.** The charging receipt now has a sibling:

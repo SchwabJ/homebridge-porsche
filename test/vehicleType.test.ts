@@ -2,10 +2,10 @@ import { parseVehicleEntry, isPluginHybrid, type VehicleListEntry } from '../src
 
 /**
  * Das Fahrzeug sagt in der Fahrzeugliste selbst, welchen Antrieb es hat —
- * am 01.08.2026 an einem Taycan gemessen:
+ * sie trägt zu jedem Eintrag ein `modelType`-Objekt:
  *
- *   modelType = { code: 'Y1BBD1', year: '2023', body: 'CUV',
- *                 generation: 'J1', model: 'TAYCAN', engine: 'BEV' }
+ *   modelType = { code: 'MODELLCODE', year: '2000', body: 'BODYTYPE',
+ *                 generation: 'GEN', model: 'TAYCAN', engine: 'BEV' }
  *
  * Diese eine Angabe entscheidet, ob mehrere Auswertungen überhaupt etwas
  * aussagen dürfen: Die Kapazitätsschätzung rechnet aus der Strecke zwischen
@@ -14,13 +14,13 @@ import { parseVehicleEntry, isPluginHybrid, type VehicleListEntry } from '../src
  */
 describe('parseVehicleEntry', () => {
   const roh = {
-    vin: 'WP0ZZZ',
-    modelName: 'Taycan 4 Cross Turismo',
+    vin: 'WP0ABC',
+    modelName: 'Taycan',
     modelType: {
-      code: 'Y1BBD1',
-      year: '2023',
-      body: 'CUV',
-      generation: 'J1',
+      code: 'MODELLCODE',
+      year: '2000',
+      body: 'BODYTYPE',
+      generation: 'GEN',
       model: 'TAYCAN',
       engine: 'BEV',
     },
@@ -30,8 +30,8 @@ describe('parseVehicleEntry', () => {
     const v = parseVehicleEntry(roh);
     expect(v.engine).toBe('BEV');
     expect(v.model).toBe('TAYCAN');
-    expect(v.year).toBe('2023');
-    expect(v.modelName).toBe('Taycan 4 Cross Turismo');
+    expect(v.year).toBe('2000');
+    expect(v.modelName).toBe('Taycan');
   });
 
   it('kommt mit einem Eintrag ohne modelType aus', () => {

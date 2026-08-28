@@ -68,8 +68,8 @@ export function chargeCurve(
   // Messpunkte. Bei 720 px Diagrammbreite ist das ein Punkt alle vier Pixel
   // — feiner, als ein Bildschirm zeigen kann, aber jeder wandert doppelt ins
   // HTML: einmal in den Pfad, einmal ins Datenattribut fürs Crosshair.
-  // Gemessen an einem Jahr Mitschrieb machte das 121 kB allein an Rohdaten
-  // auf einer Seite von 360 kB.
+  // Über ein Jahr summiert sich das auf rund 120 kB allein an Rohdaten auf
+  // einer Seite von 360 kB.
   //
   // Gleichmäßig ausgedünnt, Anfang und Ende bleiben exakt: Eine Ladekurve
   // ist glatt, und eine Auflösung von rund zehn Minuten je Punkt zeigt jede
@@ -97,7 +97,7 @@ export function chargeCurve(
 
   // Y-Achse FEST von 0 bis 100 %.
   //
-  // Eine mitwandernde Skala lässt jede Ladung gleich steil aussehen: 56→80 %
+  // Eine mitwandernde Skala lässt jede Ladung gleich steil aussehen: 60→80 %
   // und 5→100 % wären optisch identisch. Mit fester Skala ist auf einen Blick
   // erkennbar, wie viel eine Ladung wirklich gebracht hat — und die
   // Zielmarken sitzen immer an derselben Stelle.
@@ -187,7 +187,7 @@ export function chargeCurve(
   // Zahlen würden die Kurve nur zustellen.
   // Nur die Y-Beschriftung bleibt im SVG. Die Zeiten stehen als HTML
   // darunter: Das SVG wird in der Breite gestreckt, was Text verzerrt und
-  // abschneidet — aus „10:21" wurde dabei eine „1".
+  // abschneidet — aus „12:00" wurde dabei eine „1".
   // Nur 0 / 50 / 100 beschriften — mehr Zahlen stellen die Kurve zu.
   const axis =
     [100, 50, 0]

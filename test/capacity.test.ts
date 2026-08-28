@@ -62,8 +62,8 @@ describe('estimateCapacity', () => {
       at(120, { soc: 90, odometerKm: 51000, tripKwh100: 20, plugged: false }),
       at(180, { soc: 65, odometerKm: 51100, tripKwh100: 20, plugged: false }),
       at(210, { plugged: true }),
-      at(240, { soc: 90, odometerKm: 52000, tripKwh100: 25, plugged: false }),
-      at(300, { soc: 65, odometerKm: 52100, tripKwh100: 25, plugged: false }),
+      at(240, { soc: 90, odometerKm: 50000, tripKwh100: 25, plugged: false }),
+      at(300, { soc: 65, odometerKm: 50100, tripKwh100: 25, plugged: false }),
     ];
     const e = estimateCapacity(s);
     expect(e.samples).toBe(3);

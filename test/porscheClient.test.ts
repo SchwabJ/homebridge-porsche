@@ -196,9 +196,18 @@ describe('PorscheClient.sendCommand', () => {
 
 describe('S-PIN-Hash + Challenge-Extraktion', () => {
   it('computeSpinHash trifft die offiziellen CJNE-Testvektoren (Python==Node verifiziert)', () => {
-    // Aus der EXAKTEN CJNE-Zeile sha512(bytes.fromhex(pin+challenge)).hexdigest().upper() erzeugt.
-    expect(computeSpinHash('4271', 'DEADBEEFCAFE1234')).toBe(
-      '3CC4A342277E0F4EBEF27DCDA1A9DFBAF58312783B09FDFC3797A9522EA621429C8A887074E436E14C75F2436B8535BEA8CEFF936F5299BE13DD6FED08D716FD',
+    // Nach der EXAKTEN CJNE-Zeile erzeugt:
+    // sha512(bytes.fromhex(pin+challenge)).hexdigest().upper()
+    //
+    // **Die PINs hier sind erfunden** (28.08.2026). Vorher stand an dieser
+    // Stelle eine vierstellige Zahl, die sich von den beiden anderen
+    // Vektoren („0000", „1234") gerade dadurch unterschied, dass sie NICHT
+    // konstruiert aussah. Ob sie je eine echte S-PIN war, laesst sich nicht
+    // mehr feststellen — und genau deshalb hat sie in einem oeffentlichen
+    // Repository nichts zu suchen. Geprueft wird ohnehin die Formel, nicht
+    // der Wert.
+    expect(computeSpinHash('9876', 'DEADBEEFCAFE1234')).toBe(
+      'CF325735AA761095D08E11006AA9A269288542406B8EE91AFE55A419ACCD6B0259D44743EA87994F4743A96084905385A35D0BE2C9A6B55F3F8C809849B778C7',
     );
     expect(computeSpinHash('0000', '00')).toBe(
       '6D518F8B31D1882FEACE10A9215F5D8CF5AFE037652A1D11D9C1408D988C2A4F71A5EDFC85D0712FA3F4E21B2C0A244C8C0D333BAB454311E24067D2A83E5E59',

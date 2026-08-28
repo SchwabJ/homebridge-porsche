@@ -171,7 +171,7 @@ export interface VehicleState {
    * Bauform des Statistik-Eintrags: wie viele Einträge die Liste trägt und wie
    * die Felder heißen — KEINE Werte.
    *
-   * An der Live-API gemessen (2026-08-01): genau EIN Eintrag, und zwar der
+   * An der Live-Schnittstelle beobachtet: genau EIN Eintrag, und zwar der
    * zurücksetzbare Zyklus-Zähler des Fahrzeugs. Eine Fahrtenhistorie liefert
    * diese Schnittstelle nicht; die Schlüssel TRIP_STATISTICS_LONG_TERM,
    * _SHORT_TERM und TRIP_STATISTICS wurden einzeln probiert und antworten
@@ -213,7 +213,7 @@ function parseTimestamp(response: unknown): number | undefined {
   return undefined;
 }
 
-/** Parst `"48.137,11.576"` → `{ lat, lon }` (oder `{}` bei ungültig). */
+/** Parst `"50.5,10.5"` → `{ lat, lon }` (oder `{}` bei ungültig). */
 function parseLocation(location: unknown): { lat?: number; lon?: number } {
   if (typeof location !== 'string') {
     return {};

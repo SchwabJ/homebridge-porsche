@@ -42,9 +42,9 @@ describe('analyzeIdle', () => {
   });
 
   it('lässt die erste Stunde nach einer Fahrt nicht als Ruhe zählen', () => {
-    // An echten Daten belegt: Alle scheinbaren Ruheverluste stammten aus den
-    // Minuten direkt nach einer Fahrt — Nachlauf und Batteriekühlung. Die
-    // Nächte danach verloren nichts. Zählt man den Nachlauf mit, misst man
+    // Nach dem Abstellen laufen Nachlauf und Batteriekühlung weiter und
+    // ziehen Strom, obwohl das Auto steht. Genau diese Minuten sehen aus wie
+    // Ruheverlust, sind aber Folge der Fahrt. Zählt man sie mit, misst man
     // das Abkühlen und nennt es Ruhe.
     const rows = [
       at(0, { soc: 70, odometerKm: 50000 }),
@@ -63,7 +63,7 @@ describe('analyzeIdle', () => {
   it('zählt NICHT als Ruhe, wenn der Kilometerstand fehlt', () => {
     // Sonst wird eine Fahrt zur Ruhephase: Ohne Kilometerstand ist „nicht
     // gefahren" nicht belegt, sondern nur unbelegt — und der Fahrverbrauch
-    // landete im Ruhe-Topf. Nachgestellt ergab das 8 statt 0 Prozentpunkte.
+    // landet im Ruhe-Topf.
     const rows = [
       at(0, { soc: 70, odometerKm: 50000 }),
       // Fahrt, aber die Antwort trägt keinen Kilometerstand (MILEAGE fehlt,
@@ -90,9 +90,10 @@ describe('analyzeIdle', () => {
   });
 
   it('lässt einen leeren Poll die Ruhephase nicht zerschneiden', () => {
-    // An echten Nutzerdaten gemessen: In 20 von 94 Stunden (21 % der Zeit!)
-    // liefert die API kein `plugged`. Zerschnitte jede solche Zeile die
-    // Phase, fiele ein Fünftel der Betriebszeit aus der Auswertung.
+    // Eine Antwort ohne `plugged` liefert die Schnittstelle regelmäßig und
+    // nicht nur im Ausnahmefall. Zerschnitte jede solche Zeile die Phase,
+    // sähe die gemessene Ruhezeit nach einem Bruchteil dessen aus, was sie
+    // ist — obwohl nie jemand ausgesteckt hat.
     // buildSessions macht es längst richtig: ein fehlgeschlagener Poll ist
     // kein Ausstecken.
     const rows = [
@@ -137,9 +138,9 @@ describe('analyzeIdle', () => {
   });
 
   it('führt auch eine Phase von gut zwei Stunden auf', () => {
-    // An echten Nutzerdaten gemessen: Das Auto hängt fast durchgehend am
-    // Kabel, die längste kabellose Phase in fünf Tagen war drei Stunden.
-    // Eine Sechs-Stunden-Schwelle ließe die Liste dauerhaft leer.
+    // Wer sein Auto meist am Kabel stehen lässt, kommt kaum je auf lange
+    // kabellose Phasen. Eine Sechs-Stunden-Schwelle ließe die Liste bei
+    // solcher Nutzung dauerhaft leer — deshalb zählen auch kurze Phasen.
     const rows = [];
     for (let m = 0; m <= 150; m += 30) {
       rows.push(at(m, { soc: m < 90 ? 70 : 69 }));
@@ -184,9 +185,9 @@ describe('idleStats', () => {
   });
 
   it('nennt eine OBERGRENZE, solange der Abfall im Rundungsrauschen liegt', () => {
-    // Genau der Fall aus die Daten: über Tage hinweg fällt der ganzzahlige
-    // Ladestand kaum. Eine Punktschätzung daraus wäre erfunden — ehrlich ist
-    // „höchstens so viel", gerechnet mit dem Rundungszuschlag.
+    // Der Fall, für den die Sicherung gebaut ist: über Tage hinweg fällt der
+    // ganzzahlige Ladestand kaum. Eine Punktschätzung daraus wäre erfunden —
+    // ehrlich ist „höchstens so viel", gerechnet mit dem Rundungszuschlag.
     const s = idleStats(analyse(0, 5760), 80);
     expect(s?.obergrenze).toBe(true);
     // 0 gemessen + 1 Punkt Rundung über 4 Tage = 0,25 %/Tag = 0,2 kWh/Tag
@@ -260,9 +261,10 @@ describe('SoC-Rauschen darf keinen Verlust erfinden', () => {
   it('bucht den NETTO-Verlust eines Ruhe-Laufs, nicht die Summe der Rückgänge', () => {
     // Der Ladestand kommt ganzzahlig und zittert an der Rundungsgrenze.
     // Wer die Beträge aller Rückgänge summiert, macht aus 80→81→80 einen
-    // Prozentpunkt Verlust, obwohl netto nichts fehlt. Über 60 Stunden
-    // Pendeln ergab das 60 Punkte — hochgerechnet 19,9 kWh/Tag aus reinem
-    // Rauschen, und die Obergrenzen-Sicherung kippte gleich mit.
+    // Prozentpunkt Verlust, obwohl netto nichts fehlt. Jedes Auf und Ab legt
+    // einen Punkt drauf: Über eine lange Standzeit summiert sich daraus ein
+    // Verlust, den es nie gab — groß genug, dass auch die
+    // Obergrenzen-Sicherung kippt.
     const at = (m: number, soc: number): ChargeLogSample => ({
       ts: new Date(Date.UTC(2026, 6, 28, 0, 0, 0) + m * 60000).toISOString(),
       soc,

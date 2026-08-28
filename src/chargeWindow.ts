@@ -120,8 +120,9 @@ export function chargeWindowAction(
  *
  * Kurze Aussetzer entstehen auch ohne fremde Steuerung — beim Anstecken, bei
  * einem Netzhüpfer, beim Umschalten der Wallbox. Ein Tarif-Slot dauert
- * länger: An einer real beobachteten Nacht lagen die Pausen bei 34 und
- * 94 Minuten.
+ * länger: Die Pausen zwischen zwei Slots liegen in der Grössenordnung einer
+ * halben bis anderthalb Stunden, also weit über allem, was ein Aussetzer
+ * erklärt.
  */
 const PACED_PAUSE_MIN = 20;
 

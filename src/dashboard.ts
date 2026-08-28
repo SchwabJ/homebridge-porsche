@@ -832,13 +832,13 @@ export function optionsFor(o: DashboardOptions): {
 /**
  * Messwerte, die zwischen zwei Abfragen gültig bleiben.
  *
- * Rund 7 % der Messpunkte tragen keinen Ladestand: Die Schnittstelle
+ * Ein Teil der Messpunkte trägt keinen Ladestand: Die Schnittstelle
  * beantwortet einen Teil der Abfragen nur mit dem Ladezustand, und ein
  * fehlendes Feld heißt dort „nicht geliefert", nicht „nicht vorhanden". Für
  * die Anzeige des JETZIGEN Zustands ist der letzte bekannte Wert die richtige
  * Antwort — ein Kilometerstand von vor drei Minuten IST der Kilometerstand.
  *
- * Momentanwerte stehen bewusst nicht hier. 10 kW Ladeleistung von vorhin sind
+ * Momentanwerte stehen bewusst nicht hier. Eine Ladeleistung von vorhin ist
  * keine Aussage über jetzt, und `plugged` erst recht nicht: Beim Ausstecken
  * verwirft {@link ./store#normalizeSample} die Leerantwort-Zeilen, ein
  * fortgeschriebenes „eingesteckt" behauptete also ein Kabel am längst
@@ -849,7 +849,7 @@ const CARRY_FIELDS = ['soc', 'rangeKm', 'odometerKm'] as const;
 /**
  * Warum Ladeziel und Sofortlade-Schwelle NICHT dabei sind.
  *
- * Sie standen hier und haben am Fahrzeug einen sichtbaren Fehler erzeugt:
+ * Sie standen hier und haben einen sichtbaren Fehler erzeugt:
  * Nach einer Ladung, die bei 80 % stoppte, zeigte das Dashboard weiter
  * „Ziel 100 %". Der Wert stammte aus einer früheren Ladung und wurde brav
  * fortgeschrieben.
@@ -895,7 +895,8 @@ export function currentStatus(samples: ChargeLogSample[], now: number): CurrentS
   // Der Zeitpunkt der Anzeige ist der jüngste Messpunkt, der überhaupt einen
   // Messwert trug — nicht der jüngste je Feld. Ladeziel und Sofortlade-
   // Schwelle liefert das Fahrzeug nur am Kabel; sie am stehenden Auto
-  // mitzählen zu lassen schrieb über eine taufrische Anzeige „Stand 05:12".
+  // mitzählen zu lassen datierte eine taufrische Anzeige auf die letzte
+  // Ladung zurück.
   let stateAt: string | undefined;
   for (let i = samples.length - 1; i >= 0; i--) {
     if (CARRY_FIELDS.some((f) => samples[i][f] !== undefined)) {
@@ -1079,8 +1080,8 @@ function renderPage(
   //
   // Vorher stand hier `efficiency(all)` — die Summe über alles, beschriftet
   // mit „im Zeitraum". An einem Tag mit 20 gefahrenen Kilometern zeigte die
-  // Kachel 211: die Gesamtstrecke des Mitschriebs. Mit einem Jahr Daten wären
-  // es fünfstellige Zahlen unter einer Tagesansicht gewesen.
+  // Kachel die Gesamtstrecke des ganzen Mitschriebs. Mit einem Jahr Daten
+  // wären es fünfstellige Zahlen unter einer Tagesansicht gewesen.
   //
   // Aus `current` statt aus `series`: Genau derselbe Bucket, aus dem auch die
   // kWh- und Kosten-Kacheln rechnen — zwei Wege zur selben Zahl wären zwei
@@ -1119,7 +1120,7 @@ function renderPage(
   //
   // Vorher stammte er aus den Fahrten und wurde dem Abschnitt zugeschlagen, in
   // dem die Fahrt ENDETE. Bei einer zweistündigen Fahrt stand dann ein
-  // 46-kWh-Balken in einer Stunde, während die Stunde davor mit hundert
+  // 50-kWh-Balken in einer Stunde, während die Stunde davor mit hundert
   // gefahrenen Kilometern auf null blieb — zwei Maßstäbe im selben Bild.
   const q = (g: Granularity, p: Place, d?: string): string =>
     `?g=${g}${p === 'all' ? '' : `&p=${p}`}${d ? `&d=${encodeURIComponent(d)}` : ''}`;
@@ -1241,9 +1242,9 @@ function renderPage(
     st.last?.atHome === true ? ` · ${esc(L.dashAtHome)}` : st.last?.atHome === false ? ` · ${esc(L.dashAway)}` : '';
   // Unbekannt ist nicht ausgesteckt. `!undefined` ist `true`, deshalb behauptete
   // die Zeile „nicht eingesteckt", wo die Schnittstelle gar nichts geliefert
-  // hatte — an 14 Messpunkten einer Woche nachweislich am ladenden Auto, mit
-  // 10 kW über die Lücke hinweg. Fortschreiben verbietet sich hier, aus dem
-  // Grund, der über {@link CARRY_FIELDS} steht: Es tauschte diese Falschaussage
+  // hatte — auch über Lücken hinweg, an deren beiden Enden der Wagen lud.
+  // Fortschreiben verbietet sich hier, aus dem Grund, der über
+  // {@link CARRY_FIELDS} steht: Es tauschte diese Falschaussage
   // gegen die umgekehrte. Die Plakette bleibt grau — das Projekt trägt
   // Unbekanntes im Wort, nicht in der Farbe.
   const plugText =
@@ -1265,11 +1266,11 @@ function renderPage(
   // Aus ALLEN Fahrten: Wo geladen wurde, ändert die Batterie nicht.
   const cap = stats.capacity;
   // Die Gesundheit in Prozent erst ab belastbarer Datenbasis — siehe
-  // {@link ./capacity!HEALTH_MIN_CYCLES}. Am Fahrzeug sprang sie binnen
-  // Stunden von 90 auf 96 Prozent; eine Batterie wird nicht besser, was da
-  // sprang war die Stichprobe. Die gemessene Kapazität selbst darf früher
-  // stehen: Sie trägt ihre Unsicherheit sichtbar mit sich, eine Prozentzahl
-  // mit Fortschrittsbalken tut das nicht.
+  // {@link ./capacity!HEALTH_MIN_CYCLES}. Ohne diese Grenze sprang die Anzeige
+  // binnen Stunden um mehrere Punkte nach oben; eine Batterie wird nicht
+  // besser, was da sprang war die Stichprobe. Die gemessene Kapazität selbst
+  // darf früher stehen: Sie trägt ihre Unsicherheit sichtbar mit sich, eine
+  // Prozentzahl mit Fortschrittsbalken tut das nicht.
   const soh =
     cap.samples >= HEALTH_MIN_CYCLES ? stateOfHealth(cap.capacityKwh, cfg.capacityKwh) : undefined;
   // Verlauf über die Monate — schweigt, solange er nichts hergibt.
@@ -1298,8 +1299,8 @@ function renderPage(
   // Gemessen an den UNGEFILTERTEN Daten. Der Ortsfilter schneidet ganze
   // Ladungen heraus, und die entstehenden Löcher sind keine fehlenden
   // Messwerte, sondern genau das, was der Filter tun soll. Über die gefilterte
-  // Reihe gerechnet meldete die Warnung „69 % erfasst, 11,4 h fehlen", während
-  // der Mitschrieb in Wahrheit keine einzige Lücke über 35 Minuten hatte.
+  // Reihe gerechnet meldete die Warnung fehlende Stunden und einen
+  // lückenhaften Zeitraum — für Löcher, die allein der Filter geschnitten hatte.
   const qualitySeries =
     place === 'all' ? all : cachedAggregate(o, alle, allSessions, gran, 'all');
   const qualityBucket = current
@@ -1327,8 +1328,8 @@ function renderPage(
   const trustworthy = quality === undefined && eff.km > 0 && eff.kwh > 0;
   // Der Vergleich „laut Fahrzeug gegen bezahlt" setzt voraus, dass Laden und
   // Fahren im selben Zeitraum liegen. Über eine Woche hinweg tun sie das
-  // ungefähr, über einen Tag nicht: 26,8 kWh nachts geladen und 22 km gefahren
-  // ergeben „bezahlt 121,7 kWh/100 km" — rechnerisch richtig, als Aussage
+  // ungefähr, über einen Tag nicht: 30 kWh nachts geladen und 20 km gefahren
+  // ergeben „bezahlt 150 kWh/100 km" — rechnerisch richtig, als Aussage
   // Unsinn. Die Nachtladung deckt die Fahrten des Folgetags.
   const payableCompare = trustworthy && gran !== 'day' && gran !== 'hour';
 
@@ -1420,7 +1421,7 @@ function renderPage(
       //
       // Die Einheit steht AN der Zahl, nicht nur im Spaltenkopf: Am Telefon
       // bricht die Tabelle zu Karten auf, und der Kopf verschwindet dabei —
-      // „22.5 2.02 kWh" wären dort zwei zusammenhanglose Zahlen.
+      // „20.0 5.00 kWh" wären dort zwei zusammenhanglose Zahlen.
       const use =
         t.kwhPer100km !== undefined
           ? `${t.kwhPer100km.toFixed(1)} kWh/100 km<small>${(t.energyKwh as number).toFixed(
@@ -1955,7 +1956,7 @@ ${placeTabs}${nav}${
     hasPrice && !(current && current.unratedSocGain > 0 && current.kwh === 0)
       ? `<div class="card"><span>${esc(L.dashCost)}</span><b>${current ? current.cost.toFixed(2) : '0.00'} €</b>
     <span>${
-      // Der Bruttopreis stand hier als „statt 19,41 €" — dieselbe Aussage wie
+      // Der Bruttopreis stand hier als „statt 20,00 €" — dieselbe Aussage wie
       // die Ersparnis daneben, nur rückwärts gerechnet. Ohne Bonus bleibt der
       // Arbeitspreis, der sonst nirgends steht.
       current && current.costGross > current.cost
@@ -1964,8 +1965,8 @@ ${placeTabs}${nav}${
     }${
       // NUR die Ersparnis DES ZEITRAUMS.
       //
-      // Daneben stand die Gesamtersparnis in Klammern: „13,96 € gespart (ges.
-      // 19,37 €)". Der Eigentümer fragte zu Recht, welche der beiden Zahlen
+      // Daneben stand die Gesamtersparnis in Klammern: „10,00 € gespart (ges.
+      // 25,00 €)". Zu Recht kam die Rückfrage, welche der beiden Zahlen
       // denn nun gilt. Beide galten — die eine für den gezeigten Monat, die
       // andere seit Beginn —, aber das stand nirgends.
       //
@@ -2057,8 +2058,8 @@ ${placeTabs}${nav}${
     // Das Ladeziel steht bereits eine Zeile höher und wird deshalb nicht
     // wiederholt. Kabelzeit und echte Ladezeit dagegen gehören beide her:
     // Die Energiemenge bildet nur die Minuten ab, in denen Strom floss,
-    // während der Beginn das Einstecken meint — nebeneinander gelesen sahen
-    // 10 kW und 2,5 kWh sonst falsch aus, obwohl beide stimmten.
+    // während der Beginn das Einstecken meint — nebeneinander gelesen sehen
+    // Ladeleistung und Energiemenge sonst falsch aus, obwohl beide stimmen.
     running
       ? `
   <div class="live">${
@@ -2596,7 +2597,7 @@ function renderStatus(
   // Wie lange wird „offen" schon durchgehend gemeldet?
   //
   // Nach dem Abstellen meldet das Fahrzeug regelmäßig ein offenes Fenster im
-  // Fond, obwohl es zu ist — beobachtet über etwa eine halbe Stunde, dann
+  // Fond, obwohl es zu ist — meist etwa eine halbe Stunde lang, dann
   // korrigiert es sich von selbst. Vermutlich werden die hinteren
   // Türsteuergeräte vom Bus getrennt, bevor sie ihren Endzustand gemeldet
   // haben.
@@ -3022,7 +3023,7 @@ ${
 /**
  * Ab wie vielen Zyklen der Messwert zur Übernahme angeboten wird.
  *
- * So vorgegeben, und das ist richtig: Bei wenigen Zyklen schwankt die
+ * Bewusst zurückhaltend gewählt: Bei wenigen Zyklen schwankt die
  * Schätzung noch deutlich. Ein Knopf, der einen vorläufigen Wert in die
  * Konfiguration schreibt, würde die Vorläufigkeit verstecken — und weil die
  * Kapazität rückwirkend jede kWh-Zahl verändert, wäre das teuer.
@@ -3745,7 +3746,7 @@ export function startDashboard(o: DashboardOptions): http.Server | undefined {
           : readSettings(o.logDir).defaultView ?? 'month';
       const pRaw = url.searchParams.get('p');
       const place: Place = pRaw === 'home' || pRaw === 'away' ? pRaw : 'all';
-      // Gewählter Zeitraum als Bucket-Schlüssel (`2026-07-28`, `2026-W31`, …).
+      // Gewählter Zeitraum als Bucket-Schlüssel (`2026-01-05`, `2026-W02`, …).
       // Der Wert wird gegen die vorhandenen Zeiträume geprüft, taugt also nicht
       // als Einfallstor.
       const dRaw = url.searchParams.get('d');

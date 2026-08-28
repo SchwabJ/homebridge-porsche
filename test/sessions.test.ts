@@ -25,7 +25,7 @@ describe('buildSessions', () => {
     expect(s[0].endSoc).toBe(80);
   });
 
-  it('keeps a tariff-interrupted charge as ONE session (Octopus 15-min slots)', () => {
+  it('keeps a tariff-interrupted charge as ONE session (15-min tariff slots)', () => {
     // charging toggles off and on repeatedly — plugged stays true throughout.
     const s = buildSessions([
       at(0, { plugged: true, charging: true, soc: 30 }),
@@ -109,9 +109,11 @@ describe('buildSessions', () => {
   });
 
   it('hält eine Slot-Pause unter zwei Stunden NICHT für einen Abbruch', () => {
-    // Tarifgesteuertes Laden pausiert real bis ~94 Minuten. Eine Warnung, die
-    // bei jeder Nachtladung grundlos kommt, wird ignoriert — und nützt dann
-    // nichts mehr, wenn die Wallbox wirklich aussteigt.
+    // Zwischen zwei Ladefenstern der Tarifsteuerung liegt regelmäßig weit mehr
+    // als eine Stunde ohne Strom — darum schlägt die Warnung erst nach zwei
+    // Stunden an. Eine Warnung, die bei jeder Nachtladung grundlos kommt, wird
+    // ignoriert und nützt dann nichts mehr, wenn die Wallbox wirklich
+    // aussteigt.
     const s = buildSessions([
       at(0, { plugged: true, charging: true, soc: 40, targetSoc: 80 }),
       at(30, { plugged: true, charging: true, soc: 55, targetSoc: 80 }),
@@ -250,8 +252,8 @@ describe('buildSessions', () => {
 
 describe('Ladephasen', () => {
   it('zerlegt eine tarifgesteuerte Ladung in ihre Phasen', () => {
-    // Octopus schaltet zweimal ein: die Session bleibt EINE, zeigt aber
-    // beide Fenster einzeln.
+    // Die Tarifsteuerung schaltet zweimal ein: die Session bleibt EINE, zeigt
+    // aber beide Fenster einzeln.
     const s = buildSessions([
       at(0, { plugged: true, charging: false, soc: 30 }),
       at(10, { plugged: true, charging: true, soc: 30, powerKw: 11 }),
@@ -317,12 +319,12 @@ describe('Ladephasen', () => {
 describe('Ort der Ladung', () => {
   it('nimmt ein einziges „zuhause" für die ganze Session', () => {
     // Beim Anstecken trägt die zwischengespeicherte Antwort oft noch die
-    // Position von unterwegs — real beobachtet waren elf Minuten, bis
-    // „zuhause" ankam. Der Anfang der Ladung darf dadurch nicht verloren gehen.
+    // Position von unterwegs; „zuhause" kommt erst einige Messpunkte später.
+    // Der Anfang der Ladung darf dadurch nicht verloren gehen.
     const s = buildSessions([
       at(0, { plugged: true, soc: 40 }),
-      at(3, { plugged: true, soc: 40 }),
-      at(11, { plugged: true, soc: 42, atHome: true }),
+      at(5, { plugged: true, soc: 40 }),
+      at(15, { plugged: true, soc: 40, atHome: true }),
       at(60, { plugged: true, soc: 60, atHome: true }),
       at(70, { plugged: false, soc: 60 }),
     ]);
@@ -482,9 +484,10 @@ describe('Ladezeit bei Tarifsteuerung', () => {
   it('zählt die stromlose Pause NICHT zur Ladezeit', () => {
     // Vorher wurden die Abstände zwischen allen Lade-Messpunkten summiert.
     // Diese Summe teleskopiert zu „letzter minus erster" und enthielt damit
-    // genau das, was sie ausschließen sollte: die Pause. Am echten Mitschrieb
-    // stand unter „davon 4 h 55 min laden" ein Wert, den die Phasenliste
-    // derselben Zeile mit 2 h 47 min widerlegte.
+    // genau das, was sie ausschließen sollte: die Pause. Im Dashboard stand
+    // unter „davon … laden" deshalb die gesamte Kabelzeit, während die
+    // Phasenliste derselben Zeile die deutlich kürzere Summe ihrer Phasen
+    // zeigte — zwei Zahlen nebeneinander, die sich widersprachen.
     const [s] = buildSessions(mitPause());
     expect(s.durationMin).toBe(170);
     // Zwei Phasen von je 30 min, plus je der vorangestellte Ankerpunkt.

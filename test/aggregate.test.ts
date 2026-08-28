@@ -109,16 +109,16 @@ describe('aggregate', () => {
 
   it('accumulates driven kilometres from the odometer', () => {
     const s = [
-      local(2026, 7, 27, 8, 0, { odometerKm: 52000 }),
-      local(2026, 7, 27, 9, 0, { odometerKm: 52080 }),
+      local(2026, 7, 27, 8, 0, { odometerKm: 50000 }),
+      local(2026, 7, 27, 9, 0, { odometerKm: 50080 }),
     ];
     expect(aggregate(s, 'day', OPTS)[0].km).toBe(80);
   });
 
   it('ignores an odometer going backwards', () => {
     const s = [
-      local(2026, 7, 27, 8, 0, { odometerKm: 52000 }),
-      local(2026, 7, 27, 9, 0, { odometerKm: 51000 }),
+      local(2026, 7, 27, 8, 0, { odometerKm: 50000 }),
+      local(2026, 7, 27, 9, 0, { odometerKm: 49000 }),
     ];
     expect(aggregate(s, 'day', OPTS)[0].km).toBe(0);
   });
@@ -318,9 +318,9 @@ describe('Datenqualität', () => {
 
 describe('Sprünge über leere Messpunkte hinweg', () => {
   it('zählt den Ladestand-Sprung ÜBER eine Leerzeile hinweg', () => {
-    // Kernfehler vom 2026-07-28: Beim Vergleich nur direkter Nachbarn fiel
-    // 70 % → (leer) → 75 % komplett aus der Rechnung. In der Tagesansicht
-    // fehlten dadurch 5,9 von 20,1 kWh.
+    // Kernfehler: Beim Vergleich nur direkter Nachbarn fiel 70 % → (leer) →
+    // 75 % komplett aus der Rechnung. In der Tagesansicht fehlte dadurch ein
+    // Teil der geladenen kWh.
     const s = [
       local(2026, 7, 27, 20, 0, { soc: 70, plugged: true }),
       local(2026, 7, 27, 20, 10, { plugged: true }), // leere Antwort
@@ -331,9 +331,9 @@ describe('Sprünge über leere Messpunkte hinweg', () => {
 
   it('zählt gefahrene Kilometer über eine Leerzeile hinweg', () => {
     const s = [
-      local(2026, 7, 27, 8, 0, { odometerKm: 52000 }),
+      local(2026, 7, 27, 8, 0, { odometerKm: 50000 }),
       local(2026, 7, 27, 8, 30, {}),
-      local(2026, 7, 27, 9, 0, { odometerKm: 52080 }),
+      local(2026, 7, 27, 9, 0, { odometerKm: 50080 }),
     ];
     expect(aggregate(s, 'day', OPTS)[0].km).toBe(80);
   });

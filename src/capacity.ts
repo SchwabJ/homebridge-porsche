@@ -51,14 +51,16 @@ const MIN_KM = 25;
  * Kapazität durch: bei 4 Prozentpunkten sind das ±13 %, bei 20 noch ±2,5 %.
  *
  * Die frühere Grenze von 3 ließ genau die Abschnitte zu, bei denen die Rundung
- * alles andere überdeckt — fünf davon ergaben Einzelwerte von 51 bis 83 kWh.
+ * alles andere überdeckt — bei 3 Prozentpunkten sind das ±17 %, auf eine
+ * 83,7-kWh-Batterie also rund ±14 kWh: die Rundung allein bestimmte dann das
+ * Ergebnis.
  */
 const MIN_SOC_DROP = 15;
 /**
  * Untergrenze der ausgewiesenen Unsicherheit, als Anteil der Schätzung.
  *
  * Über viele Zyklen mittelt sich der ZUFÄLLIGE Fehler heraus — mit 1/√n, aus
- * ±1,1 kWh werden nach hundert Zyklen ±0,11. Der SYSTEMATISCHE Anteil bleibt
+ * ±1,0 kWh werden nach hundert Zyklen ±0,1. Der SYSTEMATISCHE Anteil bleibt
  * dabei unverändert stehen, und der ist hier der größere:
  *
  * - `avgKwhPerHundredKm` ist eine Angabe des Fahrzeugs. Ist sie um wenige
@@ -96,31 +98,30 @@ const PLAUSIBLE_MAX_KWH = 120;
  * Die Standerkennung fragt allein den Kilometerstand: bleibt er gleich und
  * fällt der Ladestand, gilt das als Stillstand. Das Backend frischt den
  * Kilometerstand aber **erst zum Fahrtende** auf, während der Ladestand
- * laufend aktualisiert wird. Am eigenen Mitschrieb gemessen: Von 81
- * Messabständen, die eine Fahrt überlappen, zeigen **54 einen unveränderten
- * Kilometerstand** (67 %).
+ * laufend aktualisiert wird. **Rund zwei Drittel** der Messabstände, die eine
+ * Fahrt überlappen, zeigen deshalb einen unveränderten Kilometerstand.
  *
  * Fahrenergie wandert dadurch in den Standabzug. Weil der Abzug den Nenner
- * verkleinert, wird die Kapazität zu GROSS geschätzt — am eigenen Fahrzeug
- * entstand eine Einzelmessung von 100,9 kWh bei 83,7 kWh Werksangabe.
+ * verkleinert, wird die Kapazität zu GROSS geschätzt — so entstand eine
+ * Einzelmessung deutlich ÜBER der Werksangabe, was physikalisch unmöglich
+ * ist.
  *
  * ## Warum die Leistung und nicht die Fahrt selbst
  *
  * Fahrt und Stand sicher zu unterscheiden geht mit den vorliegenden Feldern
- * nicht: Die Restreichweite trennt nicht (im Stand bis −9 km, in der Fahrt ab
- * −0 km), und `tripEnd`/`tripMin` liegen nur auf 5 % der Messpunkte — sie
- * sind zudem KUMULATIV je Ladezyklus, nicht je Fahrt.
+ * nicht: Die Restreichweite fällt im Stand ebenso wie in der Fahrt, und ihre
+ * Wertebereiche überlappen sich — es gibt keine Schwelle, die beides trennt.
+ * `tripEnd`/`tripMin` wiederum kommen nur auf einem kleinen Teil der
+ * Messpunkte an und sind zudem KUMULATIV je Ladezyklus, nicht je Fahrt.
  *
  * Die beantwortbare Frage ist deshalb nicht „steht das Auto?", sondern „kann
  * ein stehendes Auto so viel ziehen?". Vorklimatisieren mit Heizung erreicht
  * beim Taycan rund 7 kW, der Ruheverbrauch liegt bei Bruchteilen davon.
  *
- * An den 17 Standsegmenten des echten Mitschriebs trennt das sauber:
- *
- *     15 Segmente    0,6 – 4,5 kW    plausibel, bleiben
- *      2 Segmente   10,3 / 12,5 kW   unmöglich, fallen weg
- *
- * Genau diese beiden verursachten die Fehlmessung.
+ * An den Standsegmenten des Mitschriebs trennt das sauber: Die plausiblen
+ * bleiben deutlich unter der Grenze, die wenigen unmöglichen liegen ebenso
+ * deutlich darüber, und dazwischen liegt nichts, worüber zu streiten wäre.
+ * Genau die Segmente oberhalb der Grenze verursachten die Fehlmessung.
  */
 const MAX_IDLE_KW = 7;
 
@@ -132,7 +133,16 @@ const MAX_IDLE_KW = 7;
  * angegeben — beim Taycan stehen 83,7 kWh netto rund 93,4 kWh brutto
  * gegenüber. Wie viel vom Puffer tatsächlich nutzbar ist, schwankt mit
  * Temperatur und Softwarestand, weshalb eine Messung leicht darüber möglich
- * ist. 100,9 kWh sind dagegen 120 % der Angabe: dafür reicht kein Puffer.
+ * ist. Mehr als zehn Prozent darüber sind dagegen durch keinen Brutto-Puffer
+ * mehr zu erklären: dort steckt ein Datenfehler. Der Wert steht als
+ * Verhältnis, damit er zur Werksangabe jedes Fahrzeugs passt.
+ *
+ * **Der Satz nannte bis zum 28.08.2026 zwanzig Prozent** — ein Rest der
+ * Datenschutz-Bereinigung: Dort stand eine gemessene Kapazität und ihr
+ * Verhältnis zur Werksangabe, und beim Entfernen der Zahl blieb das
+ * Verhältnis als vermeintliche Schwelle stehen. Der Code verwirft ab 110 %,
+ * und Zeile 375 sagte das auch — die Datei nannte zwei verschiedene Grenzen
+ * für dieselbe Prüfung.
  */
 const RATED_HEADROOM = 1.1;
 
@@ -255,9 +265,10 @@ export function estimateCapacity(
     // sind sie es nicht: `plugged` fehlt genau dann, wenn CHARGING_SUMMARY
     // in der Antwort fehlt, während Ladestand und Kilometerstand weiter
     // ankommen. Fällt so eine Zeile in eine bereits laufende Ladung, geht
-    // ein STEIGENDER Ladestand als Zyklusende in die Rechnung — nachgemessen
-    // 74,1 statt 66,7 kWh, also elf Prozent zu hoch. Über die automatische
-    // Übernahme (siehe {@link resolveCapacity}) schriebe das die Historie um.
+    // ein STEIGENDER Ladestand als Zyklusende in die Rechnung: Der Abfall im
+    // Nenner fällt zu klein aus und die Kapazität entsprechend zu hoch. Über
+    // die automatische Übernahme (siehe {@link resolveCapacity}) schriebe das
+    // die Historie um.
     let ende = cycle.length;
     while (ende > 0 && cycle[ende - 1].plugged === undefined) {
       ende--;
@@ -306,9 +317,11 @@ export function estimateCapacity(
     //
     // Vorklimatisieren und eingeschaltete Zündung senken den Ladestand, ohne
     // einen Kilometer zu erzeugen. Der Verbrauchswert des Fahrzeugs zählt sie
-    // NICHT mit — nachgemessen: Über zwanzig Minuten Standverbrauch mit einem
-    // Prozentpunkt Verlust blieb `avgKwhPerHundredKm` unverändert, obwohl er
-    // um 0,7 hätte steigen müssen. Der Zähler enthält also nur Fahrenergie.
+    // NICHT mit — das ist BEOBACHTET, nicht gefolgert: Über eine Standphase
+    // hinweg bleibt er unverändert, obwohl der Ladestand fällt. Aus der
+    // Einheit allein folgte das Gegenteil: Steckte die Standenergie im
+    // Zähler, müsste der Quotient bei gleichbleibender Strecke STEIGEN.
+    // Der Zähler enthält also nur Fahrenergie.
     //
     // Bliebe der Standanteil im Nenner, würde die Kapazität um genau diesen
     // Anteil zu niedrig geschätzt — bei viel Standklima sind das zweistellige
@@ -321,9 +334,9 @@ export function estimateCapacity(
     // die Schleife bis zum Zyklusende weiter, zog sie einen Standanteil ab,
     // der außerhalb des Rahmens liegt und in `socDrop` gar nicht enthalten
     // ist. Der Fahranteil fiel dadurch zu klein und die Kapazität zu HOCH
-    // aus — nachgemessen 107,1 statt 100 kWh bei einer einzigen Standzeile
-    // hinter dem letzten Wertpunkt. Und das trifft genau den Fall, für den
-    // der Rahmen überhaupt eingeführt wurde.
+    // aus — schon eine einzige Standzeile hinter dem letzten Wertpunkt hebt
+    // die Schätzung um mehrere Prozent. Und das trifft genau den Fall, für
+    // den der Rahmen überhaupt eingeführt wurde.
     const rahmenEnde = usable.indexOf(wertPunkt);
     let idleDrop = 0;
     for (let i = 1; i <= (rahmenEnde >= 0 ? rahmenEnde : usable.length - 1); i++) {
@@ -359,16 +372,17 @@ export function estimateCapacity(
     const usedKwh = (drivenKm * kwh100) / 100;
     const capacity = usedKwh / (drivingDrop / 100);
     // Die Obergrenze hängt an der Werksangabe, wo sie bekannt ist. Die feste
-    // Grenze von 120 kWh sind 143 % der Taycan-Werksangabe — sie ließ die
-    // 100,9 kWh durch, die den Median um 2,5 kWh nach oben zogen.
+    // Grenze von 120 kWh sind 143 % der Taycan-Werksangabe — sie lässt
+    // Messungen weit über der Werksangabe durch, die den Median nach oben
+    // ziehen.
     //
     // Der Zuschlag ist nötig, nicht großzügig: Die Werksangabe ist die NETTO
     // nutzbare Kapazität, und Hersteller geben sie konservativ an. Beim
     // Taycan stehen 83,7 kWh netto rund 93,4 kWh brutto gegenüber; wie viel
     // vom Puffer tatsächlich nutzbar ist, schwankt mit Temperatur und
     // Software. Eine Messung leicht über der Angabe ist deshalb kein
-    // Datenfehler. Erst deutlich darüber wird sie einer: 100,9 kWh sind
-    // 120 % der Angabe, die verworfene Grenze liegt bei 110 %.
+    // Datenfehler. Erst deutlich darüber wird sie einer: Verworfen wird ab
+    // 110 % der Angabe — für mehr reicht kein Puffer.
     const maxKwh = opts.ratedKwh !== undefined
       ? opts.ratedKwh * RATED_HEADROOM
       : PLAUSIBLE_MAX_KWH;
@@ -425,16 +439,18 @@ export function estimateCapacity(
     // Der ausgewiesene Wert ist der Median. Eine Unsicherheit, die aus der
     // Varianz um den MITTELWERT kommt, misst deshalb etwas anderes als der
     // Wert: Ein einzelner Datenfehler kann den Median nur um eine Position
-    // verschieben, den Fehlerbalken aber beliebig weit aufblähen. Genau das
-    // ist am Fahrzeug passiert — ein unmöglicher Zyklus (100,9 kWh bei 83,7
-    // kWh Werksangabe) trieb die Anzeige von ±2,3 auf ±4,8, ohne dass sich
-    // an der Kenntnis über die Batterie irgendetwas verschlechtert hätte.
+    // verschieben, den Fehlerbalken aber beliebig weit aufblähen. Genau daran
+    // scheiterte die Varianz-Rechnung: Ein einziger unmöglicher Zyklus über
+    // der Werksangabe trieb die ausgewiesene Unsicherheit weit nach oben,
+    // ohne dass sich an der Kenntnis über die Batterie irgendetwas
+    // verschlechtert hätte.
     //
     // Der Quartilsabstand ist der Abstand ZWEIER Ordnungsstatistiken und
     // bezieht sich nicht auf den Median. Er erbt damit auch nicht dessen
     // Wanderung, wenn ein weiterer Wert die Medianposition verschiebt —
-    // daran scheitert die sonst naheliegende MAD-Variante, die hier trotz
-    // Robustheit von ±2,4 auf ±3,3 gestiegen wäre.
+    // daran scheitert die sonst naheliegende MAD-Variante: Sie misst die
+    // Abstände ZUM Median und wächst deshalb mit, sobald der Median selbst
+    // springt, so robust sie gegen einzelne Ausreißer auch ist.
     //
     // /1.349 rechnet den Quartilsabstand auf eine Standardabweichung um,
     // /√n macht daraus den Fehler des Mittelpunkts. Unter vier Zyklen ist
@@ -442,10 +458,10 @@ export function estimateCapacity(
     // Streuung, die nach oben irrt und damit auf der sicheren Seite liegt.
     //
     // Was der Quartilsabstand NICHT leistet: den Ausreißer erkennen. Bei
-    // fünf Messungen ist das statistisch nicht möglich — ein Zaun, der die
-    // 100,9 verwirft, verwirft auch in 13 % der sauberen Fünferreihen eine
-    // gute Messung. Unmögliche Werte gehören an der Quelle aussortiert
-    // (siehe PLAUSIBLE_MAX_KWH), nicht in der Fehlerrechnung.
+    // fünf Messungen ist das statistisch nicht möglich — ein Zaun, der einen
+    // solchen Ausreißer verwirft, verwirft auch in 13 % der sauberen
+    // Fünferreihen eine gute Messung. Unmögliche Werte gehören an der Quelle
+    // aussortiert (siehe PLAUSIBLE_MAX_KWH), nicht in der Fehlerrechnung.
     const iqr = quartilsabstand(est.values);
     est.spreadKwh = Math.round(iqr * 10) / 10;
     statistical = Math.max(
@@ -467,16 +483,17 @@ export function estimateCapacity(
 /**
  * Die Unsicherheit der Gesundheitsangabe in PROZENTPUNKTEN.
  *
- * Neben der Kapazität steht ohnehin ihre Spanne — „73,6 kWh ± 2,2". Dieselbe
- * Messung als „87,9 %" ohne Spanne auszuweisen behauptet eine Auflösung, die
- * sie nicht hat: Bei ± 2,2 kWh von 83,7 sind es ± 2,6 Prozentpunkte, der wahre
- * Wert liegt also irgendwo zwischen 85,3 und 90,5 %.
+ * Neben der Kapazität steht ohnehin ihre Spanne — etwa „80,0 kWh ± 2,0".
+ * Dieselbe Messung als eine Prozentzahl ohne Spanne auszuweisen behauptet
+ * eine Auflösung, die sie nicht hat: Zwei Kilowattstunden von 83,7 sind rund
+ * 2,4 Prozentpunkte, der wahre Wert liegt also in einem Band von fast fünf
+ * Punkten.
  *
  * Die Alternative — die Prozentzahl ganz zu unterdrücken, solange die
  * Stichprobe dünn ist — sah in der Anzeige schlechter aus als das Problem:
  * Der Gesundheitsbalken stand daraufhin auf null, was sich wie eine Gesundheit
  * von null liest, und zwei Zeilen tiefer stand dieselbe Aussage weiterhin als
- * „Messung −12,1 %".
+ * Abweichung in Prozent.
  */
 export function healthSpread(
   uncertaintyKwh: number | undefined,
@@ -517,11 +534,10 @@ export const ADOPT_MIN_CYCLES = 10;
  * sie ab dem ersten Zyklus, der Nachweis nannte sie erst ab zehn belastbar,
  * und übernommen wurde sie ebenfalls erst ab zehn.
  *
- * Am Fahrzeug beobachtet, und der Grund für diese Konstante: Die Gesundheit
- * sprang binnen Stunden von 90 auf 96 Prozent. Der Wert ist der MEDIAN der
- * Einzelmessungen, und bei drei oder vier davon verschiebt ihn jede neue
- * deutlich. Eine Batterie wird nicht besser — was da sprang, war die
- * Stichprobe, nicht die Zelle.
+ * Der Grund für diese Konstante: Die Gesundheit kann binnen Stunden um mehrere
+ * Prozentpunkte nach oben springen. Der Wert ist der MEDIAN der Einzelmessungen,
+ * und bei drei oder vier davon verschiebt ihn jede neue deutlich. Eine Batterie
+ * wird nicht besser — was da springt, ist die Stichprobe, nicht die Zelle.
  *
  * Die gemessene Kapazität selbst darf weiter dastehen: Sie trägt ihre
  * Unsicherheit sichtbar mit sich. Eine Prozentzahl mit Fortschrittsbalken tut
@@ -553,13 +569,10 @@ const PLAUSIBLE_KWH = { min: 20, max: 200 };
  * über die ganze Historie. Eine hohe Zyklenzahl belegt aber nur, dass VIEL
  * gemessen wurde, nicht dass RICHTIG gemessen wurde.
  *
- * Am eigenen Fahrzeug liefern die beiden Wege
- *
- *     über die Fahrten     73,6 kWh   (87,9 % der Werksangabe)
- *     über die Ladungen    81,0 kWh   (96,8 %)
- *
- * also zehn Prozent Unterschied. Welcher näher an der Wahrheit liegt, ist
- * offen — und solange das so ist, darf keiner von beiden still die
+ * Die beiden Wege liefern nicht zwangsläufig dasselbe Ergebnis: Ein
+ * Unterschied von rund zehn Prozent zwischen dem Weg über die Fahrten und dem
+ * über die Ladungen kommt vor. Welcher näher an der Wahrheit liegt, ist
+ * offen, und solange das so ist, darf keiner von beiden still die
  * Kostenrechnung übernehmen.
  *
  * Stimmen sie dagegen überein, stützen sich zwei Verfahren mit

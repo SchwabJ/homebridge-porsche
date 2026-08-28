@@ -716,7 +716,7 @@ describe('Datenqualität und Ortsfilter', () => {
     // Lückenloser Mitschrieb: alle 10 Minuten ein Messpunkt, erst eine lange
     // Heimladung, dann eine Fahrt. Der Filter „unterwegs" schneidet die
     // Heimladung heraus — das entstehende Loch ist gewollt und keine fehlende
-    // Messung. Vorher meldete die Seite dafür „69 % erfasst, 11,4 h fehlen".
+    // Messung. Vorher meldete die Seite dafür trotzdem eine Datenlücke.
     const rows: ChargeLogSample[] = [];
     const t = (m: number): string =>
       new Date(Date.UTC(2026, 6, 28, 0, 0, 0) + m * 60000).toISOString();
@@ -826,7 +826,7 @@ describe('Statusseite', () => {
         plugged: false,
         tyreBar: [2.6, 2.7, 2.5, 2.5],
         tyreDiffBar: [0, 0, 0.2, 0.2],
-        serviceKm: 27300,
+        serviceKm: 27000,
         locked: true,
         climateOn: false,
         targetTempC: 21,
@@ -882,7 +882,7 @@ describe('Statusseite', () => {
     // Kern der Delta-Schreibung: Der jüngste Messpunkt hat keine
     // Zustandsfelder, die Seite muss rückwärts suchen.
     const html = await page('de');
-    expect(html).toContain('27.300');
+    expect(html).toContain('27.000');
   });
 
   it('markiert eine Abweichung über 0,15 bar', async () => {
@@ -1129,12 +1129,12 @@ describe('Fremdladung ohne Preis', () => {
     const t = (m: number): string =>
       new Date(Date.UTC(2026, 6, 26, 6, 0, 0) + m * 60000).toISOString();
     const rows: ChargeLogSample[] = [
-      { ts: t(0), soc: 40, odometerKm: 52000, plugged: true, charging: true, atHome: true },
-      { ts: t(60), soc: 70, odometerKm: 52000, plugged: true, charging: true, atHome: true },
-      { ts: t(70), soc: 70, odometerKm: 52000, plugged: false },
-      { ts: t(300), soc: 30, odometerKm: 52180, plugged: true, charging: true, atHome: false },
-      { ts: t(330), soc: 80, odometerKm: 52180, plugged: true, charging: true, atHome: false },
-      { ts: t(340), soc: 80, odometerKm: 52180, plugged: false, atHome: false },
+      { ts: t(0), soc: 40, odometerKm: 50000, plugged: true, charging: true, atHome: true },
+      { ts: t(60), soc: 70, odometerKm: 50000, plugged: true, charging: true, atHome: true },
+      { ts: t(70), soc: 70, odometerKm: 50000, plugged: false },
+      { ts: t(300), soc: 30, odometerKm: 50180, plugged: true, charging: true, atHome: false },
+      { ts: t(330), soc: 80, odometerKm: 50180, plugged: true, charging: true, atHome: false },
+      { ts: t(340), soc: 80, odometerKm: 50180, plugged: false, atHome: false },
     ];
     fs.writeFileSync(
       path.join(dir, '2026-07-26.jsonl'),
@@ -2207,26 +2207,26 @@ describe('Riegel des Abruf-Knopfs', () => {
 });
 
 describe('currentStatus with partial API responses', () => {
-  // Observed 2026-07-31: after a complete sample, the API answered two polls
-  // with the charging state only. The header then showed "—" instead of the
-  // state of charge, and the charge-level tile vanished from /status — even
-  // though the value was three minutes old. Roughly 7 % of all samples are
-  // such partial responses.
+  // The API regularly answers a poll with the charging state only, without any
+  // measured value. Taken at face value, such a partial response blanks the
+  // display: the header showed "—" instead of the state of charge, and the
+  // charge-level tile vanished from /status — even though the last real
+  // reading was only minutes old. Hence the carry-forward.
   const at = (day: number, hour = 12, min = 0): string =>
     new Date(Date.UTC(2026, 6, day, hour, min)).toISOString();
 
   const gap: ChargeLogSample[] = [
-    { ts: at(31, 20, 46), soc: 55, rangeKm: 236, odometerKm: 52670, powerKw: 10, charging: true },
-    { ts: at(31, 20, 49), charging: false, climateOn: false },
-    { ts: at(31, 20, 52), charging: false },
+    { ts: at(15, 12, 0), soc: 55, rangeKm: 240, odometerKm: 50000, powerKw: 10, charging: true },
+    { ts: at(15, 12, 3), charging: false, climateOn: false },
+    { ts: at(15, 12, 6), charging: false },
   ];
-  const now = Date.parse(at(31, 20, 53));
+  const now = Date.parse(at(15, 12, 7));
 
   it('carries forward state of charge, range and odometer', () => {
     const st = currentStatus(gap, now);
     expect(st.state?.soc).toBe(55);
-    expect(st.state?.rangeKm).toBe(236);
-    expect(st.state?.odometerKm).toBe(52670);
+    expect(st.state?.rangeKm).toBe(240);
+    expect(st.state?.odometerKm).toBe(50000);
   });
 
   it('never carries forward instantaneous values — 10 kW ago is not now', () => {
@@ -2237,27 +2237,28 @@ describe('currentStatus with partial API responses', () => {
 
   it('reports when the reading was taken, not when it was polled', () => {
     const st = currentStatus(gap, now);
-    expect(st.stateAt).toBe(at(31, 20, 46));
-    expect(st.last?.ts).toBe(at(31, 20, 52));
+    expect(st.stateAt).toBe(at(15, 12, 0));
+    expect(st.last?.ts).toBe(at(15, 12, 6));
   });
 
   it('does not let a rarely sent field make the timestamp look stale', () => {
     // The car reports charge target and instant-charge threshold only while
     // plugged in. Standing still they are days old, while state of charge and
     // odometer arrive every few minutes. The timestamp belongs to the most
-    // recent reading — otherwise a fresh display was headed "as of 05:12".
+    // recent reading — otherwise a fresh display was headed with the
+    // timestamp of a days-old reading.
     const st = currentStatus(
       [
         // Ein alter Messpunkt, der NUR den Kilometerstand trug. (Das Ladeziel
         // taugt dafür nicht mehr: Es ist eine Einstellung, keine Zustandsgröße,
         // und wird deshalb nicht fortgeschrieben.)
-        { ts: at(29, 5, 12), odometerKm: 52500 },
-        { ts: at(31, 21, 11), soc: 55, rangeKm: 243, odometerKm: 52670 },
+        { ts: at(10, 8, 0), odometerKm: 50500 },
+        { ts: at(15, 12, 25), soc: 55, rangeKm: 250, odometerKm: 50000 },
       ],
-      Date.parse(at(31, 21, 15)),
+      Date.parse(at(15, 12, 29)),
     );
-    expect(st.stateAt).toBe(at(31, 21, 11));
-    expect(st.state?.odometerKm).toBe(52670);
+    expect(st.stateAt).toBe(at(15, 12, 25));
+    expect(st.state?.odometerKm).toBe(50000);
   });
 
   it('leaves the raw last sample untouched', () => {
@@ -2265,7 +2266,7 @@ describe('currentStatus with partial API responses', () => {
   });
 
   it('reports no state when none was ever recorded', () => {
-    const st = currentStatus([{ ts: at(31, 20, 52), charging: false }], now);
+    const st = currentStatus([{ ts: at(15, 12, 6), charging: false }], now);
     expect(st.state?.soc).toBeUndefined();
     expect(st.stateAt).toBeUndefined();
   });
@@ -2286,8 +2287,8 @@ describe('rendering with partial API responses', () => {
         JSON.stringify({
           ts: t(7),
           soc: 55,
-          rangeKm: 236,
-          odometerKm: 52670,
+          rangeKm: 240,
+          odometerKm: 50000,
           charging: false,
           plugged: false,
         }),
@@ -2330,15 +2331,15 @@ describe('rendering with partial API responses', () => {
   it('shows state of charge and range in the header', async () => {
     const html = await get('/');
     expect(html).toContain('<b>55 %</b>');
-    expect(html).toContain('236 km');
+    expect(html).toContain('240 km');
     // The bar too, not just the number — it sat at 0 %.
     expect(html).toContain('width:55%');
   });
 
   it('keeps the charge-level tile on the status page', async () => {
     const html = await get('/status');
-    // The tile's own wording — a bare "236 km" also appears in the header.
-    expect(html).toContain('236 km of range');
+    // The tile's own wording — a bare "240 km" also appears in the header.
+    expect(html).toContain('240 km of range');
     expect(html).toContain('Charge level');
   });
 });
@@ -2514,8 +2515,8 @@ describe('plug state in the status line', () => {
   // normalizeSample verwirft aus diesen Leerantworten absichtlich das
   // `plugged: false` — sonst zerschnitten sie jede Nachtladung. Danach ist der
   // Steckerzustand unbekannt. `!undefined` ist `true`, deshalb behauptete die
-  // Zeile dort „nicht eingesteckt": über eine Woche gemessen an 14 Messpunkten
-  // am nachweislich ladenden Auto, mit 10 kW über die Lücke hinweg.
+  // Zeile dort „nicht eingesteckt" — auch dann, wenn das Fahrzeug über die
+  // Lücke hinweg weiterlud.
   let dir: string;
   let nextPlugPort = 19980;
 
@@ -2596,8 +2597,8 @@ describe('plug state in the status line', () => {
 
 describe('Seite /batterie — der Nachweis', () => {
   // Wer sein Auto verkauft oder einen Garantiefall anmeldet, braucht mehr als
-  // eine Zahl auf einer Kachel: Ohne Datenbasis und Verlauf ist „75,4 kWh"
-  // eine Behauptung. Deshalb eine eigene, druckbare Seite.
+  // eine Zahl auf einer Kachel: Ohne Datenbasis und Verlauf ist eine nackte
+  // kWh-Angabe eine Behauptung. Deshalb eine eigene, druckbare Seite.
   let dir: string;
   let port = 19996;
 

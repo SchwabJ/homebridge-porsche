@@ -12,8 +12,8 @@
  * - Die Verbrauchsangabe des Fahrzeugs ist selbst eine Schätzung.
  * - Der angezeigte Ladestand ist nicht linear zur Energie.
  *
- * Am eigenen Fahrzeug ergab das 73,6 kWh, also 87,9 % der Werksangabe. Der
- * Eigentümer hielt das für zu niedrig — zu Recht, wie sich zeigte.
+ * In der Erprobung ergab dieser Weg deutlich weniger als die Werksangabe —
+ * zu wenig, wie sich zeigte.
  *
  * ## Der Ladeweg ist direkter
  *
@@ -24,7 +24,7 @@
  *
  * Am selben Mitschrieb liefert dieser Weg fünf verwertbare Messungen statt
  * vier — und, nachdem eingefrorene Backend-Antworten aussortiert sind, ein
- * Ergebnis von 78,5 kWh gegenüber 73,6 kWh fahrseitig.
+ * spürbar höheres Ergebnis als der fahrseitige Weg.
  *
  * ## Wo die Leistung gemessen wird, ist NICHT geklärt
  *
@@ -53,10 +53,10 @@
  * ## Zwei Fallen
  *
  * 1. **Ein großer Hub ist nicht automatisch ein guter.** Der größte Hub im
- *    Mitschrieb (34 Punkte) gehört zu einem Sprung von 65 auf 99 Prozent in
- *    102 Sekunden — einem Datenfehler, der 15,1 kWh ergäbe. Nach Hub zu
- *    gewichten, ohne vorher zu filtern, verschlechterte das Ergebnis von 82,8
- *    auf 63,9 kWh: Der kaputteste Wert bekam das höchste Gewicht.
+ *    Mitschrieb gehört zu einem Sprung von über dreissig Prozentpunkten in
+ *    knapp zwei Minuten — einem Datenfehler. Nach Hub zu gewichten, ohne
+ *    vorher zu filtern, drückte das Ergebnis um rund ein Fünftel nach unten:
+ *    Der kaputteste Wert bekam das höchste Gewicht.
  *    **Erst filtern, dann gewichten.**
  * 2. **Ladepausen.** Bei tarifgesteuertem Laden liegen Stunden zwischen zwei
  *    Messpunkten. Die Leistung über eine solche Lücke fortzuschreiben buchte
@@ -71,9 +71,9 @@ import type { ChargeLogSample } from './chargeLog';
  * Prozentpunkte, zusammen also ±1 auf den Hub. Bei zehn Punkten sind das
  * ±10 % auf die Kapazität, bei fünf schon ±20 %.
  *
- * Zehn ist ein Kompromiss: Am eigenen Mitschrieb bleiben damit sechs von
- * zwölf Ladungen übrig. Strenger zu sein kostete Messungen, ohne das Ergebnis
- * zu bewegen — der Median liegt bei jeder Wahl zwischen 81 und 83 kWh.
+ * Zehn ist ein Kompromiss: Im Mitschrieb bleibt damit rund die Hälfte der
+ * Ladungen übrig. Strenger zu sein kostete Messungen, ohne das Ergebnis zu
+ * bewegen — der Median wandert dabei um weniger als zwei Kilowattstunden.
  */
 const MIN_SOC_GAIN = 10;
 
@@ -93,21 +93,23 @@ const MIN_POWER_COVERAGE = 0.8;
 /**
  * Ab wann eine unveränderte Antwort als EINGEFROREN gilt, in Minuten.
  *
- * In der Nacht zum 4. August meldete die Schnittstelle über fünf Stunden
- * unverändert `soc: 65`, `rangeKm: 279` und `powerKw: 10,12` — bei
+ * In einer Nacht meldete die Schnittstelle über fünf Stunden unverändert
+ * denselben Ladestand, dieselbe Reichweite und dieselbe Leistung — bei
  * durchgehend `charging: true` und einem `dataTs`, der jede Minute weiterlief.
  * Das Plugin pollte sauber; das Backend lieferte eine zwischengespeicherte
- * Momentaufnahme mit frischem Zeitstempel. Um 07:30 sprang alles gleichzeitig:
- * Ladestand 65 → 99, Reichweite 279 → 426.
+ * Momentaufnahme mit frischem Zeitstempel. Am Morgen sprang alles
+ * gleichzeitig: der Ladestand um mehr als dreissig Punkte, die Reichweite um
+ * über hundert Kilometer.
  *
- * Die Integration buchte daraus rund 50 kWh, die nie geflossen sind. Über den
- * ganzen Mitschrieb liegen 380 von 955 Ladepunkten in solchen Blöcken — fünf
- * der acht Messungen waren betroffen.
+ * Die Integration buchte daraus Energie, die nie geflossen ist. Über den
+ * ganzen Mitschrieb liegt rund ein Drittel der Ladepunkte in solchen Blöcken
+ * — die Mehrzahl der Messungen war betroffen.
  *
  * Erkennbar ist es NICHT am Ladestand allein: Der steht bei feinem Takt
  * regelmäßig still, weil er ganzzahlig kommt. Erkennbar ist, dass ALLE DREI
  * Größen zugleich stehen — bei echtem Laden schwankt die Leistung immer ein
- * wenig (gemessen 9,96 bis 10,23 kW) und die Reichweite folgt dem Ladestand
+ * wenig — im Mitschrieb um einige Zehntel — und die Reichweite folgt dem
+ * Ladestand
  * mit feinerer Auflösung.
  *
  * Zwanzig Minuten lassen normalen Gleichlauf durch und fangen die Blöcke, die

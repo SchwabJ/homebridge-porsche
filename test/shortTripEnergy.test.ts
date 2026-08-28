@@ -6,10 +6,10 @@ import type { ChargeLogSample } from '../src/chargeLog';
  *
  * ## Der gemeldete Fall
  *
- *     Di., 04.08., 23:30    1 km    78 → 78 %    —
- *     Di., 04.08., 21:01    2 km    79 → 79 %    —
+ *     23:30    1 km    60 → 60 %    —
+ *     21:01    2 km    60 → 60 %    —
  *
- * „Das sind leere Fahrten, ich bin hier tatsächlich gefahren."
+ * Es waren wirklich gefahrene Strecken — die Liste zeigte nur nichts an.
  *
  * Beide Spalten sind aus demselben Grund leer: Zwei Kilometer sind bei 20
  * kWh/100 km rund 0,4 kWh, also 0,5 Prozentpunkte. Der Ladestand kommt
@@ -47,13 +47,13 @@ const p = (
 /** Der gemeldete Verlauf: Ladung, lange Fahrt, dann zwei kurze. */
 const verlauf: ChargeLogSample[] = [
   { ts: new Date(Date.UTC(2026, 7, 4, 17, 0, 0)).toISOString(),
-    odometerKm: 53000, soc: 99, plugged: true, charging: true },
-  p(10, 53000, 99, 20.3),
-  p(60, 53093, 79, 20.3),   // 93 km — die lange Fahrt, klar bewertbar
-  p(75, 53093, 79, 20.3),   // Stillstand: beendet die lange Fahrt
-  p(120, 53095, 79, 20.3),  // 2 km — der gemeldete Fall
-  p(200, 53095, 78, 20.3),  // Stillstand: beendet die 2-km-Fahrt
-  p(260, 53096, 78, 20.4),  // 1 km — der zweite gemeldete Fall
+    odometerKm: 51000, soc: 99, plugged: true, charging: true },
+  p(10, 51000, 99, 20.3),
+  p(60, 51093, 79, 20.3),   // 93 km — die lange Fahrt, klar bewertbar
+  p(75, 51093, 79, 20.3),   // Stillstand: beendet die lange Fahrt
+  p(120, 51095, 79, 20.3),  // 2 km — der gemeldete Fall
+  p(200, 51095, 78, 20.3),  // Stillstand: beendet die 2-km-Fahrt
+  p(260, 51096, 78, 20.4),  // 1 km — der zweite gemeldete Fall
 ];
 
 describe('Verbrauch kurzer Fahrten', () => {
@@ -88,9 +88,9 @@ describe('Verbrauch kurzer Fahrten', () => {
     // Ohne Verbrauchszähler des Fahrzeugs gibt es gar nichts zu rechnen.
     const ohne: ChargeLogSample[] = [
       { ts: new Date(Date.UTC(2026, 7, 4, 17, 0, 0)).toISOString(),
-        odometerKm: 53000, soc: 99, plugged: true, charging: true },
-      p(10, 53000, 99),
-      p(60, 53002, 99),
+        odometerKm: 51000, soc: 99, plugged: true, charging: true },
+      p(10, 51000, 99),
+      p(60, 51002, 99),
     ];
     const t = buildTrips(ohne, {});
     expect(t[0]?.energyKwh).toBeUndefined();

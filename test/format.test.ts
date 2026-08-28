@@ -6,7 +6,7 @@ describe('esc', () => {
   });
 
   it('leaves plain text untouched', () => {
-    expect(esc('Taycan · 20,1 kWh')).toBe('Taycan · 20,1 kWh');
+    expect(esc('Taycan · 80,0 kWh')).toBe('Taycan · 80,0 kWh');
   });
 });
 

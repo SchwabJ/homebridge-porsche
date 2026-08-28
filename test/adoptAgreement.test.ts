@@ -3,19 +3,20 @@ import { resolveCapacity, ADOPT_MAX_DISAGREEMENT } from '../src/capacity';
 /**
  * Übernommen wird eine Messung nur, wenn BEIDE Wege übereinstimmen.
  *
- * ## Warum das nötig wurde
+ * ## Warum die Gegenprobe nötig ist
  *
  * Ab zehn Zyklen ersetzt die gemessene Kapazität die eingestellte — und ab
  * dann geht sie in jede kWh-, Kosten- und Ersparniszahl ein, rückwirkend über
  * die ganze Historie. Eine Zyklenzahl allein belegt aber nicht, dass die
- * Messung stimmt: Am eigenen Fahrzeug liefern die beiden Messwege
+ * Messung stimmt: Die beiden Messwege können weit auseinanderlaufen. Der
+ * konstruierte Fall unten stellt genau das nach —
  *
- *     über die Fahrten    73,6 kWh   (87,9 % der Werksangabe)
- *     über die Ladungen   81,0 kWh   (96,8 %)
+ *     über die Fahrten    72,0 kWh
+ *     über die Ladungen   80,0 kWh
  *
- * also 10 % Unterschied. Welcher näher an der Wahrheit liegt, ist offen —
- * und solange das so ist, darf keiner von beiden still die Kostenrechnung
- * übernehmen.
+ * also 10 % Unterschied. Welches Verfahren dann näher an der wahren Kapazität
+ * liegt, ist aus den Zahlen selbst nicht zu entscheiden — und solange das so
+ * ist, darf keines von beiden still die Kostenrechnung übernehmen.
  *
  * Stimmen sie dagegen überein, stützen sich zwei Verfahren mit
  * unterschiedlichen systematischen Fehlern gegenseitig. Das ist ein weit
@@ -31,8 +32,8 @@ describe('resolveCapacity — Übernahme nur bei Übereinstimmung', () => {
   });
 
   it('übernimmt NICHT, wenn die Wege auseinanderlaufen', () => {
-    // Der reale Fall: 73,6 gegen 81,0 sind 10 % Unterschied.
-    const r = resolveCapacity({ ...basis, measured: 73.6, crossCheck: 81.0 });
+    // Konstruierter Gegenfall: 72,0 gegen 80,0 sind 10 % Unterschied.
+    const r = resolveCapacity({ ...basis, measured: 72.0, crossCheck: 80.0 });
     expect(r.source).toBe('eingestellt');
     expect(r.capacityKwh).toBe(83.7);
   });
@@ -45,7 +46,7 @@ describe('resolveCapacity — Übernahme nur bei Übereinstimmung', () => {
   });
 
   it('hält an der Zyklenschwelle fest', () => {
-    const r = resolveCapacity({ ...basis, cycles: 4, measured: 78.0, crossCheck: 78.5 });
+    const r = resolveCapacity({ ...basis, cycles: 4, measured: 78.0, crossCheck: 79.0 });
     expect(r.source).toBe('eingestellt');
   });
 

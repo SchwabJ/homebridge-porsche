@@ -2,12 +2,13 @@ import { buildSessions } from '../src/sessions';
 import type { ChargeLogSample } from '../src/chargeLog';
 
 /**
- * Der reale Verlauf der Nacht vom 1. auf den 2. August 2026:
+ * Der Fall, für den die Ausnahme gebaut wurde:
  *
- *   23:38  eingesteckt, eigenes Ladeziel 80 %
- *   23:43  das gemeldete Ziel wechselt auf 100 %  (Tarifanbieter)
- *          geladen wird in fünf Phasen, Pausen von 91, 43, 79 und 13 Minuten
- *   11:56  Ende bei 80 %
+ *   eingesteckt bei einem niedrigeren Ladeziel
+ *   kurz darauf meldet das Fahrzeug 100 %  (der Tarifanbieter setzt sein Ziel)
+ *   geladen wird in mehreren Phasen, getrennt von Pausen weit über der
+ *   Taktschwelle von 20 Minuten
+ *   Ende bei 80 %
  *
  * Das Dashboard hängte daran „bei 80 % statt 100 %" — den Abbruch-Hinweis.
  * Aus seiner Sicht folgerichtig: Ziel 100, Ende 80. Nur war es kein Abbruch.
@@ -16,8 +17,10 @@ import type { ChargeLogSample } from '../src/chargeLog';
  *
  * Die Pausenstruktur verrät ihn: Wer ungestört lädt, lädt durch.
  */
+
+/** Frei gewählte Basis: Es zählen allein die Abstände, nicht der Kalendertag. */
 const t = (h: number, m: number, tag = 1): string =>
-  new Date(Date.UTC(2026, 7, tag, h, m)).toISOString();
+  new Date(Date.UTC(2020, 0, tag, h, m)).toISOString();
 
 const p = (
   zeit: string,
@@ -35,25 +38,32 @@ const p = (
 });
 
 describe('Abbruch-Hinweis bei tarifgesteuertem Laden', () => {
-  /** Fünf Ladephasen mit langen Pausen — der reale Verlauf. */
+  /**
+   * Vier Ladephasen mit Pausen über der Taktschwelle.
+   *
+   * Gemessen wird die Pause vom letzten Ladeimpuls bis zum ersten Messpunkt
+   * ohne Strom: Der schließt die Phase ab und wird der nächsten vorangestellt.
+   * Der Abstand zum WIEDEREINSCHALTEN geht also nicht ein — deshalb liegt hier
+   * jeder Ruhemesspunkt eine volle Stunde hinter seiner Phase.
+   */
   const getaktet: ChargeLogSample[] = [
-    p(t(23, 38), 58, false),
-    p(t(23, 45), 58, true),
-    p(t(23, 55), 62, true),
-    // Pause 91 min
-    p(t(1, 26, 2), 62, false),
-    p(t(1, 30, 2), 62, true),
-    p(t(2, 10, 2), 70, true),
-    // Pause 43 min
-    p(t(2, 53, 2), 70, false),
+    p(t(22, 0), 40, false),
+    p(t(22, 10), 40, true),
+    p(t(23, 0), 50, true),
+    // Pause 60 min
+    p(t(0, 0, 2), 50, false),
+    p(t(0, 30, 2), 50, true),
+    p(t(1, 0, 2), 60, true),
+    // Pause 60 min
+    p(t(2, 0, 2), 60, false),
+    p(t(2, 30, 2), 60, true),
     p(t(3, 0, 2), 70, true),
-    p(t(4, 0, 2), 78, true),
-    // Pause 79 min
-    p(t(5, 19, 2), 78, false),
-    p(t(5, 25, 2), 78, true),
-    p(t(6, 0, 2), 80, true),
+    // Pause 60 min
+    p(t(4, 0, 2), 70, false),
+    p(t(4, 30, 2), 70, true),
+    p(t(5, 0, 2), 80, true),
     // Lange Ruhe am Kabel, dann ausgesteckt.
-    p(t(11, 56, 2), 80, false),
+    p(t(11, 0, 2), 80, false),
     { ts: t(12, 0, 2), soc: 80, plugged: false, odometerKm: 50000 },
   ];
 
@@ -67,10 +77,10 @@ describe('Abbruch-Hinweis bei tarifgesteuertem Laden', () => {
   it('meldet den Abbruch weiterhin, wo durchgehend geladen wurde', () => {
     // Dieselbe Ladung ohne Pausen: Hier hat tatsächlich etwas aufgehört.
     const durchgehend: ChargeLogSample[] = [
-      p(t(23, 38), 58, false),
-      p(t(23, 45), 58, true),
-      p(t(1, 0, 2), 70, true),
-      p(t(2, 0, 2), 80, true),
+      p(t(22, 0), 40, false),
+      p(t(22, 10), 40, true),
+      p(t(0, 0, 2), 60, true),
+      p(t(1, 0, 2), 80, true),
       p(t(8, 0, 2), 80, false),
       { ts: t(9, 0, 2), soc: 80, plugged: false, odometerKm: 50000 },
     ];

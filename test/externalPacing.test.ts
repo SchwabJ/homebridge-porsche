@@ -16,7 +16,7 @@ const ladung = (phases: ChargePhase[], over: Partial<ChargeSession> = {}): Charg
   socDropped: false,
   complete: true,
   samples: 60,
-  startSoc: 48,
+  startSoc: 40,
   endSoc: 80,
   targetSoc: 80,
   phases,
@@ -25,17 +25,18 @@ const ladung = (phases: ChargePhase[], over: Partial<ChargeSession> = {}): Charg
 
 describe('externallyPaced — taktet schon jemand anders?', () => {
   it('erkennt die Taktung an Ladepausen, die das Fahrzeug nicht selbst beendet hat', () => {
-    // Der reale Verlauf einer tarifgesteuerten Nacht: vier Ladeabschnitte mit
-    // Pausen dazwischen, obwohl das Ziel noch nicht erreicht war. So sieht es
-    // aus, wenn Octopus, Tibber oder eine Wallbox den Takt vorgibt.
+    // Eine tarifgesteuerte Nacht: vier Ladeabschnitte, dazwischen Pausen von
+    // je 40 Minuten — zu lang für einen Aussetzer — und der Ladestand davor
+    // (50, 60, 70 %) liegt jedes Mal unter dem Ziel. So sieht es aus, wenn ein
+    // Tarifanbieter oder eine Wallbox den Takt vorgibt.
     // Wichtig: Diese Ladung ERREICHT ihr Ziel. Genau so sieht es aus, wenn
-    // Octopus bis 80 % lädt — die Taktung zeigt sich an den Pausen davor,
-    // nicht am Endergebnis.
+    // ein Tarifanbieter bis zum eingestellten Ziel lädt — die Taktung zeigt
+    // sich an den Pausen davor, nicht am Endergebnis.
     const paced = ladung([
-      phase(10, 15, 48),
-      phase(105, 129, 53),
-      phase(133, 264, 78),
-      phase(280, 310, 80),
+      phase(0, 20, 50),
+      phase(60, 120, 60),
+      phase(160, 220, 70),
+      phase(260, 300, 80),
     ]);
     expect(externallyPaced([paced])).toBe(true);
   });
@@ -63,7 +64,7 @@ describe('externallyPaced — taktet schon jemand anders?', () => {
   it('sieht nur auf die jüngsten Ladungen', () => {
     // Wer den Tarif wechselt, soll das Fenster wieder nutzen können, ohne dass
     // eine halbjahresalte Ladung es dauerhaft blockiert.
-    const alt = ladung([phase(10, 15, 48), phase(105, 129, 53), phase(133, 264, 78)]);
+    const alt = ladung([phase(0, 20, 50), phase(60, 120, 60), phase(160, 220, 70)]);
     const neu = Array.from({ length: 6 }, () => ladung([phase(0, 300, 80)]));
     expect(externallyPaced([alt, ...neu])).toBe(false);
   });
@@ -71,7 +72,7 @@ describe('externallyPaced — taktet schon jemand anders?', () => {
   it('greift nicht auf laufende Ladungen zurück', () => {
     // Eine laufende Ladung hat ihre Pausen noch vor sich; sie zu bewerten
     // hieße raten.
-    const offen = ladung([phase(10, 15, 48), phase(105, 129, 53), phase(133, 264, 78)], {
+    const offen = ladung([phase(0, 20, 50), phase(60, 120, 60), phase(160, 220, 70)], {
       complete: false,
     });
     const abgeschlossen = ladung([phase(0, 300, 80)]);

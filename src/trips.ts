@@ -69,10 +69,10 @@ const MAX_REL_ERROR = 0.15;
  *
  * Gemeldet wurden Fahrten wie diese:
  *
- *     Di., 04.08., 23:30    1 km    78 → 78 %    —
- *     Di., 04.08., 21:01    2 km    79 → 79 %    —
+ *     23:30    1 km    60 → 60 %    —
+ *     21:01    2 km    60 → 60 %    —
  *
- * „Das sind leere Fahrten, ich bin hier tatsächlich gefahren."
+ * Es waren wirklich gefahrene Strecken — die Liste zeigte nur nichts an.
  *
  * Beide Spalten waren aus demselben Grund leer: Zwei Kilometer sind bei
  * 20 kWh/100 km rund 0,4 kWh, also 0,5 Prozentpunkte — der Ladestand kommt
@@ -108,15 +108,15 @@ const MIN_KM_FOR_RANGE_FACTOR = 100;
  *
  * Ein Auto, das lädt, fährt nicht. Steigt der Kilometerstand trotzdem, hat das
  * Fahrzeug ihn verspätet gemeldet — die Strecke wurde vor dem Einstecken
- * gefahren, die Antwort kam nur später. Am eigenen Mitschrieb dreimal
- * beobachtet, jedes Mal genau ein Kilometer:
+ * gefahren, die Antwort kam nur später. Im Mitschrieb dreimal beobachtet,
+ * jedes Mal genau ein Kilometer:
  *
- *     22:10:13   52602 km   kein Kabel
- *     22:10:37   52602 km   Kabel steckt, lädt
- *     22:11:35   52603 km   Kabel steckt, lädt
+ *     22:10:13   50000 km   kein Kabel
+ *     22:10:37   50000 km   Kabel steckt, lädt
+ *     22:11:35   50001 km   Kabel steckt, lädt
  *
  * Ohne Nachtrag blieb die Fahrtenliste um diese Kilometer hinter dem
- * Kilometerstand zurück: 682 statt 685 über zwei Wochen.
+ * Kilometerstand zurück — über zwei Wochen fehlten drei.
  *
  * Die Grenze hält den Fall klein. Wächst der Stand am Kabel um zweistellige
  * Kilometer, ist keine Meldung verspätet, sondern eine Fahrt gar nicht
@@ -131,14 +131,14 @@ const ODO_LAG_MAX_KM = 2;
  *
  * Gemeldet wurde:
  *
- *     Do., 06.08., 00:01    1 km    69 → 68 %    —
- *     „Wieder eine Phantomfahrt. Ich bin ca. 23 Uhr 1 km gefahren!"
+ *     00:01    1 km    60 → 59 %    —
  *
- * Es war seine Fahrt, nur mit falscher Uhrzeit:
+ * Eine Fahrt kurz nach Mitternacht, die es so nicht gab: Gefahren wurde am
+ * Abend davor, nur mit falscher Uhrzeit verbucht.
  *
- *     23:01   70 %   53124 km
- *     23:21   69 %   53124 km    Ladestand fällt: HIER wurde gefahren
- *     00:01   68 %   53125 km    Kilometerstand kommt erst jetzt
+ *     23:01   61 %   50100 km
+ *     23:21   60 %   50100 km    Ladestand fällt: HIER wurde gefahren
+ *     00:01   59 %   50101 km    Kilometerstand kommt erst jetzt
  *
  * Der Ladestand reagiert sofort, der Kilometerstand erst zum Fahrtende. Die
  * Fahrterkennung hängt am Kilometerstand und datierte deshalb vierzig Minuten

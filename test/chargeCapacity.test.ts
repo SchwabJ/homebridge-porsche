@@ -10,32 +10,34 @@ import type { ChargeLogSample } from '../src/chargeLog';
  * `Strecke × Verbrauchsangabe / Ladestand-Abfall` und hat drei systematische
  * Fehlerquellen, die ALLE nach unten wirken: nicht erfasster Standverbrauch,
  * die Güte der Verbrauchsangabe des Fahrzeugs und die nichtlineare
- * Ladestandskennlinie. Am eigenen Fahrzeug lieferte sie 73,6 kWh — 87,9 % der
- * Werksangabe, was der Eigentümer zu Recht für zu niedrig hielt.
+ * Ladestandskennlinie. Weil kein Fehler nach oben zeigt, fällt sie
+ * systematisch zu niedrig aus — und ein zu niedriger Wert ist als solcher
+ * nicht erkennbar, solange ihm nichts gegenübersteht.
  *
  * Beim LADEN ist die Energie dagegen direkt messbar: Das Fahrzeug meldet seine
  * Ladeleistung, und über die Zeit integriert ergibt das die zugeführte Energie.
  * Keine Verbrauchsangabe, keine Fahrstrecke, kein Standverbrauch.
  *
- * ## Dass die Leistung netto ist, ist belegt
+ * ## Wo die Leistung gemessen wird, ist offen
  *
- * Am Mitschrieb gemessen: `maxPowerKw` steht konstant auf 11 kW — die
- * Anschlussleistung der Wallbox. `powerKw` liegt bei 10,12 kW, also bei 92 %
- * davon. Das ist genau der Wirkungsgrad eines Bordladers; die gemeldete
- * Leistung ist die, die in der Batterie ankommt. Ein Ladeverlust-Zuschlag wäre
- * deshalb falsch.
+ * `maxPowerKw` ist eine unveränderliche Nennwert-Konstante — die Signatur
+ * eines Typenschilds, nicht einer Messung. Sie kann das Typenschild des
+ * Bordladers meinen oder die Leistung des Anschlusses; beide Lesarten sagen
+ * dieselbe Ladeleistung voraus, und ohne eine Gleichstromladung im Vergleich
+ * lassen sie sich nicht trennen. Deshalb wird die MITTE beider Lesarten
+ * ausgewiesen — genau diese Mitte prüft der erste Test.
  *
  * ## Die Fallen, die diese Datei bestimmen
  *
  * 1. **Der Ladestand-Hub steht im Nenner und ist ganzzahlig.** Bei zehn
  *    Prozentpunkten trägt allein die Rundung ±10 %. Deshalb ein Mindesthub.
- * 2. **Ein großer Hub ist nicht automatisch ein guter.** Am eigenen Fahrzeug
- *    steht der größte Hub (34 Punkte) für einen Sprung von 65 auf 99 Prozent
- *    in 102 Sekunden — ein Datenfehler, der 15,1 kWh Kapazität ergäbe. Nach
- *    Hub zu gewichten OHNE vorher zu filtern verschlechterte das Ergebnis von
- *    82,8 auf 63,9 kWh: Der kaputteste Wert bekam das höchste Gewicht.
+ * 2. **Ein großer Hub ist nicht automatisch ein guter.** Taut eine
+ *    eingefrorene Antwort auf, springt der Ladestand in Minuten über viele
+ *    Punkte — ein Datenfehler mit großem Hub, der eine unmöglich kleine
+ *    Kapazität ergäbe. Nach Hub zu gewichten OHNE vorher zu filtern gäbe
+ *    genau diesem kaputtesten Wert das höchste Gewicht.
  *    **Erst filtern, dann gewichten.**
- * 3. **Ladepausen.** Bei tarifgesteuertem Laden (Octopus) liegen Stunden
+ * 3. **Ladepausen.** Bei tarifgesteuertem Laden liegen Stunden
  *    zwischen zwei Punkten. Die Leistung dazwischen fortzuschreiben erfände
  *    Energie, die nie floss.
  */
@@ -86,11 +88,11 @@ describe('capacityFromCharging', () => {
   });
 
   it('verwirft eine unmögliche Messung, auch bei großem Hub', () => {
-    // Der reale Fall: Ladestand springt 65 -> 99 in zwei Minuten. Der Hub ist
-    // mit 34 Punkten der größte im Mitschrieb, die Energie passt aber nicht
-    // dazu — es ergäbe 15 kWh Kapazität.
-    const sprung = [p(0, 65, 10), p(1, 82, 10), p(2, 99, 10),
-                    { ts: p(7, 99, undefined).ts, soc: 99, charging: false, plugged: false }];
+    // So sieht es aus, wenn eingefrorene Antworten auftauen: Der Ladestand
+    // springt 60 -> 95 in zwei Minuten. Der Hub ist groß, die Energie
+    // passt aber nicht dazu — es ergäbe weniger als 1 kWh Kapazität.
+    const sprung = [p(0, 60, 10), p(1, 80, 10), p(2, 95, 10),
+                    { ts: p(7, 95, undefined).ts, soc: 95, charging: false, plugged: false }];
     expect(capacityFromCharging(sprung, { ratedKwh: 83.7 }).samples).toBe(0);
   });
 

@@ -83,6 +83,20 @@ describe('aggregate', () => {
     expect(d28?.kwh).toBe(40);
   });
 
+  it('fills the hour series across more than 4000 hours', () => {
+    // Bis zum 24.09.2026 kappte eine feste Obergrenze das Auffüllen bei 4000
+    // Schritten — für Stunden nach 167 Tagen. Zwei Messpunkte 200 Tage
+    // auseinander: Die Reihe muss bis zum zweiten reichen, lückenlos.
+    const s = [
+      local(2026, 1, 1, 12, 0, { soc: 50, plugged: false }),
+      local(2026, 7, 20, 12, 0, { soc: 50, plugged: false }),
+    ];
+    const stunden = aggregate(s, 'hour', OPTS);
+    expect(stunden[0].key).toBe('2026-01-01T12');
+    expect(stunden[stunden.length - 1].key).toBe('2026-07-20T12');
+    expect(new Set(stunden.map((b) => b.key)).size).toBe(stunden.length);
+  });
+
   it('sums energy from the SoC rise while plugged in', () => {
     const s = [
       local(2026, 7, 27, 20, 0, { soc: 30, plugged: true }),

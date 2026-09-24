@@ -79,6 +79,18 @@ describe('chargeCurve', () => {
 });
 
 describe('barChart', () => {
+  it('beschriftet eine gebrochene Achsmitte in der Sprache der Seite', () => {
+    // Spitze 75 → Mitte 37,5. Mit `toFixed` stand auch auf Deutsch „37.5".
+    const punkte = [{ label: 'A', value: 75 }, { label: 'B', value: 20 }];
+    const achse = (svg: string) =>
+      [...svg.matchAll(/class="ax[^"]*"[^>]*>([^<]+)</g)].map((m) => m[1]);
+    const de = achse(barChart(punkte, LABELS_DE));
+    const en = achse(barChart(punkte, LABELS_EN));
+    expect(de.some((x) => /\d\.\d/.test(x))).toBe(false);
+    expect(de.some((x) => /\d,\d/.test(x))).toBe(true);
+    expect(en.some((x) => /\d\.\d/.test(x))).toBe(true);
+  });
+
   it('liefert nichts ohne Datenpunkte', () => {
     expect(barChart([], LABELS_DE)).toBe('');
   });

@@ -651,13 +651,36 @@ export function aggregate(
     return [];
   }
 
-  // Lücken auffüllen (Obergrenze verhindert eine Endlosschleife bei kaputten Daten).
+  // Lücken auffüllen. Die Obergrenze verhindert eine Endlosschleife bei
+  // kaputten Daten.
+  //
+  // **Sie wächst mit der Historie** (24.09.2026): Hier stand fest `4000`.
+  // Für Tage sind das elf Jahre, für STUNDEN aber 167 Tage — ab dann endete
+  // die Stunden-Reihe still mitten in der Historie, und die Tagesansicht
+  // verlor ihre Stundenbalken.
+  //
+  // Jetzt: so viele Schritte, wie zwischen erstem und letztem Abschnitt
+  // höchstens liegen können — gerechnet mit der KÜRZESTEN Länge eines
+  // Abschnitts (ein Tag mit Zeitumstellung hat 23 Stunden), plus Reserve.
+  // Und ein Schlüssel jenseits des letzten beendet die Schleife auch dann,
+  // wenn er den letzten nie genau trifft.
   const out: Bucket[] = [];
   let key = keys[0];
   const last = keys[keys.length - 1];
-  for (let guard = 0; guard < 4000; guard++) {
+  const KUERZESTE_STUNDEN: Record<Granularity, number> = {
+    hour: 1,
+    day: 23,
+    week: 7 * 24 - 1,
+    month: 28 * 24 - 1,
+    year: 365 * 24 - 1,
+  };
+  const spanneMs = Date.parse(fromKey(last, g, boundary)) - Date.parse(fromKey(key, g, boundary));
+  const schritte = Number.isFinite(spanneMs)
+    ? Math.ceil(spanneMs / (KUERZESTE_STUNDEN[g] * 3600000)) + 3
+    : keys.length;
+  for (let guard = 0; guard < schritte; guard++) {
     out.push(touch(key, fromKey(key, g, boundary)));
-    if (key === last) {
+    if (key >= last) {
       break;
     }
     key = nextKey(key, g);

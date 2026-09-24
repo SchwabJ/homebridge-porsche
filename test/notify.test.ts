@@ -32,16 +32,16 @@ const bucket = (over: Partial<Bucket> = {}): Bucket => ({
   ...over,
 });
 
-const EFF: Efficiency = { kwh: 300, km: 1500, cost: 62, costGross: 98, saved: 36, kwhPer100km: 20, centPerKm: 4.1 };
+const EFF: Efficiency = { kwh: 300, km: 1500, cost: 60, costGross: 90, saved: 30, kwhPer100km: 20, centPerKm: 4 };
 
 describe('buildDailyMessage', () => {
   it('reports yesterday, not today', () => {
     const days = [
-      bucket({ key: '2026-07-26', from: '', label: 'So 26.07.', kwh: 42.1, cost: 8.7 }),
+      bucket({ key: '2026-07-26', from: '', label: 'So 26.07.', kwh: 40.5, cost: 8.1 }),
       bucket({ key: '2026-07-27', from: '', label: 'Mo 27.07.', kwh: 5, cost: 1 }),
     ];
     const m = buildDailyMessage(days, undefined, EFF, DE, 'Taycan');
-    expect(m.message).toContain('42.1 kWh');
+    expect(m.message).toContain('40.5 kWh');
     expect(m.message).not.toContain('5.0 kWh');
   });
 
@@ -52,14 +52,14 @@ describe('buildDailyMessage', () => {
 
   it('includes the running month', () => {
     const days = [bucket(), bucket({ key: '2026-07-27' })];
-    const month = bucket({ key: '2026-07', from: '', label: 'Juli 2026', kwh: 310, cost: 64.1 });
-    expect(buildDailyMessage(days, month, EFF, DE, 'Taycan').message).toContain('Juli 2026: 310.0 kWh');
+    const month = bucket({ key: '2026-07', from: '', label: 'Juli 2026', kwh: 300, cost: 60 });
+    expect(buildDailyMessage(days, month, EFF, DE, 'Taycan').message).toContain('Juli 2026: 300.0 kWh');
   });
 
   it('includes the efficiency figures', () => {
     const m = buildDailyMessage([bucket(), bucket()], undefined, EFF, DE, 'Taycan');
     expect(m.message).toContain('20.0 kWh/100 km');
-    expect(m.message).toContain('4.1 ct/km');
+    expect(m.message).toContain('4.0 ct/km');
   });
 
   it('omits efficiency when nothing was driven', () => {
@@ -78,10 +78,10 @@ describe('buildSessionMessage', () => {
     endedAt: '2026-07-27T06:00:00.000Z',
     durationMin: 600,
     chargingMin: 180,
-    startSoc: 34,
+    startSoc: 30,
     endSoc: 80,
-    energyKwh: 38.5,
-    costEur: 7.96,
+    energyKwh: 40.5,
+    costEur: 8.1,
     socDropped: false,
     peakPowerKw: 11,
     complete: true,
@@ -90,11 +90,11 @@ describe('buildSessionMessage', () => {
   };
 
   it('leads with energy and cost', () => {
-    expect(buildSessionMessage(s, DE, 'Taycan').message).toContain('38.5 kWh für 7.96 €');
+    expect(buildSessionMessage(s, DE, 'Taycan').message).toContain('40.5 kWh für 8.10 €');
   });
 
   it('shows the state of charge range', () => {
-    expect(buildSessionMessage(s, DE, 'Taycan').message).toContain('34 → 80 %');
+    expect(buildSessionMessage(s, DE, 'Taycan').message).toContain('30 → 80 %');
   });
 
   it('separates cable time from actual charging time', () => {
@@ -156,10 +156,10 @@ describe('Push-Meldungen in der eingestellten Sprache', () => {
     endedAt: '2026-07-27T06:00:00.000Z',
     durationMin: 600,
     chargingMin: 180,
-    startSoc: 34,
+    startSoc: 30,
     endSoc: 80,
-    energyKwh: 38.5,
-    costEur: 7.96,
+    energyKwh: 40.5,
+    costEur: 8.1,
     socDropped: false,
     peakPowerKw: 11,
     complete: true,
@@ -182,7 +182,7 @@ describe('Push-Meldungen in der eingestellten Sprache', () => {
 
   it('übersetzt auch den Nachrichtentext', () => {
     const en = buildSessionMessage(s, labelsFor('en'), 'T').message;
-    expect(en).toContain('Charge level: 34 → 80 %');
+    expect(en).toContain('Charge level: 30 → 80 %');
     expect(en).toContain('Plugged in: 10 h 0 min, charging for 3 h 0 min');
     expect(en).not.toMatch(/Ladestand|Am Kabel|Spitze/);
   });
@@ -196,11 +196,11 @@ describe('Meldung bei misslungenem Laden', () => {
     endedAt: '2026-07-27T06:00:00.000Z',
     durationMin: 600,
     chargingMin: 180,
-    startSoc: 34,
+    startSoc: 30,
     endSoc: 55,
     targetSoc: 80,
-    energyKwh: 12.4,
-    costEur: 2.56,
+    energyKwh: 20.5,
+    costEur: 4.1,
     socDropped: false,
     complete: true,
     samples: 60,

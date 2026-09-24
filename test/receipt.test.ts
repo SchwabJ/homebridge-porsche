@@ -72,13 +72,13 @@ describe('buildReceipt', () => {
   });
 
   it('weist den ANGEWANDTEN Preis aus, nicht den zurückgerechneten', () => {
-    // Aus 4,15 € / 20,09 kWh käme 20,66 ct heraus, aus 5,54 € / 26,78 kWh
-    // 20,69 — bei ein und demselben Tarif. Auf einem Beleg sieht das nach
+    // Aus 4,29 € / 20,00 kWh käme 21,45 ct heraus, aus 2,14 € / 10,00 kWh
+    // 21,40 — bei ein und demselben Tarif. Auf einem Beleg sieht das nach
     // Fehler aus.
     const r = buildReceipt(
       [
-        session({ energyKwh: 20.09, costEur: 4.15, pricePerKwh: 0.2143 }),
-        session({ energyKwh: 26.78, costEur: 5.54, pricePerKwh: 0.2143 }),
+        session({ energyKwh: 20, costEur: 4.29, pricePerKwh: 0.2143 }),
+        session({ energyKwh: 10, costEur: 2.14, pricePerKwh: 0.2143 }),
       ],
       '2026-07',
     );
@@ -107,7 +107,7 @@ describe('receiptCsv', () => {
   const csv = (lang: 'en' | 'de', name = 'Porsche'): string =>
     receiptCsv(
       buildReceipt(
-        [session({ energyKwh: 20.09, costEur: 4.15, pricePerKwh: 0.2143 })],
+        [session({ energyKwh: 20.09, costEur: 4.31, pricePerKwh: 0.2143 })],
         '2026-07',
       ),
       name,
@@ -138,8 +138,8 @@ describe('receiptCsv', () => {
   });
 
   it('führt die Summe je Ort auf', () => {
-    expect(csv('de')).toMatch(/Summe zuhause;1;;20,09;;4,15/);
-    expect(csv('en')).toMatch(/Total at home,1,,20\.09,,4\.15/);
+    expect(csv('de')).toMatch(/Summe zuhause;1;;20,09;;4,31/);
+    expect(csv('en')).toMatch(/Total at home,1,,20\.09,,4\.31/);
   });
 
   it('lässt eine leere Gruppe weg, statt eine Nullzeile zu schreiben', () => {

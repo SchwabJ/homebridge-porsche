@@ -29,23 +29,24 @@
  * ## Wo die Leistung gemessen wird, ist NICHT geklärt
  *
  * Eine frühere Fassung dieses Kommentars behauptete, `powerKw` melde die
- * Leistung in der Batterie, weil `maxPowerKw` auf 11 kW steht und 10,12/11
- * gerade 92 % ergibt — den Wirkungsgrad eines Bordladers. Das hält nicht:
+ * Leistung in der Batterie, weil `maxPowerKw` auf 11 kW steht und die
+ * gemeldete Leistung bei rund 92 % davon liegt — dem Wirkungsgrad eines
+ * Bordladers. Das hält nicht:
  *
- * - `maxPowerKw` steht in 952 von 952 Messpunkten auf exakt 11, ohne jede
+ * - `maxPowerKw` steht in jedem Messpunkt auf exakt 11, ohne jede
  *   Streuung. Das ist die Signatur einer Nennwert-Konstante, nicht einer
  *   Messung — und 11 kW ist zugleich das Typenschild des Taycan-Bordladers
  *   UND die Anschlussleistung der Wallbox. Der Wert kann die beiden Deutungen
  *   nicht trennen.
  * - Beide sagen dieselben 10,1 kW voraus: batterieseitig 11 × 0,92,
  *   kabelseitig 15 A Pilotstrom bei 390 V verkettet.
- * - Ein Korrelationstest über 574 Ladepunkte ergab r = 0,08. Das ist
- *   strukturell so: Wechselstromladen bei festem Pilotstrom bedeutet auf
+ * - Ein Korrelationstest über die Ladepunkte ergab keinen Zusammenhang. Das
+ *   ist strukturell so: Wechselstromladen bei festem Pilotstrom bedeutet auf
  *   BEIDEN Seiten des Bordladers konstante Leistung. Aus einem reinen
  *   AC-Mitschrieb ist die Frage nicht beantwortbar.
  *
  * Entscheiden ließe sie sich mit einem Zwischenzähler oder einer einzigen
- * Gleichstromladung — `chargingType` steht auf 1317 von 1317 Punkten auf `AC`.
+ * Gleichstromladung — `chargingType` steht auf jedem Punkt auf `AC`.
  *
  * Bis dahin wird die MITTE beider Lesarten ausgewiesen und ihre halbe
  * Differenz in die Unsicherheit aufgenommen — siehe {@link CHARGER_EFFICIENCY}.

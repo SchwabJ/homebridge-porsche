@@ -23,10 +23,10 @@ const session: ChargeSession = {
   endedAt: '2026-07-27T06:00:00.000Z',
   durationMin: 600,
   chargingMin: 180,
-  startSoc: 34,
+  startSoc: 30,
   endSoc: 80,
-  energyKwh: 38.5,
-  costEur: 7.96,
+  energyKwh: 40.5,
+  costEur: 8.68,
   pricePerKwh: 0.2143,
   socDropped: false,
   atHome: true,
@@ -62,12 +62,12 @@ describe('sessionsCsv', () => {
   it('führt Ort, Ladestand und angewandten Preis auf', () => {
     const csv = sessionsCsv([session], 'Taycan', LABELS_DE);
     expect(csv).toContain('Start;Ende;Ort;Ladestand;kWh;ct/kWh;EUR;Minuten am Kabel;davon geladen');
-    expect(csv).toContain('zuhause;34 → 80 %;38,50;21,43;7,96;600;180');
+    expect(csv).toContain('zuhause;30 → 80 %;40,50;21,43;8,68;600;180');
   });
 
   it('lässt unvollständige Ladungen weg — sie sind noch nicht abgerechnet', () => {
     const csv = sessionsCsv([{ ...session, complete: false }], 'T', LABELS_DE);
-    expect(csv).not.toContain('38,50');
+    expect(csv).not.toContain('40,50');
   });
 
   it('markiert Ladungen ohne Ortsangabe als unbekannt', () => {

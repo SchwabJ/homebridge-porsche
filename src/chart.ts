@@ -391,7 +391,11 @@ export function barChart(points: BarPoint[], L: Labels, unit = 'kWh'): string {
     )}" y2="${y(v).toFixed(1)}"/><text class="ax${unten ? ' dn' : ''}" x="${
       PAD.l - 5
     }" y="${(y(v) + 3.5).toFixed(1)}" text-anchor="end">${
-      Math.abs(v) % 1 ? Math.abs(v).toFixed(1) : Math.abs(v)
+      // In der Sprache der Seite (24.09.2026): `toFixed` schrieb „37.5" auch
+      // auf der deutschen Seite, als einzige Zahl mit Punkt.
+      Math.abs(v) % 1
+        ? Math.abs(v).toLocaleString(L.locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+        : Math.abs(v)
     }</text>`;
   };
   const grid =

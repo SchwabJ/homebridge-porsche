@@ -39,9 +39,9 @@
  * Annahme über die Batterie: Das ist die Angabe des Fahrzeugs selbst.**
  *
  * Nachgerechnet an drei Tagen echtem Mitschrieb ergibt das lauter plausible
- * Werte — 15 kWh/100 km auf der Landstraße, 31 auf einer Kurzstrecke von einem
- * Kilometer. Genau das erwartet man; der Ladestand-Weg lieferte auf denselben
- * Fahrten Unsinn.
+ * Werte — rund 15 kWh/100 km auf der Landstraße, rund 30 auf einer Kurzstrecke
+ * von einem Kilometer. Genau das erwartet man; der Ladestand-Weg lieferte auf
+ * denselben Fahrten Unsinn.
  *
  * ## Wo diese Rechnung ihre Grenze hat
  *
@@ -70,17 +70,17 @@ const MAX_REL_ERROR = 0.15;
  * Gemeldet wurden Fahrten wie diese:
  *
  *     23:30    1 km    60 → 60 %    —
- *     21:01    2 km    60 → 60 %    —
+ *     21:00    2 km    60 → 60 %    —
  *
  * Es waren wirklich gefahrene Strecken — die Liste zeigte nur nichts an.
  *
  * Beide Spalten waren aus demselben Grund leer: Zwei Kilometer sind bei
  * 20 kWh/100 km rund 0,4 kWh, also 0,5 Prozentpunkte — der Ladestand kommt
  * ganzzahlig und bleibt stehen. Der Verbrauch dagegen war rechenbar
- * (0,41 ± 0,09 kWh), nur überschritt sein relativer Fehler mit 22 % die
+ * (0,40 ± 0,10 kWh), nur überschritt sein relativer Fehler mit 25 % die
  * Schranke darüber.
  *
- * Eine Zahl mit 22 % Unsicherheit ist keine gute Zahl, aber sie ist eine
+ * Eine Zahl mit 25 % Unsicherheit ist keine gute Zahl, aber sie ist eine
  * Aussage. „Ungefähr 20 kWh/100 km" trifft zu; „—" behauptet, man wisse
  * nichts. Auf einer Fahrt von zwei Kilometern ist das der Unterschied
  * zwischen einer groben und gar keiner Auskunft.
@@ -111,9 +111,9 @@ const MIN_KM_FOR_RANGE_FACTOR = 100;
  * gefahren, die Antwort kam nur später. Im Mitschrieb dreimal beobachtet,
  * jedes Mal genau ein Kilometer:
  *
- *     22:10:13   50000 km   kein Kabel
- *     22:10:37   50000 km   Kabel steckt, lädt
- *     22:11:35   50001 km   Kabel steckt, lädt
+ *     22:00   50000 km   kein Kabel
+ *     22:10   50000 km   Kabel steckt, lädt
+ *     22:20   50001 km   Kabel steckt, lädt
  *
  * Ohne Nachtrag blieb die Fahrtenliste um diese Kilometer hinter dem
  * Kilometerstand zurück — über zwei Wochen fehlten drei.
@@ -131,14 +131,14 @@ const ODO_LAG_MAX_KM = 2;
  *
  * Gemeldet wurde:
  *
- *     00:01    1 km    60 → 59 %    —
+ *     00:00    1 km    59 → 58 %    —
  *
  * Eine Fahrt kurz nach Mitternacht, die es so nicht gab: Gefahren wurde am
  * Abend davor, nur mit falscher Uhrzeit verbucht.
  *
- *     23:01   61 %   50100 km
- *     23:21   60 %   50100 km    Ladestand fällt: HIER wurde gefahren
- *     00:01   59 %   50101 km    Kilometerstand kommt erst jetzt
+ *     23:00   60 %   50100 km
+ *     23:20   59 %   50100 km    Ladestand fällt: HIER wurde gefahren
+ *     00:00   58 %   50101 km    Kilometerstand kommt erst jetzt
  *
  * Der Ladestand reagiert sofort, der Kilometerstand erst zum Fahrtende. Die
  * Fahrterkennung hängt am Kilometerstand und datierte deshalb vierzig Minuten

@@ -7,7 +7,7 @@ import type { ChargeLogSample } from '../src/chargeLog';
  * ## Der gemeldete Fall
  *
  *     23:30    1 km    60 → 60 %    —
- *     21:01    2 km    60 → 60 %    —
+ *     21:00    2 km    60 → 60 %    —
  *
  * Es waren wirklich gefahrene Strecken — die Liste zeigte nur nichts an.
  *
@@ -17,7 +17,7 @@ import type { ChargeLogSample } from '../src/chargeLog';
  *
  * Der Verbrauch dagegen IST rechenbar — er kommt aus dem Zyklus-Zähler des
  * Fahrzeugs, nicht aus dem Ladestand. Verworfen wurde er allein von der
- * Fehlerschranke: 0,41 ± 0,09 kWh sind 22 % relativer Fehler, erlaubt waren
+ * Fehlerschranke: 0,40 ± 0,10 kWh sind 25 % relativer Fehler, erlaubt waren
  * 15 %.
  *
  * ## Die Regel
@@ -26,7 +26,7 @@ import type { ChargeLogSample } from '../src/chargeLog';
  * weiterhin, aber als ungefähr gekennzeichnet — bis zu einer zweiten,
  * weiteren Grenze, ab der auch das nicht mehr trägt.
  *
- * Eine Zahl mit 22 % Unsicherheit ist keine gute Zahl, aber sie ist eine
+ * Eine Zahl mit 25 % Unsicherheit ist keine gute Zahl, aber sie ist eine
  * Aussage: „ungefähr 20 kWh/100 km" trifft zu, „—" behauptet, man wisse
  * nichts. Auf einer Fahrt von zwei Kilometern ist das der Unterschied
  * zwischen einer groben und gar keiner Auskunft.
@@ -37,7 +37,8 @@ const p = (
   soc: number,
   kwh100?: number,
 ): ChargeLogSample => ({
-  ts: new Date(Date.UTC(2026, 7, 4, 18, 0, 0) + min * 60000).toISOString(),
+  // Frei gewähltes Basisdatum: Es zählen allein die Abstände.
+  ts: new Date(Date.UTC(2020, 0, 1, 18, 0, 0) + min * 60000).toISOString(),
   odometerKm: odo,
   soc,
   plugged: false,
@@ -46,14 +47,14 @@ const p = (
 
 /** Der gemeldete Verlauf: Ladung, lange Fahrt, dann zwei kurze. */
 const verlauf: ChargeLogSample[] = [
-  { ts: new Date(Date.UTC(2026, 7, 4, 17, 0, 0)).toISOString(),
-    odometerKm: 51000, soc: 99, plugged: true, charging: true },
-  p(10, 51000, 99, 20.3),
-  p(60, 51093, 79, 20.3),   // 93 km — die lange Fahrt, klar bewertbar
-  p(75, 51093, 79, 20.3),   // Stillstand: beendet die lange Fahrt
-  p(120, 51095, 79, 20.3),  // 2 km — der gemeldete Fall
-  p(200, 51095, 78, 20.3),  // Stillstand: beendet die 2-km-Fahrt
-  p(260, 51096, 78, 20.4),  // 1 km — der zweite gemeldete Fall
+  { ts: new Date(Date.UTC(2020, 0, 1, 17, 0, 0)).toISOString(),
+    odometerKm: 50000, soc: 80, plugged: true, charging: true },
+  p(10, 50000, 80, 20.0),
+  p(60, 50100, 60, 20.0),   // 100 km — die lange Fahrt, klar bewertbar
+  p(75, 50100, 60, 20.0),   // Stillstand: beendet die lange Fahrt
+  p(120, 50102, 60, 20.0),  // 2 km — der gemeldete Fall
+  p(200, 50102, 59, 20.0),  // Stillstand: beendet die 2-km-Fahrt
+  p(260, 50103, 59, 20.1),  // 1 km — der zweite gemeldete Fall
 ];
 
 describe('Verbrauch kurzer Fahrten', () => {
@@ -68,8 +69,8 @@ describe('Verbrauch kurzer Fahrten', () => {
     const t = buildTrips(verlauf, {});
     const kurz = t.find((x) => x.km === 2);
     expect(kurz).toBeDefined();
-    // 2 km bei 20,3 kWh/100 km sind 0,41 kWh.
-    expect(kurz?.energyKwh).toBeCloseTo(0.41, 1);
+    // 2 km bei 20,0 kWh/100 km sind 0,40 kWh.
+    expect(kurz?.energyKwh).toBeCloseTo(0.4, 2);
     expect(kurz?.approximate).toBe(true);
   });
 
@@ -87,10 +88,10 @@ describe('Verbrauch kurzer Fahrten', () => {
   it('schweigt weiterhin, wo auch eine grobe Angabe nicht trägt', () => {
     // Ohne Verbrauchszähler des Fahrzeugs gibt es gar nichts zu rechnen.
     const ohne: ChargeLogSample[] = [
-      { ts: new Date(Date.UTC(2026, 7, 4, 17, 0, 0)).toISOString(),
-        odometerKm: 51000, soc: 99, plugged: true, charging: true },
-      p(10, 51000, 99),
-      p(60, 51002, 99),
+      { ts: new Date(Date.UTC(2020, 0, 1, 17, 0, 0)).toISOString(),
+        odometerKm: 50000, soc: 80, plugged: true, charging: true },
+      p(10, 50000, 80),
+      p(60, 50002, 80),
     ];
     const t = buildTrips(ohne, {});
     expect(t[0]?.energyKwh).toBeUndefined();

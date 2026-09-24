@@ -22,12 +22,12 @@ const t = (h: number, m: number): string => new Date(Date.UTC(2020, 0, 1, h, m))
 
 describe('Ladungsbeginn in der Abfragelücke', () => {
   const verlauf: ChargeLogSample[] = [
-    { ts: t(19, 30), soc: 50, odometerKm: 50800, plugged: false },
-    { ts: t(19, 50), soc: 50, odometerKm: 50800, plugged: false },
+    { ts: t(19, 30), soc: 50, odometerKm: 50000, plugged: false },
+    { ts: t(19, 50), soc: 50, odometerKm: 50000, plugged: false },
     // 40 Minuten Lücke — hier wird eingesteckt und geladen.
-    { ts: t(20, 30), soc: 52, odometerKm: 50800, plugged: true, charging: true },
-    { ts: t(21, 30), soc: 70, odometerKm: 50800, plugged: true, charging: true },
-    { ts: t(22, 30), soc: 80, odometerKm: 50800, plugged: false },
+    { ts: t(20, 30), soc: 52, odometerKm: 50000, plugged: true, charging: true },
+    { ts: t(21, 30), soc: 70, odometerKm: 50000, plugged: true, charging: true },
+    { ts: t(22, 30), soc: 80, odometerKm: 50000, plugged: false },
   ];
 
   it('rechnet den Zuwachs aus der Lücke der Ladung zu', () => {
@@ -43,50 +43,50 @@ describe('Ladungsbeginn in der Abfragelücke', () => {
     // Bedingung auf exakt gleichen Kilometerstand griff deshalb nie. Fahren
     // SENKT den Ladestand; steigt er trotzdem, wurde geladen.
     const rangiert: ChargeLogSample[] = [
-      { ts: t(19, 50), soc: 20, odometerKm: 50800, plugged: false },
-      { ts: t(20, 30), soc: 22, odometerKm: 50801, plugged: true, charging: true },
-      { ts: t(21, 30), soc: 40, odometerKm: 50801, plugged: true, charging: true },
-      { ts: t(22, 30), soc: 60, odometerKm: 50801, plugged: false },
+      { ts: t(19, 50), soc: 50, odometerKm: 50000, plugged: false },
+      { ts: t(20, 30), soc: 52, odometerKm: 50001, plugged: true, charging: true },
+      { ts: t(21, 30), soc: 70, odometerKm: 50001, plugged: true, charging: true },
+      { ts: t(22, 30), soc: 80, odometerKm: 50001, plugged: false },
     ];
     const [s] = buildSessions(rangiert, { capacityKwh: 83.7 });
-    expect(s.startSoc).toBe(20);
+    expect(s.startSoc).toBe(50);
   });
 
   it('rechnet NICHT zu, wenn das Auto eine Strecke gefahren ist', () => {
     // Über längere Strecken kann Rekuperation mehrere Prozentpunkte bringen —
     // dann wäre die Zuordnung geraten.
     const gefahren: ChargeLogSample[] = [
-      { ts: t(19, 50), soc: 20, odometerKm: 50800, plugged: false },
-      { ts: t(20, 30), soc: 22, odometerKm: 50830, plugged: true, charging: true },
-      { ts: t(21, 30), soc: 40, odometerKm: 50830, plugged: true, charging: true },
-      { ts: t(22, 30), soc: 40, odometerKm: 50830, plugged: false },
+      { ts: t(19, 50), soc: 50, odometerKm: 50000, plugged: false },
+      { ts: t(20, 30), soc: 52, odometerKm: 50030, plugged: true, charging: true },
+      { ts: t(21, 30), soc: 70, odometerKm: 50030, plugged: true, charging: true },
+      { ts: t(22, 30), soc: 70, odometerKm: 50030, plugged: false },
     ];
     const [s] = buildSessions(gefahren, { capacityKwh: 83.7 });
-    expect(s.startSoc).toBe(22);
+    expect(s.startSoc).toBe(52);
   });
 
   it('rechnet NICHT zu, wenn der Ladestand gefallen ist', () => {
     // Der Normalfall: Zwischen zwei Ladungen wird gefahren.
     const gefallen: ChargeLogSample[] = [
-      { ts: t(19, 50), soc: 40, odometerKm: 50800, plugged: false },
-      { ts: t(20, 30), soc: 22, odometerKm: 50900, plugged: true, charging: true },
-      { ts: t(21, 30), soc: 60, odometerKm: 50900, plugged: true, charging: true },
-      { ts: t(22, 30), soc: 60, odometerKm: 50900, plugged: false },
+      { ts: t(19, 50), soc: 70, odometerKm: 50000, plugged: false },
+      { ts: t(20, 30), soc: 50, odometerKm: 50100, plugged: true, charging: true },
+      { ts: t(21, 30), soc: 80, odometerKm: 50100, plugged: true, charging: true },
+      { ts: t(22, 30), soc: 80, odometerKm: 50100, plugged: false },
     ];
     const [s] = buildSessions(gefallen, { capacityKwh: 83.7 });
-    expect(s.startSoc).toBe(22);
+    expect(s.startSoc).toBe(50);
   });
 
   it('rechnet keinen unplausibel großen Sprung zu', () => {
     // Nach einer langen Lücke ohne Messpunkte ist die Zuordnung nicht mehr
     // belegt — dann lieber die Ladung kleiner ausweisen als etwas erfinden.
     const riesig: ChargeLogSample[] = [
-      { ts: t(2, 0), soc: 20, odometerKm: 50800, plugged: false },
-      { ts: t(20, 30), soc: 55, odometerKm: 50800, plugged: true, charging: true },
-      { ts: t(21, 30), soc: 60, odometerKm: 50800, plugged: true, charging: true },
-      { ts: t(22, 30), soc: 60, odometerKm: 50800, plugged: false },
+      { ts: t(2, 0), soc: 50, odometerKm: 50000, plugged: false },
+      { ts: t(20, 30), soc: 80, odometerKm: 50000, plugged: true, charging: true },
+      { ts: t(21, 30), soc: 90, odometerKm: 50000, plugged: true, charging: true },
+      { ts: t(22, 30), soc: 90, odometerKm: 50000, plugged: false },
     ];
     const [s] = buildSessions(riesig, { capacityKwh: 83.7 });
-    expect(s.startSoc).toBe(55);
+    expect(s.startSoc).toBe(80);
   });
 });

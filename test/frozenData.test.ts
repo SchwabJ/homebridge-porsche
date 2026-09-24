@@ -52,16 +52,16 @@ describe('Eingefrorene Backend-Daten', () => {
     // Ab hier eingefroren: alle drei Werte konstant, zwei Stunden lang.
     for (let i = 1; i <= 40; i++) verlauf.push(p(60 + i * 3, 64, 260, 10.0));
     // Der Sprung.
-    verlauf.push(p(185, 99, 420, 10.2));
-    verlauf.push({ ts: p(200, 99, 420, 0).ts, soc: 99, charging: false, plugged: false });
+    verlauf.push(p(185, 95, 400, 10.2));
+    verlauf.push({ ts: p(200, 95, 400, 0).ts, soc: 95, charging: false, plugged: false });
 
     const est = capacityFromCharging(verlauf, { ratedKwh: 83.7 });
-    // Ohne Erkennung: rund 3,4 h × 10,1 kW = 34 kWh auf 49 Punkte = 70 kWh —
+    // Ohne Erkennung: rund 3,4 h × 10,1 kW = 34 kWh auf 45 Punkte = 76 kWh —
     // eine plausibel AUSSEHENDE Zahl aus erfundener Energie. Mit Erkennung
     // bleibt der Block draußen.
     for (const pt of est.points) {
       // Keine verwertete Messung darf den eingefrorenen Bereich enthalten.
-      // Der volle Hub des Musters (50 → 99) ist nur zu erreichen, indem man
+      // Der volle Hub des Musters (50 → 95) ist nur zu erreichen, indem man
       // ihn überspannt — die Schwelle trennt genau das ab.
       expect(pt.toSoc - pt.fromSoc).toBeLessThan(40);
     }

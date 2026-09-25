@@ -140,16 +140,16 @@ const RATED_HEADROOM = 1.1;
  *     batterieseitig   11 kW × 92 % Wirkungsgrad          = 10,1
  *     kabelseitig      15 A Pilotstrom bei 390 V          = 10,1
  *
- * `maxPowerKw` hilft nicht: Es steht in 952 von 952 Messpunkten auf exakt 11,
- * ohne jede Streuung — die Signatur einer Nennwert-Konstante. Und 11 kW ist
+ * `maxPowerKw` hilft nicht: Es steht in jedem Messpunkt auf exakt 11, ohne
+ * jede Streuung — die Signatur einer Nennwert-Konstante. Und 11 kW ist
  * zugleich das Typenschild des Bordladers und die Leistung des Anschlusses.
- * Ein Korrelationstest über 574 Ladepunkte ergab r = 0,08; das ist strukturell
- * so, weil Wechselstromladen bei festem Pilotstrom auf BEIDEN Seiten des
- * Bordladers konstante Leistung bedeutet.
+ * Ein Korrelationstest über die Ladepunkte zeigte keinen Zusammenhang; das
+ * ist strukturell so, weil Wechselstromladen bei festem Pilotstrom auf BEIDEN
+ * Seiten des Bordladers konstante Leistung bedeutet.
  *
  * Entscheiden ließe sich die Frage mit einem Zwischenzähler oder einer
- * einzigen Gleichstromladung — im Mitschrieb steht `chargingType` auf 1317
- * von 1317 Punkten auf `AC`.
+ * einzigen Gleichstromladung — im Mitschrieb steht `chargingType` an jedem
+ * Punkt auf `AC`.
  *
  * Bis dahin wird die MITTE beider Lesarten ausgewiesen und ihre halbe
  * Differenz in die Unsicherheit aufgenommen. Das ist die realistischste

@@ -324,8 +324,9 @@ describe('Zeilen mit unbekanntem Steckerzustand', () => {
     // — unabhängig von BATTERY_LEVEL und MILEAGE. Die Zeile trägt dann
     // weiter Ladestand und Kilometerstand. Fällt sie in eine laufende
     // Ladung, ginge ein STEIGENDER Ladestand als Zyklusende in die Rechnung
-    // und die geschätzte Kapazität fiele zu hoch aus (nachgestellt: 74,1
-    // statt 66,7 kWh, also +11 %) — und die Automatik übernähme das.
+    // und die geschätzte Kapazität fiele zu hoch aus — mit den Werten unten
+    // 20 kWh / 0,27 = 74,1 statt 20 kWh / 0,30 = 66,7 kWh, also +11 % — und
+    // die Automatik übernähme das.
     const iso = (h: number): string =>
       new Date(Date.UTC(2026, 6, 28, h, 0)).toISOString();
     const sauber: ChargeLogSample[] = [
